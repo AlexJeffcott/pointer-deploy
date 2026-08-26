@@ -1,0 +1,29 @@
+{
+  "name": "pointer-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts",
+    "start": "bun src/server/index.ts",
+    "dev": "bun --watch src/server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src/server",
+    "publish": "bun run scripts/publish.ts",
+    "promote": "bun run scripts/promote.ts",
+    "verify": "HARNESS=local bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @local",
+    "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags '@live and not @needs-domain'",
+    "verify:all": "bun run verify && bun run verify:live",
+    "falsify": "bun run scripts/falsify.ts",
+    "setup:store": "bun run scripts/setup-store.ts"
+  },
+  "dependencies": {
+    "preact": "^10.27.2",
+    "@preact/signals": "^2.0.1"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^11.3.0",
+    "@types/bun": "^1.4.0",
+    "typescript": "^5.9.3"
+  }
+}

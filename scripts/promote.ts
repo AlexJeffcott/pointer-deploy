@@ -1,0 +1,51 @@
+// Points a channel at an already-published build. This is the deploy. It is
+// also the rollback: promoting an older build id is the same operation.
+//
+// No image is built and no machine is restarted. The running servers notice
+// within their manifest TTL.
+
+import {
+  CACHE_POINTER,
+  configFromEnv,
+  getObjectText,
+  putObject,
+} from "./store.ts";
+
+const CHANNELS = ["prod", "qa"] as const;
+type Channel = (typeof CHANNELS)[number];
+
+const [channelArg, buildId] = process.argv.slice(2);
+const region = Bun.env.REGION ?? "eu";
+
+if (!channelArg || !buildId) {
+  console.error("usage: bun run promote <channel> <buildId>");
+  console.error(`       channels: ${CHANNELS.join(", ")}`);
+  process.exit(1);
+}
+if (!CHANNELS.includes(channelArg as Channel)) {
+  console.error(`unknown channel ${JSON.stringify(channelArg)}. Expected one of ${CHANNELS.join(", ")}.`);
+  process.exit(1);
+}
+
+const cfg = configFromEnv();
+
+// The manifest's existence is proof the build finished uploading, because
+// publish.ts writes it last. Without this check a channel could point at a
+// build whose files are half there, and every visitor would see it.
+const manifest = await getObjectText(cfg, `builds/${buildId}/manifest.json`);
+if (manifest === null) {
+  console.error(
+    `build ${buildId} is not published. Nothing was changed; ` +
+      `the ${channelArg} channel still points where it did.`,
+  );
+  process.exit(1);
+}
+
+const pointer = `manifests/${region}/${channelArg}.json`;
+await putObject(cfg, pointer, new TextEncoder().encode(manifest), {
+  contentType: "application/json; charset=utf-8",
+  cacheControl: CACHE_POINTER,
+});
+
+console.error(`${channelArg} (${region}) now points at build ${buildId}`);
+console.log(buildId);
