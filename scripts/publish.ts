@@ -34,11 +34,20 @@ const commit = git(["rev-parse", "HEAD"]) ?? "0".repeat(40);
 const short = git(["rev-parse", "--short", "HEAD"]);
 const dirty = (git(["status", "--porcelain"]) ?? "") !== "";
 
-// A dirty tree is not the commit it claims to be, so it gets its own id keyed
-// to what was actually built. Two dirty publishes of identical output collide
-// deliberately: they are the same build.
-const jsHash = record.entry.js.replace(/^.*-([^.]+)\.js$/, "$1");
-const buildId = short ? (dirty ? `${short}-dirty-${jsHash}` : short) : `nogit-${jsHash}`;
+// The commit identifies the source. It does NOT identify the artefact: the
+// same commit built with different build-time configuration produces a
+// different bundle, and keying the id on the commit alone makes those two
+// collide - overwriting one build with the other, or refusing a genuinely new
+// build as already published. So the id carries both.
+//
+// Same commit and same output -> same id, so republishing is correctly refused.
+// Same commit, different output -> different ids, so neither is lost.
+const content = new Bun.CryptoHasher("sha256")
+  .update(`${record.entry.js}:${record.entry.css}`)
+  .digest("hex")
+  .slice(0, 8);
+const source = short ? (dirty ? `${short}-dirty` : short) : "nogit";
+const buildId = `${source}-${content}`;
 
 const cfg = configFromEnv();
 const prefix = `builds/${buildId}`;

@@ -160,6 +160,19 @@ export class PointerWorld extends World {
     if (published.code !== 0) throw new Error(`publish failed:\n${published.stderr}`);
 
     const id = published.stdout.split("\n").pop()!.trim();
+
+    // Two scenario builds that collide would make every promotion scenario
+    // pass by accident, because the channel would already serve the id being
+    // promoted to it.
+    for (const [other, otherId] of this.ids) {
+      if (otherId === id) {
+        throw new Error(
+          `builds ${JSON.stringify(name)} and ${JSON.stringify(other)} both published as ` +
+            `${id}. They are the same artefact, so no promotion between them proves anything.`,
+        );
+      }
+    }
+
     this.ids.set(name, id);
     return id;
   }
