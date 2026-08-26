@@ -9,6 +9,8 @@ import {
   configFromEnv,
   getObjectText,
   putObject,
+  urlsInManifest,
+  warmUrls,
 } from "./store.ts";
 
 const CHANNELS = ["prod", "qa"] as const;
@@ -46,6 +48,17 @@ await putObject(cfg, pointer, new TextEncoder().encode(manifest), {
   contentType: "application/json; charset=utf-8",
   cacheControl: CACHE_POINTER,
 });
+
+// A deploy is not finished while the first visitor still has to wait for the
+// store to fetch every file from cold. Pass --no-warm to skip it.
+if (!process.argv.includes("--no-warm")) {
+  const urls = urlsInManifest(JSON.parse(manifest));
+  const started = Bun.nanoseconds();
+  const { warmed, failed } = await warmUrls(urls);
+  const ms = Math.round((Bun.nanoseconds() - started) / 1e6);
+  console.error(`  warmed ${warmed}/${urls.length} files in ${ms} ms`);
+  for (const f of failed) console.error(`  COLD ${f}`);
+}
 
 console.error(`${channelArg} (${region}) now points at build ${buildId}`);
 console.log(buildId);

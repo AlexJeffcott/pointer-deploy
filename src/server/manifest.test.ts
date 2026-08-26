@@ -3,13 +3,26 @@ import { createManifestStore, manifestUrl, parseManifest } from "./manifest.ts";
 
 const URL_QA = "https://store.test/manifests/eu/qa.json";
 
-const doc = (buildId: string) => ({
-  schema: 1,
+const base = (buildId: string) => ({
   buildId,
   commit: `${buildId}0000000000000000000000000000000000000`,
   publishedAt: "2026-08-26T20:14:02.000Z",
   assetBase: `https://store.test/builds/${buildId}/`,
+});
+
+/** A build from before the shell split. Still a valid rollback target. */
+const v1 = (buildId: string) => ({
+  ...base(buildId),
+  schema: 1,
   entry: { js: "index-aaaa.js", css: "index-bbbb.css" },
+});
+
+const doc = (buildId: string) => ({
+  ...base(buildId),
+  schema: 2,
+  shell: { js: "index-aaaa.js", css: "index-bbbb.css" },
+  imports: { preact: "preact-cccc.js", "@pointer/shell": "api-dddd.js" },
+  apps: { alpha: { js: "apps/alpha-eeee.js", css: "apps/alpha-ffff.css" } },
 });
 
 function harness(ttlMs = 10_000) {
@@ -144,16 +157,48 @@ describe("failure", () => {
 });
 
 describe("parseManifest", () => {
-  test("accepts a complete manifest", () => {
-    expect(parseManifest(doc("alpha")).buildId).toBe("alpha");
+  test("accepts a shell manifest with its apps", () => {
+    const m = parseManifest(doc("alpha"));
+    expect(m.buildId).toBe("alpha");
+    expect(m.schema).toBe(2);
+    if (m.schema !== 2) throw new Error("unreachable");
+    expect(Object.keys(m.apps)).toEqual(["alpha"]);
+    expect(m.imports["@pointer/shell"]).toBe("api-dddd.js");
+  });
+
+  // A build published before the shell split must stay a working rollback
+  // target rather than becoming a 503.
+  test("still accepts a single-bundle manifest", () => {
+    const m = parseManifest(v1("old"));
+    expect(m.schema).toBe(1);
+    if (m.schema !== 1) throw new Error("unreachable");
+    expect(m.entry.js).toBe("index-aaaa.js");
   });
 
   test("rejects an unsupported schema", () => {
-    expect(() => parseManifest({ ...doc("a"), schema: 2 })).toThrow("schema");
+    expect(() => parseManifest({ ...doc("a"), schema: 3 })).toThrow("schema");
   });
 
   test("rejects a missing entry file", () => {
-    expect(() => parseManifest({ ...doc("a"), entry: { css: "x.css" } })).toThrow("entry.js");
+    expect(() => parseManifest({ ...v1("a"), entry: { css: "x.css" } })).toThrow("entry.js");
+  });
+
+  test("rejects a shell manifest with no apps", () => {
+    expect(() => parseManifest({ ...doc("a"), apps: {} })).toThrow("no apps");
+  });
+
+  test("rejects an import that names no file", () => {
+    expect(() => parseManifest({ ...doc("a"), imports: { preact: 42 } })).toThrow("imports.preact");
+  });
+
+  test("rejects an app that names no script", () => {
+    expect(() => parseManifest({ ...doc("a"), apps: { alpha: { css: "x.css" } } })).toThrow(
+      "apps.alpha.js",
+    );
+  });
+
+  test("rejects a missing shell script", () => {
+    expect(() => parseManifest({ ...doc("a"), shell: { css: "x.css" } })).toThrow("shell.js");
   });
 
   test("rejects a non-string assetBase", () => {

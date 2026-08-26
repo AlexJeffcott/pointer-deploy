@@ -1,4 +1,5 @@
 import { After, Before, setDefaultTimeout, setWorldConstructor, World } from "@cucumber/cucumber";
+import { chromium, type Browser, type Page } from "playwright-core";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 
 setDefaultTimeout(180_000);
@@ -81,6 +82,13 @@ export class PointerWorld extends World {
 
   /** Scenario build name ("alpha") to the real build id the store holds. */
   private ids = BUILD_IDS;
+
+  // Browser scenarios. playwright-core drives the Chrome already on the
+  // machine, so nothing downloads a second one.
+  browser: Browser | null = null;
+  page: Page | null = null;
+  /** Every URL the page has requested, in order. */
+  requests: string[] = [];
 
   lastResponse: Response | null = null;
   lastBody = "";
@@ -280,6 +288,40 @@ export class PointerWorld extends World {
     );
   }
 
+  // -- browser ---------------------------------------------------------------
+
+  async openBrowser(): Promise<Page> {
+    this.browser = await chromium.launch({ channel: "chrome", headless: true });
+    const page = await this.browser.newPage();
+    page.on("request", (r) => this.requests.push(r.url()));
+    this.page = page;
+    return page;
+  }
+
+  async closeBrowser(): Promise<void> {
+    await this.browser?.close();
+    this.browser = null;
+    this.page = null;
+  }
+
+  get browserPage(): Page {
+    if (!this.page) throw new Error("no browser page; is the scenario tagged @browser?");
+    return this.page;
+  }
+
+  /** Opens a view and waits until both of its sub-apps have rendered. */
+  async openView(path: string, apps: string[]): Promise<void> {
+    const page = this.browserPage;
+    const url = `${this.originFor("qa")}${path}`;
+    if (page.url() === "about:blank") await page.goto(url);
+    else await page.click(`a[href="${path}"]`);
+    for (const app of apps) {
+      // promote.ts warms every file the build names, so a cold edge is no
+      // longer something this has to wait out.
+      await page.waitForSelector(`[data-app="${app}"] section`, { timeout: 20_000 });
+    }
+  }
+
   // -- Fly ------------------------------------------------------------------
 
   async machineFingerprint(): Promise<string> {
@@ -305,6 +347,11 @@ Before({ tags: "@live" }, async function (this: PointerWorld) {
   this.machinesBefore = await this.machineFingerprint();
 });
 
+Before({ tags: "@browser" }, async function (this: PointerWorld) {
+  await this.openBrowser();
+});
+
 After(async function (this: PointerWorld) {
+  await this.closeBrowser();
   await this.stopLocal();
 });

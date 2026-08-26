@@ -11,7 +11,7 @@
 // Pure. No I/O, no clock. The unit test is the point of this file.
 
 export type Channel = "prod" | "qa";
-export type Region = "eu";
+export type Region = "eu" | "us";
 
 export type Target = { region: Region; channel: Channel };
 
@@ -45,6 +45,10 @@ const FLY_TO_REGION: Record<string, Region> = {
   cdg: "eu",
   arn: "eu",
   mad: "eu",
+  iad: "us",
+  ord: "us",
+  sjc: "us",
+  lax: "us",
 };
 
 export function hostTable(isProduction: boolean): Record<string, Channel> {

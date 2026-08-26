@@ -21,12 +21,20 @@ export type StubStore = {
 
 export function manifestDoc(buildId: string, assetBase = "https://assets.test") {
   return {
-    schema: 1,
+    schema: 2,
     buildId,
     commit: `${buildId}${"0".repeat(40 - buildId.length)}`.slice(0, 40),
     publishedAt: "2026-08-26T20:14:02.000Z",
     assetBase: `${assetBase}/builds/${buildId}/`,
-    entry: { js: `index-${buildId}.js`, css: `index-${buildId}.css` },
+    shell: { js: `index-${buildId}.js`, css: `index-${buildId}.css` },
+    imports: {
+      preact: `preact-${buildId}.js`,
+      "@pointer/shell": `api-${buildId}.js`,
+    },
+    apps: {
+      alpha: { js: `apps/alpha-${buildId}.js`, css: `apps/alpha-${buildId}.css` },
+      bravo: { js: `apps/bravo-${buildId}.js`, css: `apps/bravo-${buildId}.css` },
+    },
   };
 }
 

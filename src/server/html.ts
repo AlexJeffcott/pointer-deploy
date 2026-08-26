@@ -34,26 +34,65 @@ const jsonBlock = (value: unknown) =>
 const joinUrl = (base: string, file: string) =>
   `${base.replace(/\/$/, "")}/${file.replace(/^\//, "")}`;
 
+/** The entry script and stylesheet, whichever schema named them. */
 export function assetUrls(m: Manifest): { js: string; css: string } {
+  const entry = m.schema === 1 ? m.entry : m.shell;
   return {
-    js: joinUrl(m.assetBase, m.entry.js),
-    css: joinUrl(m.assetBase, m.entry.css),
+    js: joinUrl(m.assetBase, entry.js),
+    css: joinUrl(m.assetBase, entry.css),
   };
+}
+
+/** Every sub-app's absolute URLs, for the shell to fetch on demand. */
+export function appUrls(m: Manifest): Record<string, { js: string; css?: string }> {
+  if (m.schema === 1) return {};
+  return Object.fromEntries(
+    Object.entries(m.apps).map(([name, a]) => [
+      name,
+      { js: joinUrl(m.assetBase, a.js), ...(a.css ? { css: joinUrl(m.assetBase, a.css) } : {}) },
+    ]),
+  );
+}
+
+/**
+ * The import map.
+ *
+ * Sub-apps are built separately with these specifiers external, so this is what
+ * makes them resolve to the shell's copies. Without it each app would fail to
+ * load, and with a per-app copy instead they would each get their own signals
+ * runtime and stop responding to the shell's state.
+ */
+export function importMap(m: Manifest): Record<string, string> {
+  if (m.schema === 1) return {};
+  return Object.fromEntries(
+    Object.entries(m.imports).map(([name, file]) => [name, joinUrl(m.assetBase, file)]),
+  );
 }
 
 export function renderShell(m: Manifest, target: Target): string {
   const { js, css } = assetUrls(m);
+  const imports = importMap(m);
+  const apps = appUrls(m);
+
+  // The import map must be parsed before any module script runs.
+  const importMapTag = Object.keys(imports).length
+    ? `\n    <script type="importmap">${jsonBlock({ imports })}</script>`
+    : "";
+  const appsTag = Object.keys(apps).length
+    ? `\n    <script type="application/json" id="__APPS__">${jsonBlock(apps)}</script>`
+    : "";
+
   return `<!doctype html>
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>pointer-deploy</title>
-    <link rel="stylesheet" href="${attr(css)}" />
+    <link rel="stylesheet" href="${attr(css)}" />${importMapTag}
   </head>
   <body>
     <div id="app"></div>
-    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>
+    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>${appsTag}
     <script type="module" src="${attr(js)}"></script>
   </body>
 </html>

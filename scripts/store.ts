@@ -215,3 +215,45 @@ export function contentTypeFor(name: string): string {
   if (name.endsWith(".map")) return "application/json; charset=utf-8";
   return "application/octet-stream";
 }
+
+/**
+ * Pulls every file a build names into the store's edge cache.
+ *
+ * Tigris fetches an object into an edge on first request, so the first visitor
+ * after a deploy pays for that fill - measured once at over 30 s for a file
+ * nobody had asked for. Doing it here makes the deploy responsible for its own
+ * readiness instead of the first person through the door.
+ *
+ * Best effort per file, but the count comes back so the caller can say what it
+ * managed.
+ */
+export async function warmUrls(urls: string[]): Promise<{ warmed: number; failed: string[] }> {
+  const failed: string[] = [];
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+        if (!res.ok) failed.push(`${url} -> ${res.status}`);
+        await res.arrayBuffer();
+      } catch (err) {
+        failed.push(`${url} -> ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }),
+  );
+  return { warmed: urls.length - failed.length, failed };
+}
+
+/** Every file a manifest names, as absolute URLs. */
+export function urlsInManifest(manifest: unknown): string[] {
+  const m = manifest as Record<string, any>;
+  const base = String(m.assetBase ?? "").replace(/\/$/, "");
+  const rel: string[] = [];
+  if (m.entry) rel.push(m.entry.js, m.entry.css);
+  if (m.shell) rel.push(m.shell.js, m.shell.css);
+  for (const file of Object.values(m.imports ?? {})) rel.push(String(file));
+  for (const app of Object.values(m.apps ?? {}) as Array<Record<string, string>>) {
+    rel.push(app.js!);
+    if (app.css) rel.push(app.css);
+  }
+  return rel.filter(Boolean).map((f) => `${base}/${String(f).replace(/^\//, "")}`);
+}

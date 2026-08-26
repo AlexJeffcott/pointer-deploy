@@ -1,0 +1,136 @@
+// Steps that need a real browser. The behaviour they cover - five separately
+// published bundles agreeing about one store - is not observable to anything
+// that only fetches HTML.
+
+import { Given, Then, When } from "@cucumber/cucumber";
+import { expect } from "bun:test";
+import { PointerWorld } from "../support/world.ts";
+
+const VIEWS: Record<string, { path: string; apps: string[] }> = {
+  counters: { path: "/", apps: ["alpha", "bravo"] },
+  totals: { path: "/totals", apps: ["charlie", "delta"] },
+};
+
+const view = (name: string) => {
+  const v = VIEWS[name];
+  if (!v) throw new Error(`no view called ${JSON.stringify(name)}`);
+  return v;
+};
+
+/** Every count the page currently shows for a namespace, from any sub-app. */
+async function readsOf(world: PointerWorld, ns: string): Promise<number[]> {
+  return world.browserPage.$$eval(
+    `[data-count-for="${ns}"]`,
+    (nodes) => nodes.map((n) => Number(n.textContent)),
+  );
+}
+
+Given("a visitor opens the {word} view", async function (this: PointerWorld, name: string) {
+  const v = view(name);
+  await this.openView(v.path, v.apps);
+});
+
+When("they open the {word} view", async function (this: PointerWorld, name: string) {
+  const v = view(name);
+  await this.openView(v.path, v.apps);
+});
+
+When("they raise the {string} counter by {int}", async function (this: PointerWorld, ns: string, by: number) {
+  const page = this.browserPage;
+  for (let i = 0; i < by; i++) {
+    await page.click(`[data-app="${ns}"] button:has-text("+1")`);
+  }
+  await page.waitForFunction(
+    ([selector, want]) =>
+      document.querySelector(selector as string)?.textContent?.trim() === String(want),
+    [`[data-app="${ns}"] section p:nth-of-type(2)`, by] as const,
+    { timeout: 5_000 },
+  );
+});
+
+When("they set the name to {string}", async function (this: PointerWorld, name: string) {
+  await this.browserPage.fill("#who", name);
+});
+
+When("they set the colour to {string}", async function (this: PointerWorld, colour: string) {
+  await this.browserPage.$eval(
+    "#colour",
+    (el, value) => {
+      const input = el as HTMLInputElement;
+      input.value = value as string;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    colour,
+  );
+});
+
+Then("every sub-app that lists counters reads {string} as {int}", async function (this: PointerWorld, ns: string, want: number) {
+  const seen = await readsOf(this, ns);
+  // At least one sub-app must list it, or an empty page passes.
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen).toEqual(seen.map(() => want));
+});
+
+// Cucumber matches on arity, so the four names are separate parameters rather
+// than a rest argument.
+Then("the totals view lists the namespaces {word}, {word}, {word} and {word}", async function (this: PointerWorld, a: string, b: string, c: string, d: string) {
+  const wanted = [a, b, c, d];
+  const listed = await this.browserPage.$$eval("[data-app='charlie'] [data-ns]", (nodes) =>
+    nodes.map((n) => n.textContent?.trim() ?? ""),
+  );
+  expect([...listed].sort()).toEqual([...wanted].sort());
+});
+
+Then("every sub-app on the page names {string}", async function (this: PointerWorld, name: string) {
+  const page = this.browserPage;
+  await page.waitForFunction(
+    (wanted) =>
+      [...document.querySelectorAll("[data-app] section")].every((s) =>
+        s.textContent?.includes(wanted as string),
+      ),
+    name,
+    { timeout: 5_000 },
+  );
+  const panels = await page.$$eval("[data-app] section", (nodes) => nodes.length);
+  expect(panels).toBeGreaterThan(1);
+});
+
+Then("every sub-app on the page is drawn in that colour", async function (this: PointerWorld) {
+  const page = this.browserPage;
+  // #e2703a as the browser reports it.
+  const expected = "rgb(226, 112, 58)";
+  await page.waitForFunction(
+    (want) =>
+      [...document.querySelectorAll("[data-app] section")].every(
+        (s) => getComputedStyle(s).borderTopColor === want,
+      ),
+    expected,
+    { timeout: 5_000 },
+  );
+  const colours = await page.$$eval("[data-app] section", (nodes) =>
+    nodes.map((n) => getComputedStyle(n).borderTopColor),
+  );
+  expect(colours.length).toBeGreaterThan(1);
+  expect(colours).toEqual(colours.map(() => expected));
+});
+
+Then("no bundle for the {word} view has been fetched", function (this: PointerWorld, name: string) {
+  for (const app of view(name).apps) {
+    const hits = this.requests.filter((u) => u.includes(`/apps/${app}-`));
+    expect(hits).toEqual([]);
+  }
+});
+
+Then("the bundles for the {word} view have been fetched", function (this: PointerWorld, name: string) {
+  for (const app of view(name).apps) {
+    const hits = this.requests.filter((u) => u.includes(`/apps/${app}-`) && u.endsWith(".js"));
+    expect(hits.length).toBeGreaterThan(0);
+  }
+});
+
+Then("each bundle for the {word} view was fetched once", function (this: PointerWorld, name: string) {
+  for (const app of view(name).apps) {
+    const hits = this.requests.filter((u) => u.includes(`/apps/${app}-`) && u.endsWith(".js"));
+    expect(hits).toHaveLength(1);
+  }
+});

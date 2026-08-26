@@ -1,0 +1,49 @@
+import { render } from "preact";
+import { countOf, increment, register, snapshot, user } from "@pointer/shell";
+import styles from "./app.module.css";
+
+const NS = "delta";
+
+function Delta() {
+  const who = user.value;
+  const rows = snapshot.value;
+  const total = rows.reduce((n, [, v]) => n + v, 0);
+  const peak = Math.max(1, ...rows.map(([, v]) => v));
+
+  return (
+    <section class={styles.panel} style={{ borderTopColor: who.colour }}>
+      <p class={styles.name}>{NS}</p>
+      <p class={styles.count} style={{ color: who.colour }}>
+        {countOf(NS)}
+      </p>
+      <button type="button" class={styles.button} onClick={() => increment(NS)}>
+        +1
+      </button>
+
+      <p class={styles.heading}>Share of every count</p>
+      <div class={styles.bars}>
+        {rows.map(([ns, n]) => (
+          <div key={ns} class={styles.bar}>
+            <span data-ns={ns}>{ns}</span>
+            <span class={styles.track}>
+              <span
+                class={styles.fill}
+                style={{ width: `${(n / peak) * 100}%`, background: who.colour }}
+              />
+            </span>
+            <span data-count-for={ns}>{n}</span>
+          </div>
+        ))}
+      </div>
+      <p class={styles.total} data-total={total}>
+        {total} across {rows.length} namespaces, for {who.name}.
+      </p>
+    </section>
+  );
+}
+
+export function mount(el: HTMLElement): () => void {
+  register(NS);
+  render(<Delta />, el);
+  return () => render(null, el);
+}

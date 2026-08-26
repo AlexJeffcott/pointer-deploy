@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Mutation testing for the server's pure logic. See README: this complements scripts/falsify.ts, it does not replace it.",
+  "packageManager": "npm",
+  "testRunner": "command",
+  "commandRunner": { "command": "bun test src/server" },
+  "mutate": ["src/server/*.ts", "!src/server/*.test.ts", "!src/server/index.ts"],
+  "coverageAnalysis": "off",
+  "reporters": ["clear-text", "progress"],
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true
+}

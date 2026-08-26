@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run build.ts",
+    "build": "NODE_ENV=production bun run build.ts",
     "start": "bun src/server/index.ts",
     "dev": "bun --watch src/server/index.ts",
     "typecheck": "tsc --noEmit",
@@ -12,10 +12,12 @@
     "publish": "bun run scripts/publish.ts",
     "promote": "bun run scripts/promote.ts",
     "verify": "HARNESS=local bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @local",
-    "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @live",
-    "verify:all": "bun run verify && bun run verify:live",
+    "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags '@live and not @needs-domain'",
+    "verify:all": "bun run verify && bun run verify:live && bun run verify:browser",
     "falsify": "bun run scripts/falsify.ts",
-    "setup:store": "bun run scripts/setup-store.ts"
+    "setup:store": "bun run scripts/setup-store.ts",
+    "mutate": "stryker run",
+    "verify:browser": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @browser"
   },
   "dependencies": {
     "preact": "^10.27.2",
@@ -23,7 +25,10 @@
   },
   "devDependencies": {
     "@cucumber/cucumber": "^11.3.0",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
     "@types/bun": "^1.4.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.9.3"
   }
 }

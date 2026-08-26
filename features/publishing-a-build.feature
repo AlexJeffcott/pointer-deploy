@@ -28,6 +28,13 @@ Feature: Publishing a build
     When a browser on the qa origin requests the script of build "alpha"
     Then the store permits that origin to use it
 
+  # A promotion that leaves the first visitor waiting on a cold store has not
+  # finished. Warming is also what stops that wait showing up as a flaky test.
+  @live
+  Scenario: Every file a promoted build names is fetchable
+    Given build "alpha" is published and promoted to the qa channel
+    Then every file that build names can be fetched
+
   @live
   Scenario: Republishing an existing build id is refused
     Given build "alpha" is published

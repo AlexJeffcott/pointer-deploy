@@ -5,7 +5,6 @@
 // ordering is the whole reason `promote` can trust a manifest's existence as
 // proof the build is complete.
 
-import { basename } from "node:path";
 import {
   CACHE_IMMUTABLE,
   configFromEnv,
@@ -22,7 +21,12 @@ const git = (args: string[]): string | null => {
   return r.exitCode === 0 ? new TextDecoder().decode(r.stdout).trim() : null;
 };
 
-type BuildRecord = { entry: { js: string; css: string }; files: string[] };
+type BuildRecord = {
+  shell: { js: string; css: string };
+  imports: Record<string, string>;
+  apps: Record<string, { js: string; css?: string }>;
+  files: string[];
+};
 
 const record = (await Bun.file("dist/build.json").json().catch(() => null)) as BuildRecord | null;
 if (!record) {
@@ -42,8 +46,10 @@ const dirty = (git(["status", "--porcelain"]) ?? "") !== "";
 //
 // Same commit and same output -> same id, so republishing is correctly refused.
 // Same commit, different output -> different ids, so neither is lost.
+// Every emitted name, so any change to the shell, the shared runtime or any
+// single sub-app produces a different build.
 const content = new Bun.CryptoHasher("sha256")
-  .update(`${record.entry.js}:${record.entry.css}`)
+  .update(JSON.stringify({ shell: record.shell, imports: record.imports, apps: record.apps }))
   .digest("hex")
   .slice(0, 8);
 const source = short ? (dirty ? `${short}-dirty` : short) : "nogit";
@@ -61,22 +67,26 @@ if (!force && (await objectExists(cfg, manifestKey))) {
   process.exit(1);
 }
 
+// The relative path is the key, so apps/alpha-<hash>.js does not flatten onto
+// the shell's directory and collide with another build's file of that name.
 for (const name of record.files) {
   const file = Bun.file(`dist/${name}`);
-  await putObject(cfg, `${prefix}/${basename(name)}`, new Uint8Array(await file.arrayBuffer()), {
+  await putObject(cfg, `${prefix}/${name}`, new Uint8Array(await file.arrayBuffer()), {
     contentType: contentTypeFor(name),
     cacheControl: CACHE_IMMUTABLE,
   });
-  console.error(`  uploaded ${name}`);
 }
+console.error(`  uploaded ${record.files.length} files`);
 
 const manifest = {
-  schema: 1,
+  schema: 2,
   buildId,
   commit,
   publishedAt: new Date().toISOString(),
   assetBase: `${publicUrl(cfg, prefix)}/`,
-  entry: record.entry,
+  shell: record.shell,
+  imports: record.imports,
+  apps: record.apps,
 };
 
 await putObject(

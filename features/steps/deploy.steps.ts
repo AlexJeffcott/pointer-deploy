@@ -110,6 +110,19 @@ Then("the file is marked as safe to cache indefinitely", function (this: Pointer
   expect(header).toContain("max-age=31536000");
 });
 
+Then("every file that build names can be fetched", async function (this: PointerWorld) {
+  const { urlsInManifest } = await import("../../scripts/store.ts");
+  const cfg = configFromEnv();
+  const url = publicUrl(cfg, `builds/${this.idOf("alpha")}/manifest.json`);
+  const urls = urlsInManifest(await (await fetch(url)).json());
+  expect(urls.length).toBeGreaterThan(0);
+
+  const statuses = await Promise.all(
+    urls.map(async (u) => `${u.split("/").pop()} ${(await fetch(u)).status}`),
+  );
+  expect(statuses.filter((s) => !s.endsWith(" 200"))).toEqual([]);
+});
+
 Then("the file is served", function (this: PointerWorld) {
   expect(this.lastResponse?.status).toBe(200);
   expect(this.lastBody.length).toBeGreaterThan(0);

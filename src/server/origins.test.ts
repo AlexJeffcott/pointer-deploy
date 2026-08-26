@@ -51,6 +51,13 @@ describe("resolveRegion", () => {
     expect(resolveRegion("lhr")).toBe("eu");
   });
 
+  // Without a region that is not the fallback, deleting the lookup entirely
+  // leaves every test green. Stryker found this.
+  test("maps a Fly region that is not the fallback", () => {
+    expect(resolveRegion("iad")).toBe("us");
+    expect(resolveRegion("sjc")).toBe("us");
+  });
+
   // Opposite rule to the host lookup, on purpose: the machine is running
   // somewhere, so refusing all traffic is worse than one wrong region.
   test("falls back to eu for an unknown region and warns", () => {

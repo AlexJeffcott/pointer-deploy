@@ -14,14 +14,36 @@
 //   7. A cold cache plus a failed fetch yields null. The caller answers 503.
 //   8. An invalid document is a failed refresh, not a poisoned cache.
 
-export type Manifest = {
-  schema: 1;
+type Common = {
   buildId: string;
   commit: string;
   publishedAt: string;
   assetBase: string;
+};
+
+/** One self-contained bundle. */
+export type ManifestV1 = Common & {
+  schema: 1;
   entry: { js: string; css: string };
 };
+
+/**
+ * A shell plus independently loaded sub-apps.
+ *
+ * `imports` becomes the page's import map, so a sub-app's bare specifiers
+ * resolve to the shell's copies and the whole page shares one Preact and one
+ * store. `apps` is what the shell fetches when a view needs one.
+ */
+export type ManifestV2 = Common & {
+  schema: 2;
+  shell: { js: string; css: string };
+  imports: Record<string, string>;
+  apps: Record<string, { js: string; css?: string }>;
+};
+
+// Both are readable, so promoting a build from before the split is still a
+// working rollback rather than a 503.
+export type Manifest = ManifestV1 | ManifestV2;
 
 export type ManifestStore = {
   get(url: string): Promise<Manifest | null>;
@@ -46,33 +68,74 @@ export function manifestUrl(base: string, region: string, channel: string): stri
   return `${base.replace(/\/$/, "")}/${region}/${channel}.json`;
 }
 
+const str = (name: string, value: unknown): string => {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`manifest field ${name} is missing or not a string`);
+  }
+  return value;
+};
+
 /** Throws if the document is not a manifest this server understands. */
 export function parseManifest(input: unknown): Manifest {
   const m = input as Record<string, unknown> | null;
   if (!m || typeof m !== "object") throw new Error("manifest is not an object");
-  if (m.schema !== 1) throw new Error(`unsupported manifest schema ${String(m.schema)}`);
-
-  const entry = m.entry as Record<string, unknown> | undefined;
-  const required: Array<[string, unknown]> = [
-    ["buildId", m.buildId],
-    ["commit", m.commit],
-    ["publishedAt", m.publishedAt],
-    ["assetBase", m.assetBase],
-    ["entry.js", entry?.js],
-    ["entry.css", entry?.css],
-  ];
-  for (const [name, value] of required) {
-    if (typeof value !== "string" || value.length === 0) {
-      throw new Error(`manifest field ${name} is missing or not a string`);
-    }
+  if (m.schema !== 1 && m.schema !== 2) {
+    throw new Error(`unsupported manifest schema ${String(m.schema)}`);
   }
+
+  const common: Common = {
+    buildId: str("buildId", m.buildId),
+    commit: str("commit", m.commit),
+    publishedAt: str("publishedAt", m.publishedAt),
+    assetBase: str("assetBase", m.assetBase),
+  };
+
+  if (m.schema === 1) {
+    const entry = m.entry as Record<string, unknown> | undefined;
+    return {
+      ...common,
+      schema: 1,
+      entry: { js: str("entry.js", entry?.js), css: str("entry.css", entry?.css) },
+    };
+  }
+
+  const shell = m.shell as Record<string, unknown> | undefined;
+  const rawImports = m.imports;
+  const rawApps = m.apps;
+  if (!rawImports || typeof rawImports !== "object") {
+    throw new Error("manifest field imports is missing or not an object");
+  }
+  if (!rawApps || typeof rawApps !== "object") {
+    throw new Error("manifest field apps is missing or not an object");
+  }
+
+  const imports: Record<string, string> = {};
+  for (const [name, value] of Object.entries(rawImports as Record<string, unknown>)) {
+    imports[name] = str(`imports.${name}`, value);
+  }
+
+  const apps: Record<string, { js: string; css?: string }> = {};
+  for (const [name, value] of Object.entries(rawApps as Record<string, unknown>)) {
+    const a = value as Record<string, unknown> | null;
+    if (!a || typeof a !== "object") {
+      throw new Error(`manifest field apps.${name} is not an object`);
+    }
+    apps[name] = {
+      js: str(`apps.${name}.js`, a.js),
+      ...(a.css === undefined ? {} : { css: str(`apps.${name}.css`, a.css) }),
+    };
+  }
+
+  // A shell with no sub-apps renders an empty page. Better to keep the last
+  // good manifest than to serve that.
+  if (Object.keys(apps).length === 0) throw new Error("manifest names no apps");
+
   return {
-    schema: 1,
-    buildId: m.buildId as string,
-    commit: m.commit as string,
-    publishedAt: m.publishedAt as string,
-    assetBase: m.assetBase as string,
-    entry: { js: entry!.js as string, css: entry!.css as string },
+    ...common,
+    schema: 2,
+    shell: { js: str("shell.js", shell?.js), css: str("shell.css", shell?.css) },
+    imports,
+    apps,
   };
 }
 
