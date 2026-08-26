@@ -16,9 +16,6 @@ export type StubStore = {
   comeUp(): void;
   /** Delay every answer by this many milliseconds. */
   setDelay(ms: number): void;
-  /** How many times a channel's manifest has been read. */
-  reads(channel: string): number;
-  resetReads(): void;
   stop(): Promise<void>;
 };
 
@@ -35,7 +32,6 @@ export function manifestDoc(buildId: string, assetBase = "https://assets.test") 
 
 export async function startStubStore(region = "eu"): Promise<StubStore> {
   const bodies = new Map<string, string>();
-  const readCounts = new Map<string, number>();
   let delayMs = 0;
   let server: ReturnType<typeof Bun.serve> | null = null;
   let port = 0;
@@ -46,7 +42,6 @@ export async function startStubStore(region = "eu"): Promise<StubStore> {
     if (!match || match[1] !== region) return new Response("not found", { status: 404 });
 
     const channel = match[2]!;
-    readCounts.set(channel, (readCounts.get(channel) ?? 0) + 1);
     if (delayMs) await Bun.sleep(delayMs);
 
     const body = bodies.get(channel);
@@ -82,12 +77,6 @@ export async function startStubStore(region = "eu"): Promise<StubStore> {
     },
     setDelay(ms) {
       delayMs = ms;
-    },
-    reads(channel) {
-      return readCounts.get(channel) ?? 0;
-    },
-    resetReads() {
-      readCounts.clear();
     },
     async stop() {
       await server?.stop(true);

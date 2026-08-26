@@ -86,7 +86,7 @@ would make the platform kill machines that were serving visitors correctly.
 
 ```sh
 bun test src/server   # 27 unit tests
-bun run verify        # 10 @local scenarios, stub store, ~7 s
+bun run verify        # 9 @local scenarios, stub store, ~7 s
 bun run falsify       # 8 mutations, each must turn its scenario red
 bun run verify:live   # 17 @live scenarios against Fly and Tigris, ~2m 15s
 ```
@@ -96,11 +96,20 @@ corrupt manifest, a counted read. Everything that publishes or promotes is
 `@live` against the real store, because a stub that reimplemented those could
 pass while the real path was broken.
 
-`falsify` exists because a scenario that has only ever been green is not
-evidence. It caught two scenarios that proved nothing: a burst test whose
-requests never overlapped because the stub answered in 1 ms, and a
-"malformed manifest" case whose document was invalid JSON, so validation could
-be deleted with no test noticing.
+`falsify` exists because a check that has only ever been green is not evidence.
+It found three that proved nothing:
+
+- a "malformed manifest" case whose document was invalid JSON, so manifest
+  validation could be deleted and no test noticed;
+- a burst test whose 25 requests never overlapped, because the stub answered in
+  1 ms;
+- and that same burst test after it was made to overlap, which then went red on
+  only two runs in five. How many times the server fetches is not observable to
+  a visitor, and measuring it through the network measured Bun's connection
+  pooling: with one response held open, later fetches queue on the pooled
+  connection and never reach the store. The scenario is gone and the unit test,
+  which counts an injected fetch directly, catches the same mutation six times
+  in six.
 
 ## Two channels without a domain
 

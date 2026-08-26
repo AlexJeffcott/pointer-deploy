@@ -65,19 +65,6 @@ When("a visitor loads an origin that is not configured", async function (this: P
   await this.visitUnknownOrigin();
 });
 
-When("many visitors load the {word} origin at the same time", async function (this: PointerWorld, channel: string) {
-  this.stub!.resetReads();
-  const origin = this.originFor(channel as Channel);
-  const host = this.hostFor(channel as Channel);
-  const responses = await Promise.all(
-    Array.from({ length: 25 }, () => fetch(`${origin}/`, { headers: host ? { host } : {} })),
-  );
-  for (const r of responses) {
-    expect(r.status).toBe(200);
-    await r.text();
-  }
-});
-
 const UNTRUSTWORTHY: Record<string, string> = {
   "a truncated document": '{"schema": 1, "buildId": ',
   // Parses cleanly. Only validation stands between this and a shell with no
@@ -146,10 +133,6 @@ Then("the shell is returned without waiting for the store", function (this: Poin
   // The store is answering in 1500 ms. Anything close to that means the
   // request waited for it instead of serving the copy it already had.
   expect(this.elapsedMs).toBeLessThan(400);
-});
-
-Then("the store is read once", function (this: PointerWorld) {
-  expect(this.stub!.reads("qa")).toBe(1);
 });
 
 Then("visitors to the {word} origin continue to receive build {string}", async function (this: PointerWorld, channel: string, name: string) {

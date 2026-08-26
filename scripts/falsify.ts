@@ -12,8 +12,12 @@ type Mutation = {
   file: string;
   find: string;
   replace: string;
-  /** The scenario that must fail. A regex, matched against the name. */
-  scenario: string;
+  /**
+   * What must go red. A scenario name, or a unit test name where the behaviour
+   * is not something a visitor can observe.
+   */
+  scenario?: string;
+  unitTest?: string;
 };
 
 const MUTATIONS: Mutation[] = [
@@ -43,7 +47,11 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/manifest.ts",
     find: "const pending = e.inflight ?? beginRefresh(url, e);",
     replace: "const pending = beginRefresh(url, e);",
-    scenario: "A burst of visitors causes one read of the manifest",
+    // A unit test, not a scenario. How many times the server fetches is not
+    // observable to a visitor, and a scenario that tried to observe it through
+    // the network measured Bun's connection pooling instead: it went red on
+    // only two runs in five.
+    unitTest: "burst",
   },
   {
     name: "a failed refresh clears the cached build",
@@ -93,6 +101,19 @@ async function runScenario(scenario: string): Promise<boolean> {
   return code === 0;
 }
 
+async function runUnitTest(name: string): Promise<boolean> {
+  const proc = Bun.spawn(["bun", "test", "src/server", "-t", name], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+  const code = await proc.exited;
+  if (/ 0 pass/.test(out) && / 0 fail/.test(out)) {
+    throw new Error(`-t ${JSON.stringify(name)} matched no test:\n${out}`);
+  }
+  return code === 0;
+}
+
 let failures = 0;
 
 for (const m of MUTATIONS) {
@@ -103,19 +124,22 @@ for (const m of MUTATIONS) {
     continue;
   }
 
+  const target = m.scenario ?? m.unitTest!;
+  const kind = m.scenario ? "scenario" : "unit test";
+
   await Bun.write(m.file, original.replace(m.find, m.replace));
   let stillGreen: boolean;
   try {
-    stillGreen = await runScenario(m.scenario);
+    stillGreen = m.scenario ? await runScenario(m.scenario) : await runUnitTest(m.unitTest!);
   } finally {
     await Bun.write(m.file, original);
   }
 
   if (stillGreen) {
-    console.log(`✗ ${m.name}\n    "${m.scenario}" stayed green. That scenario proves nothing.`);
+    console.log(`✗ ${m.name}\n    ${kind} "${target}" stayed green. It proves nothing.`);
     failures++;
   } else {
-    console.log(`✓ ${m.name}\n    caught by "${m.scenario}"`);
+    console.log(`✓ ${m.name}\n    caught by ${kind} "${target}"`);
   }
 }
 
@@ -130,7 +154,7 @@ if (restored.exitCode !== 0) {
 
 console.log(
   failures === 0
-    ? `\nSUCCESS: ${MUTATIONS.length} mutations, each caught by its scenario`
+    ? `\nSUCCESS: ${MUTATIONS.length} mutations, each caught by its check`
     : `\nFAILURE: ${failures} of ${MUTATIONS.length} mutations were not caught`,
 );
 process.exit(failures === 0 ? 0 : 1);

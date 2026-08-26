@@ -25,16 +25,6 @@ Feature: Serving through a store outage
     When a visitor loads the qa origin
     Then the shell is returned without waiting for the store
 
-  # The store is slow here on purpose. Protecting a store that answers
-  # instantly proves nothing: the reads would not overlap in the first place.
-  @local
-  Scenario: A burst of visitors causes one read of the manifest
-    Given a visitor has already loaded the qa origin
-    And the server's copy of the manifest is older than its refresh interval
-    And the store has become slow to answer
-    When many visitors load the qa origin at the same time
-    Then the store is read once
-
   # Two different failures. A truncated document is rejected when it is parsed;
   # a well-formed document missing a field is rejected only because the server
   # validates what it parsed. Without the second row, dropping validation costs
