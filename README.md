@@ -45,7 +45,7 @@ half-uploaded build.
 
 | | Value |
 | --- | --- |
-| Promotion to every visitor seeing it | 4.7 – 9.9 s across six runs, against a 15 s window |
+| Promotion to every visitor seeing it | 4.7 – 10.2 s across eight runs, against a 15 s window |
 | Propagation window by construction | 15 s: 5 s Tigris pointer cache + 10 s server cache |
 | First request to a fully stopped machine | 4.59 s (wake, boot, cold manifest read) |
 | First request to a running machine | 0.32 s |
@@ -85,10 +85,10 @@ would make the platform kill machines that were serving visitors correctly.
 ## Verifying
 
 ```sh
-bun test src/server   # 26 unit tests
+bun test src/server   # 27 unit tests
 bun run verify        # 10 @local scenarios, stub store, ~7 s
 bun run falsify       # 8 mutations, each must turn its scenario red
-bun run verify:live   # 14 @live scenarios against Fly and Tigris, ~90 s
+bun run verify:live   # 17 @live scenarios against Fly and Tigris, ~2m 15s
 ```
 
 `@local` covers only what needs an injected failure — an unreachable store, a
@@ -101,6 +101,23 @@ evidence. It caught two scenarios that proved nothing: a burst test whose
 requests never overlapped because the stub answered in 1 ms, and a
 "malformed manifest" case whose document was invalid JSON, so validation could
 be deleted with no test noticing.
+
+## Two channels without a domain
+
+Fly gives one free hostname per app, and `.fly.dev` is Fly's namespace, so a
+second channel cannot have a resolvable name until a real domain points here.
+Fly forwards the `Host` header to the app untouched, so the channel works today
+for anything that can set one:
+
+```sh
+curl https://pointer-deploy.fly.dev/                                  # qa
+curl -H "Host: prod.pointer-deploy.test" https://pointer-deploy.fly.dev/   # prod
+```
+
+Both are answered by one machine, and `channel-selection.feature` asserts that.
+`.test` is IANA-reserved and never resolves, which keeps it obvious that no
+browser reaches prod yet. A domain is needed for a browser-reachable prod URL,
+not for the behaviour.
 
 ## The bug that only a browser found
 
@@ -117,11 +134,24 @@ API.
 `publishing-a-build.feature` now carries a scenario for it. It was confirmed to
 go red with the bucket restricted to another origin, and green again after.
 
+## The bug the clean tree found
+
+Build ids were the git short SHA. Publishing two builds from one commit — the
+same source with different build-time configuration — gave both the same id.
+The second overwrote the first and both channels served one bundle. Without
+`--force` the second would instead have been refused as already published,
+which is equally wrong.
+
+An id names an artefact, and the commit does not identify the artefact. It is
+now `<source>-<content>`. The suite refuses two scenario builds that publish to
+one id, because without that guard every promotion scenario passes by accident:
+the channel already serves the id being promoted to it.
+
 ## Not done
 
 | | |
 | --- | --- |
-| The `prod` channel | Needs a domain. Three `@needs-domain` scenarios are excluded from `verify:live` until then |
+| A browser-reachable `prod` URL | Needs a domain pointed at Fly and a certificate. The channel itself works; see above |
 | SRI on the script and link tags | `BuildArtifact.hash` is already in hand in `build.ts`. Bucket CORS is set, which SRI needs |
 | Content-Security-Policy | One response header |
 | Second region | `fly scale count 1 --region iad`. The region is already in the manifest path |
