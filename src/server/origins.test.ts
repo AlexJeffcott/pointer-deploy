@@ -21,6 +21,11 @@ describe("resolveChannel", () => {
     expect(resolveChannel("pointer-deploy.fly.dev.", prod)).toBe("qa");
   });
 
+  test("separates the deployed channels", () => {
+    expect(resolveChannel("pointer-deploy.fly.dev", prod)).toBe("qa");
+    expect(resolveChannel("prod.pointer-deploy.test", prod)).toBe("prod");
+  });
+
   test("separates the local channels", () => {
     expect(resolveChannel("qa.localhost", dev)).toBe("qa");
     expect(resolveChannel("prod.localhost", dev)).toBe("prod");

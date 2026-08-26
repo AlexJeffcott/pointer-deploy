@@ -12,7 +12,7 @@
     "publish": "bun run scripts/publish.ts",
     "promote": "bun run scripts/promote.ts",
     "verify": "HARNESS=local bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @local",
-    "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags '@live and not @needs-domain'",
+    "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @live",
     "verify:all": "bun run verify && bun run verify:live",
     "falsify": "bun run scripts/falsify.ts",
     "setup:store": "bun run scripts/setup-store.ts"

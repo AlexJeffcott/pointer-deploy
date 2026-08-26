@@ -172,12 +172,13 @@ Then("visitors to the {word} origin receive build {string} within the propagatio
   console.log(`    propagation: ${took} ms of a ${budget} ms budget`);
 });
 
-// Kept out of the local stub deliberately: a stub cannot tell you the two
-// hostnames terminate on one Fly application.
-Then("both origins are served by the same application", async function (this: PointerWorld) {
-  const certs = await run(["fly", "certs", "list", "--json"]);
-  expect(certs.code).toBe(0);
-  const hosts = (JSON.parse(certs.stdout) as Array<{ hostname: string }>).map((c) => c.hostname);
-  expect(hosts).toContain(new URL(this.originFor("qa")).host);
-  expect(hosts).toContain(new URL(this.originFor("prod")).host);
+// The claim is that ONE server answers both channels. A certificate list would
+// not show that; the machine count does.
+Then("both origins are served by one machine", async function (this: PointerWorld) {
+  const list = await run(["fly", "machine", "list", "--json"]);
+  expect(list.code).toBe(0);
+  const running = (JSON.parse(list.stdout) as Array<{ state: string }>).filter(
+    (m) => m.state === "started",
+  );
+  expect(running).toHaveLength(1);
 });

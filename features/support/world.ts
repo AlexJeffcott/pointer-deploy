@@ -13,9 +13,17 @@ export const PROPAGATION_WINDOW_MS = 15_000;
 
 const LOCAL_TTL_MS = 300;
 
-const LIVE_ORIGINS: Partial<Record<Channel, string>> = {
-  qa: Bun.env.QA_ORIGIN ?? "https://pointer-deploy.fly.dev",
-  prod: Bun.env.PROD_ORIGIN, // set once the domain is named
+const LIVE_ADDRESS = Bun.env.LIVE_ADDRESS ?? "https://pointer-deploy.fly.dev";
+
+/**
+ * The Host each channel is reached by. Both channels are one app on one
+ * machine; only the header differs. Until a domain is pointed at Fly the prod
+ * name cannot resolve, so it is reached by setting the header directly - which
+ * is what Fly forwards to the server anyway.
+ */
+const LIVE_HOSTS: Record<Channel, string> = {
+  qa: Bun.env.QA_HOST ?? "pointer-deploy.fly.dev",
+  prod: Bun.env.PROD_HOST ?? "prod.pointer-deploy.test",
 };
 
 type Run = { code: number; stdout: string; stderr: string };
@@ -36,6 +44,16 @@ export async function run(cmd: string[], env: Record<string, string> = {}): Prom
     new Response(proc.stderr).text(),
   ]);
   return { code: await proc.exited, stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+/** A GET whose Host may differ from the address it connects to. */
+export async function curlGet(url: string, host: string): Promise<Response> {
+  const r = await run(["curl", "-sS", "-o", "-", "-w", "\n%{http_code}", "-H", `Host: ${host}`, url]);
+  if (r.code !== 0) throw new Error(`curl ${url} (Host: ${host}) failed: ${r.stderr}`);
+  const cut = r.stdout.lastIndexOf("\n");
+  return new Response(cut === -1 ? "" : r.stdout.slice(0, cut), {
+    status: Number(r.stdout.slice(cut + 1)),
+  });
 }
 
 export function buildIdInShell(html: string): string | null {
@@ -168,28 +186,36 @@ export class PointerWorld extends World {
 
   // -- requests -------------------------------------------------------------
 
+  /** The address to connect to. Both live channels share one. */
   originFor(channel: Channel): string {
     if (this.mode === "local") return `http://127.0.0.1:${this.serverPort}`;
-    const origin = LIVE_ORIGINS[channel];
-    if (!origin) {
-      throw new Error(
-        `no live origin for the ${channel} channel. Set PROD_ORIGIN once the domain is named.`,
-      );
-    }
-    return origin;
+    void channel;
+    return LIVE_ADDRESS;
   }
 
-  hostFor(channel: Channel): string | null {
-    return this.mode === "local" ? `${channel}.localhost` : null;
+  /** The Host to send. This is what selects the channel. */
+  hostFor(channel: Channel): string {
+    return this.mode === "local" ? `${channel}.localhost` : LIVE_HOSTS[channel];
+  }
+
+  /** True when the Host differs from the address, so fetch cannot be used. */
+  private needsCurl(channel: Channel): boolean {
+    return this.mode === "live" && this.hostFor(channel) !== new URL(LIVE_ADDRESS).host;
   }
 
   async visit(channel: Channel, path = "/"): Promise<Response> {
     const host = this.hostFor(channel);
+    const url = `${this.originFor(channel)}${path}`;
     const started = Bun.nanoseconds();
-    const res = await fetch(`${this.originFor(channel)}${path}`, {
-      headers: host ? { host } : {},
-      redirect: "manual",
-    });
+
+    // Over TLS, Bun derives SNI from the Host header, so a Host that differs
+    // from the address breaks certificate verification. curl keeps the two
+    // apart, which is what a request carrying another Host looks like on the
+    // wire.
+    const res = this.needsCurl(channel)
+      ? await curlGet(url, host)
+      : await fetch(url, { headers: { host }, redirect: "manual" });
+
     this.elapsedMs = (Bun.nanoseconds() - started) / 1e6;
     this.lastResponse = res;
     this.lastBody = await res.text();

@@ -17,7 +17,13 @@ export type Target = { region: Region; channel: Channel };
 
 const DEPLOYED: Record<string, Channel> = {
   "pointer-deploy.fly.dev": "qa",
-  // Phase 3, once the domain is named:
+  // Fly gives one free hostname per app and .fly.dev is its namespace, so a
+  // second channel cannot have a resolvable name until a real domain points
+  // here. Fly forwards the Host header untouched, so the channel works today
+  // for anything that can set one. .test is IANA-reserved and never resolves,
+  // which keeps it obvious that no browser can reach this yet.
+  "prod.pointer-deploy.test": "prod",
+  // With a domain, replace the line above and add:
   // "qa.EXAMPLE.COM": "qa",
   // "app.EXAMPLE.COM": "prod",
 };

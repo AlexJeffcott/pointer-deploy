@@ -33,7 +33,7 @@ Feature: Deploying by promoting a published build
     Then the promotion is refused because build "gamma" is not published
     And visitors to the qa origin continue to receive build "alpha"
 
-  @live @needs-domain
+  @live
   Scenario: Promoting one channel leaves every other channel untouched
     Given the prod channel points at build "alpha"
     When the operator promotes build "beta" to the qa channel
