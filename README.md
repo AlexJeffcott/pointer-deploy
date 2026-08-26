@@ -31,6 +31,32 @@ So a deploy is this, and nothing else:
 bun run promote qa e7598eb-6fa04f32
 ```
 
+### The page is five bundles that agree with each other
+
+The shell owns the state — a name, a colour, and a map of namespaced counters.
+Four sub-apps read and write it. Two appear on the counters view, two on the
+totals view, and the second pair reads counters the first pair created without
+the two pairs ever being on screen together.
+
+Each sub-app is its own bundle with its own stylesheet, published separately and
+fetched when its view first needs it. That is in tension with sharing state: a
+sub-app carrying its own Preact would have its own signals runtime, and the
+shell's counters would silently stop re-rendering it. So exactly one thing is
+shared, and the manifest carries it:
+
+| | How |
+| --- | --- |
+| Shell, store, and one entry per shared specifier | One `Bun.build` with splitting, so Preact lands in a single chunk every entry reaches |
+| Each sub-app | Its own `Bun.build` with those specifiers `external` |
+| Joining them up | The manifest's `imports` becomes the page's import map |
+
+`build.ts` refuses a sub-app that imports anything the import map does not name,
+or that stopped importing `preact` and `@pointer/shell` by name. Either means it
+bundled its own copy.
+
+That this matters was measured, not assumed. Bundling Preact into each app turns
+4 of the 6 browser scenarios red.
+
 ### What happens on a request
 
 ```mermaid
@@ -58,7 +84,7 @@ app from the same running machine.
 | | |
 | --- | --- |
 | A visitor waits for a manifest read | No. It is cached 10 s and served stale while it refreshes |
-| A deploy is instant | No. 4.7 – 10.2 s measured, because two caches sit in front of it |
+| A deploy is instant | No. 7.1 – 10.2 s measured, because two caches sit in front of it |
 | The store is on the critical path | Only for a cold start. A running server survives an outage on its last good answer |
 | Old builds can be deleted | No. A tab opened before the deploy still fetches its own files |
 | Anyone who can write the JSON | can run JavaScript on the production origin |
@@ -108,13 +134,16 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/server/manifest.ts` | Cached fetch: 10 s TTL, stale-while-revalidate, single-flight |
 | `src/server/html.ts` | The shell template |
 | `src/server/index.ts` | Three routes and nothing else |
-| `src/web/` | Preact + signals + `*.module.css`, scoped by Bun with no config |
+| `src/web/shell/` | The frame: the store (`api.ts`), routing, and the loader that fetches a sub-app |
+| `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others |
+| `src/web/vendor/` | One re-export per shared specifier. These are what the import map points at |
 | `build.ts` | `Bun.build` → `dist/` with content hashes, records `dist/build.json` |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
 | `scripts/publish.ts` | `dist/` → `builds/<id>/`. Manifest last |
 | `scripts/promote.ts` | `builds/<id>/manifest.json` → `manifests/<region>/<channel>.json` |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
-| `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one scenario red |
+| `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one check red |
+| `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
 
 ## Two failure rules, on purpose
@@ -131,11 +160,25 @@ would make the platform kill machines that were serving visitors correctly.
 ## Verifying
 
 ```sh
-bun test src/server   # 27 unit tests
-bun run verify        # 9 @local scenarios, stub store, ~7 s
-bun run falsify       # 8 mutations, each must turn its scenario red
-bun run verify:live   # 17 @live scenarios against Fly and Tigris, ~2m 15s
+bun test src/server     # 42 unit tests
+bun run verify          # 9 @local scenarios, stub store, ~5 s
+bun run verify:live     # 18 @live scenarios against Fly and Tigris
+bun run verify:browser  # 6 @browser scenarios in a real Chrome, ~16 s
+bun run falsify         # 8 architectural mutations, each must turn a check red
+bun run mutate          # Stryker: 222 mutants over the server logic, ~40 s
 ```
+
+`@browser` uses `playwright-core` against the Chrome already on the machine, so
+nothing downloads a second browser. Those six scenarios cover what nothing else
+can see: five separately published bundles agreeing about one store.
+
+Two kinds of mutation testing, and they cover different things. **Stryker**
+mutates operators and literals in the pure logic — 69.91% killed. It found a real
+gap: every entry in `FLY_TO_REGION` returned `"eu"`, the same as the fallback, so
+deleting the lookup left every test green. **`falsify.ts`** makes the
+architectural changes Stryker cannot generate — removing single-flight, making
+the health check read the manifest, unsharing the store. Neither replaces the
+other.
 
 `@local` covers only what needs an injected failure — an unreachable store, a
 corrupt manifest, a counted read. Everything that publishes or promotes is
@@ -201,6 +244,19 @@ An id names an artefact, and the commit does not identify the artefact. It is
 now `<source>-<content>`. The suite refuses two scenario builds that publish to
 one id, because without that guard every promotion scenario passes by accident:
 the channel already serves the id being promoted to it.
+
+## Cold edges
+
+Tigris fills an edge on first request, so the first visitor after a deploy paid
+for it — measured once at over 30 s for a file nobody had asked for, which also
+showed up as one flaky browser run in four.
+
+`promote.ts` now fetches every file the manifest names before it reports
+success: 15 files in about 500 ms. A deploy that leaves the first visitor
+waiting has not finished. Pass `--no-warm` to skip it.
+
+The browser suite's mount wait dropped from 60 s to 20 s as a result. The fix
+belongs at the source, not in the timeout.
 
 ## Not done
 

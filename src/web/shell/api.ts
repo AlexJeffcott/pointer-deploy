@@ -7,6 +7,9 @@
 
 import { computed, signal } from "@preact/signals";
 
+/** A label baked in at build time. Empty unless BUILD_MARKER was set. */
+export const buildMarker: string = __BUILD_MARKER__;
+
 // -- who is using the app -------------------------------------------------
 
 export type User = { name: string; colour: string };

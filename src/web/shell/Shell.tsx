@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { navigate, route, setColour, setName, user } from "./api.ts";
+import { buildMarker, navigate, route, setColour, setName, user } from "./api.ts";
 import { loadApp, readAppMap, type AppMap } from "./loader.ts";
 import styles from "./Shell.module.css";
 
@@ -112,6 +112,7 @@ export function Shell() {
         The frame owns the name, the colour and every counter. Each panel above is
         a separate bundle fetched from the object store when its view first
         appears, sharing one Preact instance through the import map.
+        {buildMarker ? <> Build label: <code data-build-marker={buildMarker}>{buildMarker}</code>.</> : null}
       </p>
     </div>
   );

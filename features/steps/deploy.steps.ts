@@ -13,12 +13,22 @@ import {
 } from "../../scripts/store.ts";
 import { type Channel, PointerWorld, run } from "../support/world.ts";
 
-async function manifestOf(world: PointerWorld, name: string) {
+type AnyManifest = {
+  assetBase: string;
+  entry?: { js: string; css: string };
+  shell?: { js: string; css: string };
+};
+
+/** The build's entry script, whichever schema named it. */
+async function entryScriptOf(world: PointerWorld, name: string): Promise<string> {
   const cfg = configFromEnv();
   const url = publicUrl(cfg, `builds/${world.idOf(name)}/manifest.json`);
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
   if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
-  return (await res.json()) as { assetBase: string; entry: { js: string; css: string } };
+  const m = (await res.json()) as AnyManifest;
+  const entry = m.shell ?? m.entry;
+  if (!entry) throw new Error(`manifest for ${name} names no entry script`);
+  return `${m.assetBase}${entry.js}`;
 }
 
 Given("build {string} is published", async function (this: PointerWorld, name: string) {
@@ -56,24 +66,21 @@ When("the operator publishes a build with the id of build {string}", async funct
 });
 
 When("a visitor fetches a file of build {string}", async function (this: PointerWorld, name: string) {
-  const m = await manifestOf(this, name);
-  const res = await fetch(`${m.assetBase}${m.entry.js}`);
+  const res = await fetch(await entryScriptOf(this, name));
   this.lastResponse = res;
   this.lastBody = await res.text();
 });
 
 When("a page loaded from build {string} requests one of its files", async function (this: PointerWorld, name: string) {
-  const m = await manifestOf(this, name);
-  const res = await fetch(`${m.assetBase}${m.entry.js}`);
+  const res = await fetch(await entryScriptOf(this, name));
   this.lastResponse = res;
   this.lastBody = await res.text();
 });
 
 When("a browser on the {word} origin requests the script of build {string}", async function (this: PointerWorld, channel: string, name: string) {
-  const m = await manifestOf(this, name);
   // The Origin header is what turns this into a CORS request. A plain GET
   // succeeds either way, which is why curl could not see the fault.
-  const res = await fetch(`${m.assetBase}${m.entry.js}`, {
+  const res = await fetch(await entryScriptOf(this, name), {
     headers: { origin: this.originFor(channel as Channel) },
   });
   this.lastResponse = res;
