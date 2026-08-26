@@ -1,27 +1,73 @@
 # pointer-deploy
 
-A Preact single-page app served by a Bun server that holds none of its files.
-A deploy writes one JSON file.
-
-This is the counter-proposal to `../ajt-web-app-experiment`, which is the same
-app deployed by ArgoCD to six clusters — six complete copies of the Kubernetes
-object set, roughly 79% of the lines repeated, and a new container image for
-every commit.
+A Preact single-page app whose server holds none of its files.
+Deploying it writes one JSON file.
 
 Live: <https://pointer-deploy.fly.dev/>
 
-## The claim
+## What this demonstrates
 
-The server image and the application are two artefacts with two lifecycles.
+A normal single-page app pipeline treats the app and the thing that serves it as
+one artefact. Change a button label and you build a container image, push it to
+a registry, and roll out new machines. Rolling back means doing all of that
+again with an older commit.
 
-| | Where it lives | When it changes |
+They do not have to be one artefact. The server can do routing and templating
+only, and read which version of the app to serve, per request, from a file.
+
+| On every app change | Normal pipeline | Here |
 | --- | --- | --- |
-| Server | A 40 MB Fly image | When the server changes |
-| Application | Content-hashed files in a Tigris bucket | Every deploy |
-| Which application is live | One JSON file per channel | Every deploy |
+| Build the app | yes | yes |
+| Build a container image | yes | no |
+| Push it to a registry | yes | no |
+| Restart or replace machines | yes | no |
+| Change what visitors get | the rollout | one JSON write |
+| Roll back | redeploy an older image | write the older JSON back |
+| A preview environment | a whole stack | one more JSON file |
 
-The server reads the channel's manifest per request (cached 10 s) and builds
-the shell from it. Nothing about the application is compiled into the image.
+So a deploy is this, and nothing else:
+
+```sh
+bun run promote qa e7598eb-6fa04f32
+```
+
+### What happens on a request
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as Bun server, one image
+    participant T as Object store
+
+    B->>S: GET / with Host qa.example.com
+    Note over S: Host picks the channel
+    S->>T: GET manifests/eu/qa.json
+    T-->>S: which build is live
+    S-->>B: HTML naming that build's files
+    B->>T: GET builds/e7598eb-6fa04f32/index-bv6en265.js
+    B->>T: GET builds/e7598eb-6fa04f32/index-hqysnmvp.css
+```
+
+The server never holds a script or a stylesheet. It is asked which build is
+live, and it writes an HTML page pointing at that build. Promoting a different
+build changes the answer to that question, so the next visitor gets a different
+app from the same running machine.
+
+### What it costs
+
+| | |
+| --- | --- |
+| A visitor waits for a manifest read | No. It is cached 10 s and served stale while it refreshes |
+| A deploy is instant | No. 4.7 – 10.2 s measured, because two caches sit in front of it |
+| The store is on the critical path | Only for a cold start. A running server survives an outage on its last good answer |
+| Old builds can be deleted | No. A tab opened before the deploy still fetches its own files |
+| Anyone who can write the JSON | can run JavaScript on the production origin |
+
+### Compared with
+
+`../ajt-web-app-experiment` is the same app deployed the usual way: ArgoCD to six
+clusters, six complete copies of the Kubernetes object set, roughly 79% of the
+lines repeated, and a new image for every commit.
 
 ## Deploying
 
