@@ -6,5 +6,5 @@
 .bars { display: grid; gap: 0.35rem; margin: 0; }
 .bar { display: grid; grid-template-columns: 4.5rem 1fr auto; gap: 0.5rem; align-items: center; font-size: 0.8125rem; }
 .track { height: 0.5rem; border-radius: 999px; background: var(--line); overflow: hidden; }
-.fill { height: 100%; border-radius: 999px; transition: width 120ms ease-out; }
+.fill { display: block; height: 100%; border-radius: 999px; transition: width 120ms ease-out; }
 .total { margin: 0.9rem 0 0; font-size: 0.8125rem; color: var(--muted); }

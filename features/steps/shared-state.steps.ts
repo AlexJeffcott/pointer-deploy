@@ -81,6 +81,18 @@ Then("the totals view lists the namespaces {word}, {word}, {word} and {word}", a
   expect([...listed].sort()).toEqual([...wanted].sort());
 });
 
+Then("the bar for {string} is longer than the bar for {string}", async function (this: PointerWorld, bigger: string, smaller: string) {
+  const width = (ns: string) =>
+    this.browserPage.$eval(
+      `[data-app="delta"] [data-ns="${ns}"] ~ span > span`,
+      (el) => (el as HTMLElement).getBoundingClientRect().width,
+    );
+  const [big, small] = await Promise.all([width(bigger), width(smaller)]);
+  expect(big).toBeGreaterThan(small);
+  // A zero count must draw nothing, or every bar being full width also passes.
+  expect(small).toBe(0);
+});
+
 Then("every sub-app on the page names {string}", async function (this: PointerWorld, name: string) {
   const page = this.browserPage;
   await page.waitForFunction(

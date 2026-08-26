@@ -27,6 +27,14 @@ Feature: Sharing state between independently loaded sub-apps
     And they open the totals view
     Then the totals view lists the namespaces alpha, bravo, charlie and delta
 
+  # The counts were right while every bar was drawn full width, because the
+  # fill was an inline element and width did nothing to it.
+  @browser
+  Scenario: A sub-app that draws a count shows a larger one as a longer bar
+    When they raise the "alpha" counter by 4
+    And they open the totals view
+    Then the bar for "alpha" is longer than the bar for "charlie"
+
   @browser
   Scenario: The name the frame holds reaches every sub-app
     When they set the name to "Bologna"
