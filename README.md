@@ -272,7 +272,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one check red |
 | `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
-| `TODO.md` | Working state, open items, and the traps already paid for |
+| `TODO.md` | Open items and what is done. Read it first after a context clear |
 
 ## Two failure rules, on purpose
 
@@ -463,3 +463,37 @@ Whoever can write `manifests/eu/prod.json` can execute JavaScript on the
 production origin. The only writer here is one machine holding the key in a
 gitignored `.env.local`. That is fine for an experiment and is not fine once
 anyone else uses it: SRI, a CSP, and a scoped write key are the fix.
+
+## Traps, already paid for
+
+Do not rediscover these.
+
+| Trap | What happens |
+| --- | --- |
+| An acceptance suite that promotes | Promoting is the deploy. A live suite pointed at a real channel ships its own throwaway build to visitors, silently, on every green run |
+| `curl -o -` with no `-D -` | The Response carries a status and no headers, so a scenario asserting `cache-control` reads an empty string and passes on anything |
+| `NODE_ENV` not set before the process starts | Bun emits `preact/jsx-dev-runtime`, which the import map does not name, and every sub-app fails to resolve in the browser. `build.ts` refuses to run without it |
+| Tigris sets no `Access-Control-Allow-Origin` | A cross-origin `<script type="module">` is blocked and the page renders blank while `curl` returns correct HTML. `bun run setup:store` sets it through the S3 API; flyctl has no flag |
+| Bun's `S3Client` cannot set `Cache-Control` | `scripts/store.ts` signs SigV4 directly. The manifest's 5 s cache is what sets the propagation window |
+| A build id keyed on the commit alone | Two builds from one commit collide and one silently overwrites the other |
+| A *unit* id with the commit in it | One commit touching only alpha changes all five ids and republishes all five, so independence survives only in the pointer. A unit id is the content hash alone |
+| A promote that writes what it was given | It replaces all five units, so "deploy alpha" silently rolls the other four back to whatever was last on disk. `promote` reads, merges, then writes |
+| One `assetBase` for the whole page | Every unit id in the manifest is right and every sub-app 404s, because they are fetched from the shell's directory. One base per unit |
+| A hand-bumped contract version | Somebody has to remember, and an edit to a published contract breaks every unit that claimed it, silently. The identity is the hash of the surface |
+| Folding vendor versions into the contract hash | Every Preact patch bump invalidates all four apps and forces four republishes. Versions are recorded and warned about, not enforced |
+| A cold Tigris edge | The first visitor after a deploy waited over 30 s once. `promote.ts` warms every file the manifest names before reporting success |
+| `curl` and a browser disagree | Only a browser sees a blocked module script or an edge-cached shell. Check user-facing changes in a browser, never with `curl` alone |
+| Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
+| A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
+| `dist/` treated as the build you just made | `e2e`, `verify:live` and `falsify` all overwrite `dist/build.json`. `--from-build` after any of them promotes a harness build, and every check stays green because the manifest is well-formed and describes the wrong units |
+| A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
+
+## Conventions
+
+- The `.feature` files are the specification and the acceptance suite at once.
+  Never paraphrase one into a separate test.
+- `@local` is only for failures that cannot be forced on the real store. Anything
+  that publishes or promotes runs `@live`, because a stub reimplementing them
+  could pass while the real path was broken.
+- Every new scenario must be seen red before it is trusted.
+- Commit messages carry no author or contributor references.
