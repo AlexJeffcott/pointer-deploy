@@ -35,11 +35,14 @@ Feature: Publishing a build
     Given build "alpha" is published and promoted to the qa channel
     Then every file that build names can be fetched
 
+  # A unit id is a hash of that unit's own output, so republishing unchanged
+  # bytes is a skip and not an error. It has to be: publishing after a change
+  # to one app is the common case, and the other four are unchanged then too.
   @live
-  Scenario: Republishing an existing build id is refused
+  Scenario: Republishing a build that has not changed uploads nothing
     Given build "alpha" is published
-    When the operator publishes a build with the id of build "alpha"
-    Then the publish is refused because that build is already published
+    When the operator publishes build "alpha" again
+    Then no unit is uploaded, because none of them changed
 
   # Why publish writes the manifest last, and why publish and promote are two
   # commands rather than one.

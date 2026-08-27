@@ -24,12 +24,17 @@ only, and read which version of the app to serve, per request, from a file.
 | Change what visitors get | the rollout | one JSON write |
 | Roll back | redeploy an older image | write the older JSON back |
 | A preview environment | a whole stack | one more JSON file |
+| Ship one panel of the page | the whole page ships | one field in that JSON |
 
 So a deploy is this, and nothing else:
 
 ```sh
-bun run promote qa e7598eb-6fa04f32
+bun run promote qa --app alpha=9b855c4b
 ```
+
+That moves alpha. The shell and the other three sub-apps stay exactly where
+they were, and rolling alpha back afterwards leaves alone whatever was deployed
+in between.
 
 ### The page is five bundles that agree with each other
 
@@ -38,11 +43,11 @@ Four sub-apps read and write it. Two appear on the counters view, two on the
 totals view, and the second pair reads counters the first pair created without
 the two pairs ever being on screen together.
 
-Each sub-app is its own bundle with its own stylesheet, published separately and
-fetched when its view first needs it. That is in tension with sharing state: a
-sub-app carrying its own Preact would have its own signals runtime, and the
-shell's counters would silently stop re-rendering it. So exactly one thing is
-shared, and the manifest carries it:
+Each sub-app is its own **unit**: its own bundle, its own stylesheet, its own id,
+published and promoted on its own and fetched when its view first needs it. That
+is in tension with sharing state: a sub-app carrying its own Preact would have
+its own signals runtime, and the shell's counters would silently stop
+re-rendering it. So exactly one thing is shared, and the manifest carries it:
 
 | | How |
 | --- | --- |
@@ -68,16 +73,24 @@ sequenceDiagram
     B->>S: GET / with Host qa.example.com
     Note over S: Host picks the channel
     S->>T: GET manifests/eu/qa.json
-    T-->>S: which build is live
-    S-->>B: HTML naming that build's files
-    B->>T: GET builds/e7598eb-6fa04f32/index-bv6en265.js
-    B->>T: GET builds/e7598eb-6fa04f32/index-hqysnmvp.css
+    T-->>S: which unit is live, per unit
+    S-->>B: HTML naming each unit's own files
+    B->>T: GET units/shell/43ca0019/index-3wgagyzf.js
+    B->>T: GET units/shell/43ca0019/index-rc565c4j.css
+    B->>T: GET units/alpha/9b855c4b/alpha-z9ev874b.js
+    B->>T: GET units/bravo/483316f3/bravo-4vf0ywmv.js
 ```
 
-The server never holds a script or a stylesheet. It is asked which build is
-live, and it writes an HTML page pointing at that build. Promoting a different
-build changes the answer to that question, so the next visitor gets a different
-app from the same running machine.
+The server never holds a script or a stylesheet. It is asked which units are
+live, and it writes an HTML page pointing at each of them. Promoting a different
+unit changes one answer to that question, so the next visitor gets a different
+app from the same running machine — and only the part that moved is different.
+
+Note the last two lines. Alpha and bravo come from different directories,
+written at different times. **One `assetBase` per unit is the whole feature.**
+Schema 2 had one base for the entire page, so every file had to come from one
+build directory, which is what made the five bundles deploy and roll back
+together.
 
 ### What it costs
 
@@ -86,7 +99,8 @@ app from the same running machine.
 | A visitor waits for a manifest read | No. It is cached 10 s and served stale while it refreshes |
 | A deploy is instant | No. 7.1 – 10.2 s measured, because two caches sit in front of it |
 | The store is on the critical path | Only for a cold start. A running server survives an outage on its last good answer |
-| Old builds can be deleted | No. A tab opened before the deploy still fetches its own files |
+| Old units can be deleted | No. A tab opened before the deploy still fetches its own files |
+| A unit can be composed with any other | No. `promote` refuses a composition with no contract in common |
 | Anyone who can write the JSON | can run JavaScript on the production origin |
 
 ### Compared with
@@ -98,20 +112,126 @@ lines repeated, and a new image for every commit.
 ## Deploying
 
 ```sh
-bun run build                      # hashed files into dist/
-bun run publish                    # -> builds/<id>/ ; prints <id>. Affects nobody
-bun run promote qa   <id>          # the deploy
-bun run promote prod <id>
-bun run promote prod <previous>    # the rollback. Same command
+bun run build                                 # five units into dist/units/
+bun run publish                               # uploads only what changed. Affects nobody
+bun run promote qa --app alpha=9b855c4b       # the deploy
+bun run promote qa --app alpha=36226fb9       # the rollback. Same command
+bun run promote qa --shell 43ca0019           # the shell alone
+bun run promote qa --from-build               # everything just built
 ```
 
 `fly deploy` is not in that list, and `deploying-by-pointer.feature` asserts it:
 the machine ids and their `updated_at` timestamps are identical before and after
-a promotion.
+a promotion. The image is rebuilt when the *server* changes, which is a
+different and much rarer event.
 
-`publish` writes the manifest **last**, after every file it names is readable.
-`promote` refuses any build with no manifest, so a channel cannot point at a
-half-uploaded build.
+`publish` writes each unit's `unit.json` **last**, after every file it names is
+readable. `promote` refuses any unit with no `unit.json`, so a channel cannot
+point at a half-uploaded unit.
+
+`promote` reads the channel's current composition, applies only what you named,
+and writes the result. That merge is the feature: without it every promote
+replaces all five units, and "deploy alpha" silently rolls the other four back
+to whatever the operator last had on disk. `falsify.ts` breaks the merge and
+requires a scenario to go red.
+
+### A unit id is a hash of that unit's output, and nothing else
+
+The commit is deliberately not in it. It used to be — `<source>-<content>` — and
+under per-unit publishing that is wrong: one commit touching only alpha would
+change all five ids and republish all five, which removes the point. The commit
+identifies the source, not the artefact, so it lives in `unit.json` as
+provenance and reaches the served page in the `__BUILD__` block.
+
+The consequence is that publishing is idempotent per unit:
+
+```
+$ bun run publish
+  shell   43ca0019  unchanged
+  alpha   9b855c4b  uploaded 3 files
+  bravo   483316f3  unchanged
+  charlie 8511a387  unchanged
+  delta   d728f064  unchanged
+```
+
+## What stops a rollback breaking the page
+
+Composing units means composing combinations that nothing has ever typechecked.
+`tsc --noEmit` at HEAD proves the HEAD combination; rolling one unit back is
+precisely how you get one it never saw. A shell that renamed an export, put in
+front of a six-week-old alpha, is a page where one panel renders an error.
+
+So each unit declares **which contracts it compiles against**, and `promote`
+refuses a composition whose sets do not intersect.
+
+A contract is the type surface a sub-app is built against — `@pointer/shell`
+and `SubApp` — and **its identity is the content hash of that surface**, never a
+number. A number is a claim somebody has to remember to raise, and nothing stops
+an edit to a published contract from silently breaking every unit that claimed
+the old one. A hash is derived, so that edit produces a different identity
+instead, which no unit claims, and the composition falls back to the contract
+they do share. `verifyRegistry` re-derives every stored hash from its own files
+and refuses a mismatch.
+
+Support is a **set**, not a range or a floor. A set can say "supports the one
+from June and the one from August, not the one in between", which is what
+support genuinely is.
+
+The sets are generated, never written:
+
+```
+$ bun run contract:matrix
+         9e79879  571be5c
+shell       fail     pass
+alpha       pass     fail
+bravo       pass     fail
+charlie     pass     fail
+delta       pass     fail
+```
+
+That is one `tsc` per cell, with `@pointer/shell` and `@pointer/subapp`
+re-pointed at that contract's `.d.ts` files — the same `paths` mechanism
+`tsconfig.json` already uses to point them at the sources. Two adapter files
+carry the halves the call sites cannot prove on their own:
+`src/web/shell/contract.ts` (the shell provides at least the contract) and
+`src/web/apps/<name>/contract.ts` (the app provides `mount`).
+
+Three consequences, and they are why the matrix is worth its cost:
+
+| | |
+| --- | --- |
+| Nobody can claim a contract they did not compile against | The set is generated output. There is no hand-written claim to get wrong, so it stops being a thing to test and becomes a property |
+| An additive change costs nothing | Every adapter still compiles against the new hash, so it joins every set with no new file and no decision. Adding an export to `api.ts` does not force four republishes |
+| A breaking change appears as a `fail` column | In the unit that has to move, immediately, rather than in a browser weeks later |
+
+The table above is the real output of making `increment(ns, by = 1)` require
+`by`. The shell stops satisfying the old contract; the four apps, which all call
+`increment(NS)` with one argument, stop satisfying the new one; the intersection
+is empty and `promote` refuses.
+
+`build.ts` refuses to run when the surface at HEAD hashes to something the
+registry does not hold, and names the command:
+
+```sh
+bun run contract:mint --name counters-2026-08
+```
+
+The directory name is for people reading a listing. The hash is the identity.
+
+### What the contract does not cover
+
+| Limit | Why |
+| --- | --- |
+| A same-name signature change | Covered. This is the case a list of exported *names* would have missed, and hashing the declaration surface catches it |
+| A Preact major that breaks an old bundle | **Not covered.** Vendor types resolve from `node_modules` at HEAD, so a cell testing an old app against an old contract compiles against head Preact anyway — the vendor half would be identity with no verification behind it. Folding versions into the hash would instead force all four apps to republish on every patch bump. `unit.json` records the resolved versions and `promote` **warns** on a major mismatch |
+| A change in behaviour behind an unchanged type | Not covered, and not coverable this way |
+
+Measured, on this repository: the surface hash is stable across runs, unchanged
+by a reworded and reflowed comment, and changed by `increment(ns, by = 1)`
+becoming `increment(ns, by: number)`. Normalisation is `tsc
+--emitDeclarationOnly --removeComments`, which is weaker than an API report
+would give; a reformat that survives that would mint a contract everything still
+supports, which costs one registry entry and no false refusal.
 
 ## Measured
 
@@ -136,11 +256,17 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/server/index.ts` | Three routes and nothing else |
 | `src/web/shell/` | The frame: the store (`api.ts`), routing, and the loader that fetches a sub-app |
 | `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others |
+| `src/web/shell/subapp.ts` | `SubApp`, alone in its own file because it is half the contract |
+| `src/web/shell/contract.ts` | The shell's conformance, in one file the matrix can compile |
+| `src/web/apps/<name>/contract.ts` | That app's conformance to `SubApp` |
 | `src/web/vendor/` | One re-export per shared specifier. These are what the import map points at |
-| `build.ts` | `Bun.build` → `dist/` with content hashes, records `dist/build.json` |
+| `contracts/<name>/` | One retained contract: `shell.d.ts`, `subapp.d.ts`, and the hash of the two |
+| `build.ts` | Five `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
+| `scripts/contract.ts` | Surface emit, the hash, the registry, and the matrix |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
-| `scripts/publish.ts` | `dist/` → `builds/<id>/`. Manifest last |
-| `scripts/promote.ts` | `builds/<id>/manifest.json` → `manifests/<region>/<channel>.json` |
+| `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
+| `scripts/promote.ts` | Read the composition, merge what was named, test the intersection, write |
+| `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one check red |
@@ -162,13 +288,38 @@ would make the platform kill machines that were serving visitors correctly.
 ## Verifying
 
 ```sh
-bun test src/server     # 42 unit tests
-bun run verify          # 9 @local scenarios, stub store, ~5 s
-bun run verify:live     # 18 @live scenarios against Fly and Tigris
-bun run verify:browser  # 6 @browser scenarios in a real Chrome, ~16 s
-bun run falsify         # 8 architectural mutations, each must turn a check red
-bun run mutate          # Stryker: 222 mutants over the server logic, ~40 s
+bun test src/server        # 53 unit tests
+bun run verify             # 9 @local scenarios, stub store, ~5 s
+bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
+bun run verify:live        # @live scenarios against Fly and Tigris
+bun run verify:browser     # 7 @browser scenarios in a real Chrome
+bun run falsify            # 13 architectural mutations, each must turn a check red
+FALSIFY_LIVE=1 bun run falsify   # including the three that need the real store
+bun run e2e                # deploy one app, deploy another, roll the first back
+bun run mutate             # Stryker over the server logic
 ```
+
+An `@live` scenario about **server** behaviour cannot be falsified by a source
+edit, because it runs against the deployed image. Two mutations that break
+`html.ts` therefore point at unit tests instead, and `falsify.ts` says so at the
+mutation. The three live ones that do work break `publish.ts` and `promote.ts`,
+which run locally.
+
+`bun run e2e` is the one that answers the question the feature was built for,
+and it is the only one that can. The unit tests construct compositions by hand.
+The `@live` scenarios read unit ids out of the served HTML, which is the
+manifest talking about itself. `e2e` drives the documented commands and then
+reads the **rendered DOM** — the marker each sub-app painted — because that is
+the only place "alpha moved and bravo did not" is a fact about the application
+rather than a fact about a JSON file. It writes only `test-*` channels.
+
+One thing in it is not the deployed machine, and the script says so at the top.
+`Host` is forbidden to `setExtraHTTPHeaders` and Fly routes on SNI, so no
+browser can reach a `test-*` channel on Fly — the trap this README already
+records, met again from the other side. So the browser half runs
+`bun src/server/index.ts` locally against the real store, and `origins.ts`
+carries `test-qa.localhost` for it, development only. Everything else is real,
+and the machine fingerprint is compared before and after.
 
 `@browser` uses `playwright-core` against the Chrome already on the machine, so
 nothing downloads a second browser. Those six scenarios cover what nothing else
@@ -273,10 +424,13 @@ The second overwrote the first and both channels served one bundle. Without
 `--force` the second would instead have been refused as already published,
 which is equally wrong.
 
-An id names an artefact, and the commit does not identify the artefact. It is
-now `<source>-<content>`. The suite refuses two scenario builds that publish to
-one id, because without that guard every promotion scenario passes by accident:
-the channel already serves the id being promoted to it.
+An id names an artefact, and the commit does not identify the artefact. It became
+`<source>-<content>`, and then, when publishing moved to units, `<content>`
+alone: keeping the commit in a *unit* id meant one commit touching only alpha
+changed all five ids and republished all five. The same argument, taken one step
+further than it was the first time. The suite refuses two scenario builds that
+publish to one shell id, because without that guard every promotion scenario
+passes by accident: the channel already serves the id being promoted to it.
 
 ## Cold edges
 
@@ -284,9 +438,11 @@ Tigris fills an edge on first request, so the first visitor after a deploy paid
 for it — measured once at over 30 s for a file nobody had asked for, which also
 showed up as one flaky browser run in four.
 
-`promote.ts` now fetches every file the manifest names before it reports
-success: 15 files in about 500 ms. A deploy that leaves the first visitor
-waiting has not finished. Pass `--no-warm` to skip it.
+`promote.ts` now fetches every file the units it is moving name, **before** it
+writes the pointer — 2 files in about 350 ms for one sub-app. Only what moved:
+the rest were warmed by the promote that put them there. Warming before the
+write rather than after also closes the window in which a visitor could reach a
+cold file. Pass `--no-warm` to skip it.
 
 The browser suite's mount wait dropped from 60 s to 20 s as a result. The fix
 belongs at the source, not in the timeout.
@@ -300,6 +456,8 @@ belongs at the source, not in the timeout.
 | Content-Security-Policy | One response header |
 | Second region | `fly scale count 1 --region iad`. The region is already in the manifest path |
 | Asset retention | Nothing is deleted, so nothing can dangle |
+| Contract pruning | `contracts/registry.json` retains by hand. Pruning is a decision, never automatic |
+| Concurrent promotes | `promote` is a read-modify-write with no compare-and-set, so two at once can lose one. One operator. Tigris conditional writes are unchecked; an `If-Match` on the ETag would close it |
 
 Whoever can write `manifests/eu/prod.json` can execute JavaScript on the
 production origin. The only writer here is one machine holding the key in a

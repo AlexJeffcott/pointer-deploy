@@ -9,6 +9,7 @@ import {
 } from "@cucumber/cucumber";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
+import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 
 setDefaultTimeout(180_000);
 
@@ -61,10 +62,13 @@ const LIVE_HOSTS: Record<Channel, string> = {
 
 type Run = { code: number; stdout: string; stderr: string };
 
+/** Every unit id a named scenario build resolved to. */
+export type UnitIds = Record<Unit, string>;
+
 // Shared across scenarios on purpose. Cucumber builds a fresh World per
-// scenario, and rebuilding and republishing the same two bundles for each one
+// scenario, and rebuilding and republishing the same five bundles for each one
 // would add minutes without testing anything the first publish did not.
-const BUILD_IDS = new Map<string, string>();
+const BUILD_IDS = new Map<string, UnitIds>();
 
 export async function run(cmd: string[], env: Record<string, string> = {}): Promise<Run> {
   const proc = Bun.spawn(cmd, {
@@ -120,19 +124,63 @@ async function pointerBuildId(channel: string): Promise<string> {
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
   if (!res.ok) return `absent (${res.status})`;
   try {
-    return (((await res.json()) as { buildId?: string }).buildId ?? "no buildId field");
+    const doc = (await res.json()) as {
+      schema?: number;
+      buildId?: string;
+      shell?: { unitId?: string };
+      apps?: Record<string, { unitId?: string }>;
+    };
+    // Every unit, because a run that moved one app and left the others is
+    // still a deploy nobody asked for.
+    if (doc.schema === 3) {
+      return [
+        `shell=${doc.shell?.unitId ?? "?"}`,
+        ...Object.entries(doc.apps ?? {}).map(([n, a]) => `${n}=${a.unitId ?? "?"}`),
+      ]
+        .sort()
+        .join(" ");
+    }
+    return doc.buildId ?? "no buildId field";
   } catch {
     return "unreadable";
   }
 }
 
-export function buildIdInShell(html: string): string | null {
+type ShellBuildInfo = {
+  buildId?: string;
+  contract?: string;
+  units?: Record<string, { unitId: string; commit: string; marker: string }>;
+};
+
+function buildInfoInShell(html: string): ShellBuildInfo | null {
   const m = /<script type="application\/json" id="__BUILD__">(.*?)<\/script>/s.exec(html);
   if (!m?.[1]) return null;
   try {
-    return (JSON.parse(m[1]) as { buildId?: string }).buildId ?? null;
+    return JSON.parse(m[1]) as ShellBuildInfo;
   } catch {
     return null;
+  }
+}
+
+export function buildIdInShell(html: string): string | null {
+  return buildInfoInShell(html)?.buildId ?? null;
+}
+
+/** Which unit id the served page names for each unit. */
+export function unitIdsInShell(html: string): Partial<Record<Unit, string>> {
+  const units = buildInfoInShell(html)?.units ?? {};
+  return Object.fromEntries(Object.entries(units).map(([n, u]) => [n, u.unitId]));
+}
+
+/** The base each sub-app's script is fetched from. Per unit under schema 3. */
+export function appScriptUrls(html: string): Record<string, string> {
+  const m = /id="__APPS__">(.*?)<\/script>/s.exec(html);
+  if (!m?.[1]) return {};
+  try {
+    const apps = JSON.parse(m[1]) as Record<string, { js: string }>;
+    return Object.fromEntries(Object.entries(apps).map(([n, a]) => [n, a.js]));
+  } catch {
+    return {};
   }
 }
 
@@ -149,7 +197,7 @@ export class PointerWorld extends World {
   server: ReturnType<typeof Bun.spawn> | null = null;
   serverPort = 0;
 
-  /** Scenario build name ("alpha") to the real build id the store holds. */
+  /** Scenario build name ("alpha") to the unit ids the store holds for it. */
   private ids = BUILD_IDS;
 
   // Browser scenarios. playwright-core drives the Chrome already on the
@@ -212,46 +260,80 @@ export class PointerWorld extends World {
 
   // -- channels -------------------------------------------------------------
 
+  /** The whole composition a scenario build name resolved to. */
+  idsOf(name: string): UnitIds {
+    return (
+      this.ids.get(name) ??
+      (Object.fromEntries(UNITS.map((u) => [u, name])) as UnitIds)
+    );
+  }
+
+  /**
+   * The id a scenario means by a build name.
+   *
+   * The shell's, because that is what the served page reports as its build id
+   * and what every scenario written before the split compares against.
+   */
   idOf(name: string): string {
-    return this.ids.get(name) ?? name;
+    return this.idsOf(name).shell;
+  }
+
+  unitIdOf(name: string, unit: Unit): string {
+    return this.idsOf(name)[unit];
   }
 
   setId(name: string, id: string): void {
-    this.ids.set(name, id);
+    this.ids.set(name, Object.fromEntries(UNITS.map((u) => [u, id])) as UnitIds);
   }
 
-  /** Build and publish a real build, or register a synthetic one locally. */
-  async publish(name: string): Promise<string> {
+  setIds(name: string, ids: UnitIds): void {
+    this.ids.set(name, ids);
+  }
+
+  /**
+   * Build and publish every unit, or register a synthetic composition locally.
+   *
+   * `markers` overrides the marker of individual units, which is how a scenario
+   * gets a new alpha without a new bravo: the other four units come out
+   * byte-identical, keep their ids, and publish reports them unchanged.
+   */
+  async publish(name: string, markers: Partial<Record<Unit, string>> = {}): Promise<UnitIds> {
     const known = this.ids.get(name);
     if (known) return known;
 
     if (this.mode === "local") {
-      this.ids.set(name, name);
-      return name;
+      const ids = Object.fromEntries(UNITS.map((u) => [u, name])) as UnitIds;
+      this.ids.set(name, ids);
+      return ids;
     }
 
-    const built = await run(["bun", "run", "build"], { BUILD_MARKER: name });
+    const env: Record<string, string> = { BUILD_MARKER: name };
+    for (const [unit, marker] of Object.entries(markers)) {
+      env[`BUILD_MARKER_${unit.toUpperCase()}`] = marker;
+    }
+
+    const built = await run(["bun", "run", "build"], env);
     if (built.code !== 0) throw new Error(`build failed:\n${built.stderr}`);
 
-    const published = await run(["bun", "run", "--silent", "scripts/publish.ts", "--force"]);
+    const published = await run(["bun", "run", "--silent", "scripts/publish.ts"]);
     if (published.code !== 0) throw new Error(`publish failed:\n${published.stderr}`);
 
-    const id = published.stdout.split("\n").pop()!.trim();
+    const ids = JSON.parse(published.stdout) as UnitIds;
 
-    // Two scenario builds that collide would make every promotion scenario
-    // pass by accident, because the channel would already serve the id being
-    // promoted to it.
-    for (const [other, otherId] of this.ids) {
-      if (otherId === id) {
+    // Two scenario builds whose shells collide would make every promotion
+    // scenario pass by accident, because the channel would already serve the
+    // composition being promoted to it.
+    for (const [other, otherIds] of this.ids) {
+      if (otherIds.shell === ids.shell) {
         throw new Error(
-          `builds ${JSON.stringify(name)} and ${JSON.stringify(other)} both published as ` +
-            `${id}. They are the same artefact, so no promotion between them proves anything.`,
+          `builds ${JSON.stringify(name)} and ${JSON.stringify(other)} both published shell ` +
+            `${ids.shell}. They are the same artefact, so no promotion between them proves anything.`,
         );
       }
     }
 
-    this.ids.set(name, id);
-    return id;
+    this.ids.set(name, ids);
+    return ids;
   }
 
   /** The channel this scenario channel writes. The stub store has no others. */
@@ -259,15 +341,8 @@ export class PointerWorld extends World {
     return this.mode === "live" ? LIVE_CHANNELS[channel] : channel;
   }
 
-  async promote(channel: Channel, name: string): Promise<Run> {
-    if (this.mode === "local") {
-      const id = this.idOf(name);
-      if (!this.ids.has(name)) {
-        return { code: 1, stdout: "", stderr: `build ${id} is not published` };
-      }
-      this.stub!.point(channel, manifestDoc(id));
-      return { code: 0, stdout: id, stderr: "" };
-    }
+  /** The channel the suite is allowed to write. Never a real one. */
+  private targetChannel(channel: Channel): string {
     const target = this.storeChannel(channel);
     // A tripwire on the path that caused the defect. Promoting is a deploy, so
     // a mapping that ever resolves to a real channel must stop the run rather
@@ -278,15 +353,71 @@ export class PointerWorld extends World {
           `Live scenarios may only write test-* channels.`,
       );
     }
-    return run(["bun", "run", "--silent", "scripts/promote.ts", target, this.idOf(name)]);
+    return target;
+  }
+
+  /** Promote the whole composition a scenario build name stands for. */
+  async promote(channel: Channel, name: string): Promise<Run> {
+    const ids = this.idsOf(name);
+    if (this.mode === "local") {
+      if (!this.ids.has(name)) {
+        return { code: 1, stdout: "", stderr: `shell ${ids.shell} is not published` };
+      }
+      this.stub!.point(channel, manifestDoc(ids));
+      return { code: 0, stdout: ids.shell, stderr: "" };
+    }
+    return run([
+      "bun", "run", "--silent", "scripts/promote.ts", this.targetChannel(channel),
+      "--shell", ids.shell,
+      ...APPS.flatMap((a) => ["--app", `${a}=${ids[a]}`]),
+    ]);
+  }
+
+  /**
+   * Promote ONE unit, leaving the rest of the channel's composition alone.
+   *
+   * This is the operation the whole feature exists for, so the suite runs the
+   * real script with one flag rather than composing the result itself.
+   */
+  async promoteUnit(channel: Channel, unit: Unit, id: string): Promise<Run> {
+    const flag = unit === "shell" ? ["--shell", id] : ["--app", `${unit}=${id}`];
+    if (this.mode === "local") {
+      throw new Error("promoteUnit is @live only; the stub store does not model promote");
+    }
+    return run([
+      "bun", "run", "--silent", "scripts/promote.ts", this.targetChannel(channel), ...flag,
+    ]);
+  }
+
+  /** What the channel's pointer names right now, straight from the store. */
+  async compositionOf(channel: Channel): Promise<Partial<Record<Unit, string>>> {
+    const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${this.storeChannel(channel)}.json`;
+    const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+    if (!res.ok) return {};
+    const doc = (await res.json()) as {
+      shell?: { unitId?: string };
+      apps?: Record<string, { unitId?: string }>;
+    };
+    return {
+      ...(doc.shell?.unitId ? { shell: doc.shell.unitId } : {}),
+      ...Object.fromEntries(
+        Object.entries(doc.apps ?? {}).map(([n, a]) => [n, a.unitId]),
+      ),
+    };
   }
 
   /** Setup helper: make the channel point at the build, however that is done. */
-  async pointAt(channel: Channel, name: string): Promise<void> {
-    await this.publish(name);
+  async pointAt(channel: Channel, name: string, markers: Partial<Record<Unit, string>> = {}): Promise<void> {
+    await this.publish(name, markers);
     const result = await this.promote(channel, name);
     if (result.code !== 0) throw new Error(`could not point ${channel} at ${name}:\n${result.stderr}`);
-    if (this.mode === "live") await this.awaitBuild(channel, name, PROPAGATION_WINDOW_MS + 15_000);
+    // EVERY unit, not just the shell. Two compositions can share a shell and
+    // differ in one app, so waiting on the shell id alone returns immediately
+    // while the app a scenario is about is still the previous one. That is not
+    // hypothetical: it is what made two scenarios fail the first time this ran.
+    if (this.mode === "live") {
+      await this.awaitComposition(channel, this.idsOf(name), PROPAGATION_WINDOW_MS + 15_000);
+    }
   }
 
   // -- requests -------------------------------------------------------------
@@ -347,6 +478,41 @@ export class PointerWorld extends World {
     this.lastResponse = res;
     this.lastBody = await res.text();
     return res;
+  }
+
+  /** Poll until the channel serves this exact composition, or time out. */
+  async awaitComposition(channel: Channel, want: UnitIds, budgetMs: number): Promise<number> {
+    const started = Date.now();
+    let seen: Partial<Record<Unit, string>> = {};
+    while (Date.now() - started < budgetMs) {
+      await this.visit(channel);
+      seen = unitIdsInShell(this.lastBody);
+      if (UNITS.every((u) => seen[u] === want[u])) return Date.now() - started;
+      await Bun.sleep(500);
+    }
+    const wrong = UNITS.filter((u) => seen[u] !== want[u])
+      .map((u) => `${u}: ${seen[u]} != ${want[u]}`)
+      .join(", ");
+    throw new Error(
+      `the ${channel} origin did not serve the whole composition after ` +
+        `${Date.now() - started} ms. Still wrong: ${wrong}`,
+    );
+  }
+
+  /** Poll until the channel serves this unit id for this unit, or time out. */
+  async awaitUnit(channel: Channel, unit: Unit, id: string, budgetMs: number): Promise<number> {
+    const started = Date.now();
+    let seen: string | undefined;
+    while (Date.now() - started < budgetMs) {
+      await this.visit(channel);
+      seen = unitIdsInShell(this.lastBody)[unit];
+      if (seen === id) return Date.now() - started;
+      await Bun.sleep(500);
+    }
+    throw new Error(
+      `the ${channel} origin still served ${unit}=${JSON.stringify(seen)} after ` +
+        `${Date.now() - started} ms; expected ${JSON.stringify(id)}`,
+    );
   }
 
   /** Poll until the channel serves the named build, or time out. */

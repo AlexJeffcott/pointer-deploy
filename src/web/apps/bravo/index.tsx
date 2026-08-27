@@ -8,7 +8,7 @@ function Bravo() {
   const who = user.value;
   const mine = countOf(NS);
   return (
-    <section class={styles.panel} style={{ borderTopColor: who.colour }}>
+    <section class={styles.panel} style={{ borderTopColor: who.colour }} data-unit-marker={__UNIT_MARKER__}>
       <p class={styles.name}>{NS}</p>
       <p class={styles.count} style={{ color: who.colour }}>
         {mine}

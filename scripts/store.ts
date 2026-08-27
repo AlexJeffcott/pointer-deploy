@@ -2,7 +2,7 @@
 // with the headers it needs, check whether one exists, and read one back.
 //
 // Bun's built-in S3Client cannot set Cache-Control at upload, and the cache
-// headers here are load-bearing: `builds/*` must be immutable so a visitor
+// headers here are load-bearing: `units/*` must be immutable so a visitor
 // never refetches a file whose name already names its contents, and
 // `manifests/*` must be short so a promotion reaches everyone inside the
 // propagation window. So the PUT is signed here instead. No SDK, no aws CLI.
@@ -243,17 +243,42 @@ export async function warmUrls(urls: string[]): Promise<{ warmed: number; failed
   return { warmed: urls.length - failed.length, failed };
 }
 
-/** Every file a manifest names, as absolute URLs. */
+/**
+ * Every file a manifest names, as absolute URLs.
+ *
+ * Schema 3 has one base per unit, which is what lets a channel take its shell
+ * from one build and its alpha from another. Schemas 1 and 2 share one base
+ * across everything, so they are joined against that instead.
+ */
 export function urlsInManifest(manifest: unknown): string[] {
   const m = manifest as Record<string, any>;
-  const base = String(m.assetBase ?? "").replace(/\/$/, "");
-  const rel: string[] = [];
-  if (m.entry) rel.push(m.entry.js, m.entry.css);
-  if (m.shell) rel.push(m.shell.js, m.shell.css);
-  for (const file of Object.values(m.imports ?? {})) rel.push(String(file));
-  for (const app of Object.values(m.apps ?? {}) as Array<Record<string, string>>) {
-    rel.push(app.js!);
-    if (app.css) rel.push(app.css);
+  const urls: string[] = [];
+
+  const join = (base: string, file: unknown) => {
+    if (!file) return;
+    urls.push(`${String(base).replace(/\/$/, "")}/${String(file).replace(/^\//, "")}`);
+  };
+
+  const unit = (u: Record<string, any> | null | undefined) => {
+    if (!u) return;
+    join(u.assetBase, u.js);
+    join(u.assetBase, u.css);
+    for (const file of Object.values(u.imports ?? {})) join(u.assetBase, file);
+  };
+
+  if (m.schema === 3) {
+    unit(m.shell);
+    for (const app of Object.values(m.apps ?? {}) as Array<Record<string, any>>) unit(app);
+    return urls;
   }
-  return rel.filter(Boolean).map((f) => `${base}/${String(f).replace(/^\//, "")}`);
+
+  const base = String(m.assetBase ?? "");
+  if (m.entry) { join(base, m.entry.js); join(base, m.entry.css); }
+  if (m.shell) { join(base, m.shell.js); join(base, m.shell.css); }
+  for (const file of Object.values(m.imports ?? {})) join(base, file);
+  for (const app of Object.values(m.apps ?? {}) as Array<Record<string, string>>) {
+    join(base, app.js);
+    join(base, app.css);
+  }
+  return urls;
 }

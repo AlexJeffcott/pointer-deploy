@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createManifestStore, manifestUrl, parseManifest } from "./manifest.ts";
+import { createManifestStore, manifestUrl, parseManifest, type Manifest } from "./manifest.ts";
+
+/** The id a manifest is known by, whichever schema it is. */
+const idOf = (m: Manifest | null | undefined): string | undefined =>
+  m ? (m.schema === 3 ? m.shell.unitId : m.buildId) : undefined;
 
 const URL_QA = "https://store.test/manifests/eu/qa.json";
 
@@ -23,6 +27,29 @@ const doc = (buildId: string) => ({
   shell: { js: "index-aaaa.js", css: "index-bbbb.css" },
   imports: { preact: "preact-cccc.js", "@pointer/shell": "api-dddd.js" },
   apps: { alpha: { js: "apps/alpha-eeee.js", css: "apps/alpha-ffff.css" } },
+});
+
+/** A composition. Each unit carries its own base, which is the whole point. */
+const unit = (name: string, id: string, extra: Record<string, unknown> = {}) => ({
+  unitId: id,
+  commit: `${id}${"0".repeat(40)}`.slice(0, 40),
+  assetBase: `https://store.test/units/${name}/${id}/`,
+  js: `${name}-aaaa.js`,
+  css: `${name}-bbbb.css`,
+  marker: "",
+  ...extra,
+});
+
+const composed = (shellId: string, alphaId = "a1") => ({
+  schema: 3,
+  composedAt: "2026-08-27T10:00:00.000Z",
+  contract: "9e79879",
+  shell: unit("shell", shellId, {
+    js: "index-aaaa.js",
+    css: "index-bbbb.css",
+    imports: { preact: "preact-cccc.js", "@pointer/shell": "api-dddd.js" },
+  }),
+  apps: { alpha: unit("alpha", alphaId) },
 });
 
 function harness(ttlMs = 10_000) {
@@ -54,7 +81,7 @@ test("manifestUrl joins base, region and channel", () => {
 describe("caching", () => {
   test("a cold read fetches once and returns the manifest", async () => {
     const h = harness();
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(1);
   });
 
@@ -62,7 +89,7 @@ describe("caching", () => {
     const h = harness();
     await h.store.get(URL_QA);
     h.tick(9_000);
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(1);
   });
 
@@ -73,11 +100,11 @@ describe("caching", () => {
     h.tick(11_000);
 
     // Rule 2: the visitor gets the previous build immediately.
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(2);
 
     await settle();
-    expect((await h.store.get(URL_QA))?.buildId).toBe("beta");
+    expect(idOf(await h.store.get(URL_QA))).toBe("beta");
     expect(h.state.calls).toBe(2);
   });
 
@@ -86,7 +113,7 @@ describe("caching", () => {
     const results = await Promise.all(
       Array.from({ length: 25 }, () => h.store.get(URL_QA)),
     );
-    expect(results.every((m) => m?.buildId === "alpha")).toBe(true);
+    expect(results.every((m) => idOf(m) === "alpha")).toBe(true);
     expect(h.state.calls).toBe(1);
   });
 });
@@ -100,10 +127,10 @@ describe("failure", () => {
     };
     h.tick(11_000);
 
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     await settle();
     h.tick(11_000);
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
   });
 
   test("a malformed document does not replace a good build", async () => {
@@ -115,7 +142,7 @@ describe("failure", () => {
     await settle();
 
     h.tick(11_000);
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
   });
 
   test("a non-2xx response does not replace a good build", async () => {
@@ -127,7 +154,7 @@ describe("failure", () => {
     await settle();
 
     h.tick(11_000);
-    expect((await h.store.get(URL_QA))?.buildId).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
   });
 
   test("a cold read with a dead store yields null", async () => {
@@ -159,7 +186,7 @@ describe("failure", () => {
 describe("parseManifest", () => {
   test("accepts a shell manifest with its apps", () => {
     const m = parseManifest(doc("alpha"));
-    expect(m.buildId).toBe("alpha");
+    expect(idOf(m)).toBe("alpha");
     expect(m.schema).toBe(2);
     if (m.schema !== 2) throw new Error("unreachable");
     expect(Object.keys(m.apps)).toEqual(["alpha"]);
@@ -176,7 +203,7 @@ describe("parseManifest", () => {
   });
 
   test("rejects an unsupported schema", () => {
-    expect(() => parseManifest({ ...doc("a"), schema: 3 })).toThrow("schema");
+    expect(() => parseManifest({ ...doc("a"), schema: 4 })).toThrow("schema");
   });
 
   test("rejects a missing entry file", () => {
@@ -208,5 +235,45 @@ describe("parseManifest", () => {
   test("rejects a non-object", () => {
     expect(() => parseManifest(null)).toThrow();
     expect(() => parseManifest("{}")).toThrow();
+  });
+
+  // Schema 3. The units are composed from separate publishes, so the thing to
+  // check is that each one keeps its OWN base rather than borrowing a shared
+  // one - that is the single field the whole feature rests on.
+  test("accepts a composition and keeps each unit's own base", () => {
+    const m = parseManifest(composed("s1", "a9"));
+    expect(m.schema).toBe(3);
+    if (m.schema !== 3) throw new Error("unreachable");
+    expect(m.shell.unitId).toBe("s1");
+    expect(m.apps.alpha!.unitId).toBe("a9");
+    expect(m.shell.assetBase).toBe("https://store.test/units/shell/s1/");
+    expect(m.apps.alpha!.assetBase).toBe("https://store.test/units/alpha/a9/");
+    expect(m.contract).toBe("9e79879");
+  });
+
+  test("accepts a composed app with no stylesheet", () => {
+    const doc3 = composed("s1");
+    doc3.apps.alpha.css = null as unknown as string;
+    const m = parseManifest(doc3);
+    if (m.schema !== 3) throw new Error("unreachable");
+    expect(m.apps.alpha!.css).toBeNull();
+  });
+
+  test("rejects a composition whose shell carries no import map", () => {
+    const doc3 = composed("s1");
+    delete (doc3.shell as { imports?: unknown }).imports;
+    // Without it every sub-app's bare specifiers fail to resolve in the
+    // browser and the page renders empty, while the server stays green.
+    expect(() => parseManifest(doc3)).toThrow("shell.imports");
+  });
+
+  test("rejects a composed unit with no base", () => {
+    const doc3 = composed("s1");
+    delete (doc3.apps.alpha as { assetBase?: unknown }).assetBase;
+    expect(() => parseManifest(doc3)).toThrow("apps.alpha.assetBase");
+  });
+
+  test("rejects a composition naming no apps", () => {
+    expect(() => parseManifest({ ...composed("s1"), apps: {} })).toThrow("no apps");
   });
 });

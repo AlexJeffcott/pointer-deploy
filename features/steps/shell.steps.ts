@@ -94,10 +94,10 @@ Then("the shell loads the script and the stylesheet of build {string}", function
   const id = this.idOf(name);
   expect(js).toBeTruthy();
   expect(css).toBeTruthy();
-  // Both must come from that build's directory in the store, never from this
-  // server: the claim is that the image holds no application files.
-  expect(js).toContain(`/builds/${id}/`);
-  expect(css).toContain(`/builds/${id}/`);
+  // Both must come from the shell unit's own directory in the store, never
+  // from this server: the claim is that the image holds no application files.
+  expect(js).toContain(`/units/shell/${id}/`);
+  expect(css).toContain(`/units/shell/${id}/`);
   expect(new URL(js!).origin).not.toBe(this.originFor("qa"));
 });
 

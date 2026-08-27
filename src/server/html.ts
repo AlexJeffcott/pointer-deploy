@@ -1,18 +1,44 @@
 // Builds the application shell from a manifest. The only templating the
 // server does.
 
-import type { Manifest } from "./manifest.ts";
+import type { ComposedUnit, Manifest } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
 export type BuildInfo = {
+  /**
+   * The shell's unit id under schema 3.
+   *
+   * The page no longer has one build id - it has five - but a single field
+   * naming the frame the visitor is looking at is still the thing to report
+   * first, and every unit id is beside it in `units`.
+   */
   buildId: string;
   commit: string;
   publishedAt: string;
   channel: string;
   region: string;
+  /** Schema 3 only. Every unit in the composition, and the contract it ran at. */
+  units?: Record<string, { unitId: string; commit: string; marker: string }>;
+  contract?: string;
 };
 
 export function buildInfo(m: Manifest, target: Target): BuildInfo {
+  if (m.schema === 3) {
+    return {
+      buildId: m.shell.unitId,
+      commit: m.shell.commit,
+      publishedAt: m.composedAt,
+      channel: target.channel,
+      region: target.region,
+      units: Object.fromEntries(
+        [["shell", m.shell] as const, ...Object.entries(m.apps)].map(([n, u]) => [
+          n,
+          { unitId: u.unitId, commit: u.commit, marker: u.marker },
+        ]),
+      ),
+      contract: m.contract,
+    };
+  }
   return {
     buildId: m.buildId,
     commit: m.commit,
@@ -34,8 +60,25 @@ const jsonBlock = (value: unknown) =>
 const joinUrl = (base: string, file: string) =>
   `${base.replace(/\/$/, "")}/${file.replace(/^\//, "")}`;
 
+/**
+ * Absolute URLs for one unit's own files.
+ *
+ * Schema 3's whole difference is here: each unit is joined against its own
+ * base, so the shell can come from one published unit and alpha from another.
+ */
+const unitUrls = (u: ComposedUnit): { js: string; css?: string } => ({
+  js: joinUrl(u.assetBase, u.js),
+  ...(u.css ? { css: joinUrl(u.assetBase, u.css) } : {}),
+});
+
 /** The entry script and stylesheet, whichever schema named them. */
 export function assetUrls(m: Manifest): { js: string; css: string } {
+  if (m.schema === 3) {
+    return {
+      js: joinUrl(m.shell.assetBase, m.shell.js),
+      css: joinUrl(m.shell.assetBase, m.shell.css ?? ""),
+    };
+  }
   const entry = m.schema === 1 ? m.entry : m.shell;
   return {
     js: joinUrl(m.assetBase, entry.js),
@@ -46,6 +89,9 @@ export function assetUrls(m: Manifest): { js: string; css: string } {
 /** Every sub-app's absolute URLs, for the shell to fetch on demand. */
 export function appUrls(m: Manifest): Record<string, { js: string; css?: string }> {
   if (m.schema === 1) return {};
+  if (m.schema === 3) {
+    return Object.fromEntries(Object.entries(m.apps).map(([name, a]) => [name, unitUrls(a)]));
+  }
   return Object.fromEntries(
     Object.entries(m.apps).map(([name, a]) => [
       name,
@@ -64,6 +110,17 @@ export function appUrls(m: Manifest): Record<string, { js: string; css?: string 
  */
 export function importMap(m: Manifest): Record<string, string> {
   if (m.schema === 1) return {};
+  // The import map always resolves against the SHELL's base, whichever unit a
+  // sub-app came from. That is what keeps one Preact on the page when the
+  // bundles around it were published weeks apart.
+  if (m.schema === 3) {
+    return Object.fromEntries(
+      Object.entries(m.shell.imports ?? {}).map(([name, file]) => [
+        name,
+        joinUrl(m.shell.assetBase, file),
+      ]),
+    );
+  }
   return Object.fromEntries(
     Object.entries(m.imports).map(([name, file]) => [name, joinUrl(m.assetBase, file)]),
   );

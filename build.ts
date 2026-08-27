@@ -1,7 +1,9 @@
-// Builds the shell and every sub-app, and records what it emitted in
-// dist/build.json so publish.ts does not re-derive the names.
+// Builds five units and records what each emitted in dist/build.json, so
+// publish.ts does not re-derive the names.
 //
-// Two kinds of build, and the difference is the whole architecture:
+// A unit is the thing that gets published and rolled back on its own: the
+// shell, and one per sub-app. Two kinds of build, and the difference is the
+// whole architecture:
 //
 //   1. The shell, the store and the import-map entries, in ONE Bun.build with
 //      splitting. Preact's code lands in a shared chunk that every entry
@@ -13,21 +15,31 @@
 //
 // Bundling Preact into each app instead would give each one its own signals
 // runtime, and a counter the shell owns would stop re-rendering them.
+//
+// Because units are composed rather than deployed together, a build also has
+// to say WHICH shells each unit can be composed with. That is the contract
+// matrix, and it runs here rather than beside the build: the set is part of
+// what gets published, not a report.
 
 import { rm, mkdir } from "node:fs/promises";
 import { basename } from "node:path";
+import {
+  APPS,
+  SHARED,
+  UNITS,
+  emitSurface,
+  hashSurface,
+  readRegistry,
+  renderMatrix,
+  retainedContracts,
+  runMatrix,
+  sharedVersions,
+  verifyRegistry,
+  type Unit,
+} from "./scripts/contract.ts";
 
 const OUTDIR = "dist";
-const APPS = ["alpha", "bravo", "charlie", "delta"] as const;
-
-/** Bare specifiers the shell owns and every sub-app borrows. */
-const SHARED = [
-  "preact",
-  "preact/hooks",
-  "preact/jsx-runtime",
-  "@preact/signals",
-  "@pointer/shell",
-] as const;
+const unitDir = (unit: Unit) => `${OUTDIR}/units/${unit}`;
 
 // Bun decides which JSX runtime to emit when the process starts, so this cannot
 // be set from here. Without it every sub-app imports preact/jsx-dev-runtime,
@@ -39,16 +51,66 @@ if (Bun.env.NODE_ENV !== "production") {
   );
 }
 
-const marker = Bun.env.BUILD_MARKER ?? "";
+// --- 0. the contract -------------------------------------------------------
+
+const registry = await readRegistry();
+const problems = await verifyRegistry(registry);
+if (problems.length) {
+  console.error("the contract registry does not verify:");
+  for (const p of problems) console.error(`  ${p}`);
+  process.exit(1);
+}
+
+const retained = retainedContracts(registry);
+const headHash = hashSurface(await emitSurface());
+
+// The forcing function. A surface change that reached the store with no
+// contract naming it would leave every unit claiming a hash nobody can check.
+if (!retained.some((c) => c.hash === headHash)) {
+  console.error(
+    `the type surface at HEAD is contract ${headHash}, which the registry does not hold.\n` +
+      `Record it before building:\n` +
+      `  bun run contract:mint --name <a-name-a-person-can-read>`,
+  );
+  process.exit(1);
+}
+
+const matrix = await runMatrix(retained);
+console.error(renderMatrix(matrix));
+console.error(`  ${UNITS.length * retained.length} cells in ${matrix.ms} ms\n`);
+
+const unsupported = UNITS.filter((u) => matrix.sets[u].length === 0);
+if (unsupported.length) {
+  console.error(
+    `${unsupported.join(", ")} compile against no retained contract, so nothing built ` +
+      `here could be promoted. MATRIX_VERBOSE=1 bun run contract:matrix shows why.`,
+  );
+  process.exit(1);
+}
+
+const versions = await sharedVersions();
+
+// --- markers ---------------------------------------------------------------
+
+// BUILD_MARKER applies to every unit; BUILD_MARKER_<UNIT> overrides one. The
+// live suite needs to publish a new alpha without touching the other four, and
+// editing the source for that would make the suite depend on its own edits.
+const markerFor = (unit: Unit): string =>
+  Bun.env[`BUILD_MARKER_${unit.toUpperCase()}`] ?? Bun.env.BUILD_MARKER ?? "";
+
 const common = {
   target: "browser",
   minify: true,
   sourcemap: "linked",
-  define: { __BUILD_MARKER__: JSON.stringify(marker) },
 } as const;
 
+const defines = (unit: Unit) => ({
+  __BUILD_MARKER__: JSON.stringify(Bun.env.BUILD_MARKER ?? ""),
+  __UNIT_MARKER__: JSON.stringify(markerFor(unit)),
+});
+
 await rm(OUTDIR, { recursive: true, force: true });
-await mkdir(OUTDIR, { recursive: true });
+await mkdir(`${OUTDIR}/units`, { recursive: true });
 
 const fail = (label: string, logs: unknown[]): never => {
   for (const log of logs) console.error(log);
@@ -59,6 +121,7 @@ const fail = (label: string, logs: unknown[]): never => {
 
 const shell = await Bun.build({
   ...common,
+  define: defines("shell"),
   entrypoints: [
     "src/web/shell/index.tsx",
     "src/web/shell/api.ts",
@@ -67,7 +130,7 @@ const shell = await Bun.build({
     "src/web/vendor/preact-jsx-runtime.ts",
     "src/web/vendor/preact-signals.ts",
   ],
-  outdir: OUTDIR,
+  outdir: unitDir("shell"),
   splitting: true,
   naming: {
     entry: "[name]-[hash].[ext]",
@@ -88,7 +151,9 @@ const named = (build: Bun.BuildOutput, stem: string, ext: string) => {
 const shellEntry = { js: named(shell, "index", ".js"), css: named(shell, "index", ".css") };
 
 // The import map the browser needs so a sub-app's bare specifiers resolve to
-// the files above. Keys are what the apps write; values are what gets served.
+// the files above. Keys are what the apps write; values are what gets served,
+// relative to the SHELL unit's own base - which is what lets a sub-app from a
+// different unit resolve them.
 const imports: Record<string, string> = {
   preact: named(shell, "preact", ".js"),
   "preact/hooks": named(shell, "preact-hooks", ".js"),
@@ -99,20 +164,21 @@ const imports: Record<string, string> = {
 
 // --- 2. one build per sub-app ---------------------------------------------
 
-const apps: Record<string, { js: string; css?: string }> = {};
-const appFiles: string[] = [];
-
 /** Every module specifier an ES module output imports. */
 const specifiersIn = (source: string): string[] =>
   [...source.matchAll(/(?:^|[;}\s])(?:import|export)[^'"`]*?from\s*["']([^"']+)["']/g)]
     .map((m) => m[1]!)
     .concat([...source.matchAll(/(?:^|[;}\s])import\s*["']([^"']+)["']/g)].map((m) => m[1]!));
 
+type UnitFiles = { js: string; css?: string; files: string[] };
+const appOutputs: Record<string, UnitFiles> = {};
+
 for (const app of APPS) {
   const built = await Bun.build({
     ...common,
+    define: defines(app),
     entrypoints: [`src/web/apps/${app}/index.tsx`],
-    outdir: `${OUTDIR}/apps`,
+    outdir: unitDir(app),
     external: [...SHARED],
     naming: { entry: `${app}-[hash].[ext]`, asset: `${app}-[hash].[ext]` },
   });
@@ -122,12 +188,11 @@ for (const app of APPS) {
   const css = built.outputs.find((o) => o.path.endsWith(".css"));
   if (!js) throw new Error(`${app} emitted no JavaScript`);
 
-  apps[app] = {
-    js: `apps/${basename(js.path)}`,
-    ...(css ? { css: `apps/${basename(css.path)}` } : {}),
+  appOutputs[app] = {
+    js: basename(js.path),
+    ...(css ? { css: basename(css.path) } : {}),
+    files: built.outputs.map((o) => basename(o.path)),
   };
-
-  appFiles.push(...built.outputs.map((o) => `apps/${basename(o.path)}`));
 
   // The invariant the whole design rests on: a sub-app reaches the shared
   // runtime and the store by name, and carries no copy of its own. If Preact
@@ -151,17 +216,75 @@ for (const app of APPS) {
   }
 }
 
-// --- record ----------------------------------------------------------------
+// --- 3. record -------------------------------------------------------------
 
-const files = [...shell.outputs.map((o) => basename(o.path)), ...appFiles];
+/**
+ * A unit's id is a hash of what it emitted, and nothing else.
+ *
+ * Bun's [hash] is content-derived, so the emitted names already carry the
+ * content. The commit is deliberately not in it: the commit identifies the
+ * source, not the artefact, and putting it in the id would mean one commit
+ * touching only alpha changed all five ids and republished all five - which
+ * removes the point of publishing units separately. The commit is recorded in
+ * unit.json instead.
+ */
+const unitId = (files: string[]): string =>
+  new Bun.CryptoHasher("sha256").update(JSON.stringify([...files].sort())).digest("hex").slice(0, 8);
 
-await Bun.write(
-  `${OUTDIR}/build.json`,
-  `${JSON.stringify({ shell: shellEntry, imports, apps, files }, null, 2)}\n`,
-);
+export type UnitRecord = {
+  id: string;
+  js: string;
+  css: string | null;
+  /** The shell only. The page's import map, relative to the shell's own base. */
+  imports?: Record<string, string>;
+  /** Every emitted file, relative to the unit's directory. */
+  files: string[];
+  /** Which contracts this unit compiles against. Generated, never written. */
+  contracts: string[];
+  /** Resolved versions of the shared packages. Compared at promote, not enforced. */
+  shared: Record<string, string>;
+  marker: string;
+};
+
+export type BuildRecord = {
+  schema: 3;
+  contract: string;
+  units: Record<string, UnitRecord>;
+};
+
+const shellFiles = shell.outputs.map((o) => basename(o.path));
+const units: Record<string, UnitRecord> = {
+  shell: {
+    id: unitId(shellFiles),
+    js: shellEntry.js,
+    css: shellEntry.css,
+    imports,
+    files: shellFiles,
+    contracts: matrix.sets.shell,
+    shared: versions,
+    marker: markerFor("shell"),
+  },
+};
+for (const app of APPS) {
+  const out = appOutputs[app]!;
+  units[app] = {
+    id: unitId(out.files),
+    js: out.js,
+    css: out.css ?? null,
+    files: out.files,
+    contracts: matrix.sets[app],
+    shared: versions,
+    marker: markerFor(app),
+  };
+}
+
+const record: BuildRecord = { schema: 3, contract: headHash, units };
+await Bun.write(`${OUTDIR}/build.json`, `${JSON.stringify(record, null, 2)}\n`);
 
 const bytes = shell.outputs.reduce((n, o) => n + o.size, 0);
 console.log(
-  `shell ${shellEntry.js} + ${shellEntry.css} (${(bytes / 1024).toFixed(1)} kB with the shared runtime)\n` +
-    APPS.map((a) => `  ${a.padEnd(8)} ${apps[a]!.js}`).join("\n"),
+  `contract ${headHash}\n` +
+    `shell    ${units.shell!.id}  ${shellEntry.js} + ${shellEntry.css} ` +
+    `(${(bytes / 1024).toFixed(1)} kB with the shared runtime)\n` +
+    APPS.map((a) => `${a.padEnd(8)} ${units[a]!.id}  ${units[a]!.js}`).join("\n"),
 );

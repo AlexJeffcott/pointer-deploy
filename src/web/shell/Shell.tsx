@@ -72,7 +72,11 @@ export function Shell() {
   const view = VIEWS[route.value] ?? VIEWS["/"]!;
 
   return (
-    <div class={styles.frame}>
+    // The shell is a unit like any other, so its marker has to reach the DOM
+    // too. Without this BUILD_MARKER_SHELL changes nothing the shell emits,
+    // its unit id does not move, and "deploy the shell alone" cannot be
+    // observed by anything.
+    <div class={styles.frame} data-unit-marker={__UNIT_MARKER__}>
       <header class={styles.masthead}>
         <h1 class={styles.title}>pointer-deploy</h1>
         <div class={styles.identity}>

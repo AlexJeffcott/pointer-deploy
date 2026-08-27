@@ -5,3 +5,5 @@ dist/
 .DS_Store
 .stryker-tmp/
 reports/
+.contract-emit/
+.contract-matrix/
