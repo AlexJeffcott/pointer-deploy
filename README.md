@@ -542,11 +542,12 @@ file is not observable to anything else: one digest in the pointer is replaced
 with a well-formed one that matches nothing, and the sub-app must not run. Seven
 `falsify` mutations hold them, five of which only a browser can catch.
 
-None of the five is @live. An @live scenario runs against the deployed image, so
-one written here would be red until someone deployed — a red reporting the
-deploy queue rather than a defect. The two that read HTML are @local; the three
-browser ones are @test-channel, which runs this working tree's server against
-the real store.
+The two that read HTML are `@live @local`, so they check the deployed image as
+well as the source — they were `@local` alone until the image carried this, and
+an `@live` scenario written before its deploy reports the deploy queue rather
+than a defect. The three browser ones are `@test-channel`: a `@browser` scenario
+against the deployed image cannot be falsified by an edit here, so it would
+prove nothing about its own quality.
 
 Not closed by this: a unit published before digests were recorded carries none,
 and `promote` warns rather than refuses. Refusing would make rolling back that

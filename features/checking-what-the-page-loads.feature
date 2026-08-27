@@ -17,26 +17,26 @@ Feature: Checking every file the page loads against the manifest
   # catch because whoever wrote the manifest wrote the digest beside it.
   #
   # Both mechanisms come from the SERVER: the policy is a response header, the
-  # digests are attributes it renders. So none of this is @live. An @live
-  # scenario runs against the DEPLOYED image, which carries whatever server was
-  # last shipped, and one written here would be red until someone deployed - a
-  # red that reports the deploy queue rather than a defect. Add @live to the
-  # first two once the image carries this.
+  # digests are attributes it renders. An @live scenario runs against the
+  # DEPLOYED image, so these two were @local until the image carried this. They
+  # are @live as well now, which is what makes them a check on the deploy and
+  # not only on the source.
   #
-  # The browser scenarios are @test-channel instead, which runs the documented
-  # entry point here against the real store, the same compromise the schema 2
-  # scenarios make.
+  # The browser scenarios stay @test-channel, which runs the documented entry
+  # point here against the real store - the same compromise the schema 2
+  # scenarios make. A @browser scenario against the deployed image could not be
+  # falsified by an edit here, so it would prove nothing about its own quality.
 
   Background:
     Given the qa channel points at build "alpha"
 
-  @local
+  @live @local
   Scenario: A shell names the only origins its files may come from
     When a visitor loads the qa origin
     Then the shell permits scripts and stylesheets from the store alone
     And the shell permits no inline script but the import map it carries
 
-  @local
+  @live @local
   Scenario: A shell names the digest of every file it tells the browser to fetch
     When a visitor loads the qa origin
     Then the shell's own script and stylesheet carry the digests the manifest records
