@@ -10,6 +10,7 @@ import {
 import { chromium, type Browser, type Page } from "playwright-core";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
+import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
 
 setDefaultTimeout(180_000);
 
@@ -196,6 +197,8 @@ export class PointerWorld extends World {
   stub: StubStore | null = null;
   server: ReturnType<typeof Bun.spawn> | null = null;
   serverPort = 0;
+  /** True while this process is serving the real store on 127.0.0.1. */
+  localServer = false;
 
   /** Scenario build name ("alpha") to the unit ids the store holds for it. */
   private ids = BUILD_IDS;
@@ -219,14 +222,43 @@ export class PointerWorld extends World {
 
   async startLocal(): Promise<void> {
     this.stub = await startStubStore();
+    await this.spawnServer({
+      MANIFEST_BASE: this.stub.manifestBase,
+      MANIFEST_TTL_MS: String(LOCAL_TTL_MS),
+      MANIFEST_TIMEOUT_MS: "3000",
+    });
+  }
+
+  /**
+   * The real server, started here, reading the REAL store.
+   *
+   * Live, a test-* channel is reached by a Host header, and no browser can be
+   * made to send one: Host is forbidden to setExtraHTTPHeaders, and Fly routes
+   * on SNI, so a resolver override cannot supply it either. So a @browser
+   * scenario about one of the suite's own channels runs the documented entry
+   * point here instead - the same file the image runs, and the same compromise
+   * scripts/e2e-independent-deploy.ts makes. The store, the units, the bundles
+   * and the browser are real; only the process the HTML comes from is local.
+   */
+  async startAgainstRealStore(): Promise<void> {
+    await this.spawnServer({
+      MANIFEST_BASE,
+      // The store caches a pointer for 5 s, so a shorter server TTL buys
+      // nothing. This one only stops the server adding to that wait.
+      MANIFEST_TTL_MS: "1000",
+      MANIFEST_TIMEOUT_MS: "10000",
+    });
+    this.localServer = true;
+  }
+
+  private async spawnServer(env: Record<string, string>): Promise<void> {
     const proc = Bun.spawn(["bun", "src/server/index.ts"], {
       env: {
         ...process.env,
+        // Development, so the *.localhost names resolve to a channel.
         NODE_ENV: "development",
         PORT: "0",
-        MANIFEST_BASE: this.stub.manifestBase,
-        MANIFEST_TTL_MS: String(LOCAL_TTL_MS),
-        MANIFEST_TIMEOUT_MS: "3000",
+        ...env,
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -258,6 +290,7 @@ export class PointerWorld extends World {
     await this.stub?.stop();
     this.server = null;
     this.stub = null;
+    this.localServer = false;
   }
 
   // -- channels -------------------------------------------------------------
@@ -422,22 +455,76 @@ export class PointerWorld extends World {
     }
   }
 
+  // -- writing a pointer directly ---------------------------------------------
+
+  /** What the channel's pointer held before a scenario overwrote it. */
+  private pointerBefore: { key: string; text: string } | null = null;
+
+  /**
+   * Point a channel at a document promote.ts cannot write.
+   *
+   * promote.ts composes schema 3 and nothing else, so a scenario about an
+   * older schema has to write the pointer itself. It shares the tripwire:
+   * only a test-* channel, checked here as well as there, because writing a
+   * pointer IS the deploy however it is done.
+   */
+  async pointChannelAtDocument(channel: Channel, doc: unknown): Promise<void> {
+    const cfg = configFromEnv();
+    const key = `manifests/${REGION}/${this.targetChannel(channel)}.json`;
+    const before = await getObjectText(cfg, key);
+    if (before === null) {
+      throw new Error(`${key} does not exist. This scenario replaces a pointer, never invents one.`);
+    }
+    this.pointerBefore = { key, text: before };
+    await this.writePointer(cfg, key, `${JSON.stringify(doc, null, 2)}\n`);
+  }
+
+  /**
+   * Put back exactly the bytes that were there.
+   *
+   * Loud on failure on purpose. A restore that swallowed its error would leave
+   * the channel pointing at a fixture and report a green run.
+   */
+  async restorePointer(): Promise<void> {
+    const saved = this.pointerBefore;
+    if (!saved) return;
+    this.pointerBefore = null;
+    await this.writePointer(configFromEnv(), saved.key, saved.text);
+  }
+
+  private async writePointer(
+    cfg: ReturnType<typeof configFromEnv>,
+    key: string,
+    text: string,
+  ): Promise<void> {
+    await putObject(cfg, key, new TextEncoder().encode(text), {
+      contentType: "application/json; charset=utf-8",
+      cacheControl: CACHE_POINTER,
+    });
+  }
+
   // -- requests -------------------------------------------------------------
 
   /** The address to connect to. Both live channels share one. */
   originFor(channel: Channel): string {
     if (this.mode === "local") return `http://127.0.0.1:${this.serverPort}`;
-    void channel;
+    // A server this process started against the real store. The channel is
+    // selected by the *.localhost name, which a browser CAN send - a Host
+    // header is the thing it cannot.
+    if (this.localServer) return `http://${this.storeChannel(channel)}.localhost:${this.serverPort}`;
     return LIVE_ADDRESS;
   }
 
   /** The Host to send. This is what selects the channel. */
   hostFor(channel: Channel): string {
-    return this.mode === "local" ? `${channel}.localhost` : LIVE_HOSTS[channel];
+    if (this.mode === "local") return `${channel}.localhost`;
+    if (this.localServer) return `${this.storeChannel(channel)}.localhost`;
+    return LIVE_HOSTS[channel];
   }
 
   /** True when the Host differs from the address, so fetch cannot be used. */
   private needsCurl(channel: Channel): boolean {
+    if (this.localServer) return false;
     return this.mode === "live" && this.hostFor(channel) !== new URL(LIVE_ADDRESS).host;
   }
 
@@ -519,7 +606,11 @@ export class PointerWorld extends World {
 
   /** Poll until the channel serves the named build, or time out. */
   async awaitBuild(channel: Channel, name: string, budgetMs: number): Promise<number> {
-    const want = this.idOf(name);
+    return this.awaitBuildId(channel, this.idOf(name), budgetMs);
+  }
+
+  /** The same, for a build id no scenario name stands for. */
+  async awaitBuildId(channel: Channel, want: string, budgetMs: number): Promise<number> {
     const started = Date.now();
     let seen: string | null = null;
     while (Date.now() - started < budgetMs) {
@@ -623,6 +714,18 @@ Before({ tags: "@live" }, async function (this: PointerWorld) {
   this.machinesBefore = await this.machineFingerprint();
 });
 
+// A scenario that drives one of the suite's OWN channels in a browser. No
+// browser can reach a test-* channel on Fly - Host is forbidden to
+// setExtraHTTPHeaders and Fly routes on SNI - so the documented entry point
+// runs here, against the real store. Registered before the @browser hook so
+// the server is listening by the time a page is opened.
+Before({ tags: "@test-channel" }, async function (this: PointerWorld) {
+  if (this.mode !== "live") {
+    throw new Error("@test-channel needs the real store. Run `bun run verify:browser`.");
+  }
+  await this.startAgainstRealStore();
+});
+
 Before({ tags: "@browser" }, async function (this: PointerWorld) {
   await this.openBrowser();
 });
@@ -630,4 +733,7 @@ Before({ tags: "@browser" }, async function (this: PointerWorld) {
 After(async function (this: PointerWorld) {
   await this.closeBrowser();
   await this.stopLocal();
+  // Last, and after the server that was reading it is gone: a channel left
+  // holding a fixture is a channel pointing somewhere nobody promoted.
+  await this.restorePointer();
 });

@@ -59,8 +59,8 @@ re-rendering it. So exactly one thing is shared, and the manifest carries it:
 or that stopped importing `preact` and `@pointer/shell` by name. Either means it
 bundled its own copy.
 
-That this matters was measured, not assumed. Bundling Preact into each app turns
-4 of the 6 browser scenarios red.
+That this matters was measured, not assumed. Bundling Preact into each app turned
+4 of the 6 browser scenarios red when it was tried.
 
 ### What happens on a request
 
@@ -269,7 +269,9 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
-| `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one check red |
+| `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
+| `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 18 ways; each break must turn one check red |
 | `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
 | `TODO.md` | Open items and what is done. Read it first after a context clear |
@@ -289,12 +291,12 @@ would make the platform kill machines that were serving visitors correctly.
 
 ```sh
 bun test src/server        # 53 unit tests
-bun run verify             # 9 @local scenarios, stub store, ~5 s
+bun run verify             # 12 @local scenarios, stub store, ~5 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris
-bun run verify:browser     # 7 @browser scenarios in a real Chrome
-bun run falsify            # 13 architectural mutations, each must turn a check red
-FALSIFY_LIVE=1 bun run falsify   # including the three that need the real store
+bun run verify:browser     # 9 @browser scenarios in a real Chrome
+bun run falsify            # 18 architectural mutations, each must turn a check red
+FALSIFY_LIVE=1 bun run falsify   # including the five that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run mutate             # Stryker over the server logic
 ```
@@ -322,8 +324,10 @@ carries `test-qa.localhost` for it, development only. Everything else is real,
 and the machine fingerprint is compared before and after.
 
 `@browser` uses `playwright-core` against the Chrome already on the machine, so
-nothing downloads a second browser. Those six scenarios cover what nothing else
-can see: five separately published bundles agreeing about one store.
+nothing downloads a second browser. Seven of those nine scenarios cover what
+nothing else can see: five separately published bundles agreeing about one
+store. The other two cover the schema they would agree about after a long
+rollback — see below.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
 mutates operators and literals in the pure logic — 69.91% killed. It found a real
@@ -396,10 +400,17 @@ refuses any live target not prefixed `test-`, and the run records what `qa` and
 The second repairs nothing on purpose: a restore hook that fails leaves the
 channel wrong and reports success.
 
-`verify:browser` still loads `pointer-deploy.fly.dev`, so it reads the real `qa`
-channel — no browser can be made to send a `Host` header. It writes nothing.
-Promote a build to `qa` before running it, or it checks whatever was last
-deployed.
+Seven of the nine `@browser` scenarios load `pointer-deploy.fly.dev`, so they
+read the real `qa` channel — no browser can be made to send a `Host` header.
+They write nothing. Promote a build to `qa` before running them, or they check
+whatever was last deployed.
+
+The two `@test-channel` scenarios do write, because what they are about is a
+channel pointing somewhere no promote would put it. They take the same way out
+`e2e` does — `bun src/server/index.ts` locally against the real store, reached
+at `test-qa.localhost` — write `test-qa`, and put the exact bytes back
+afterwards. `world.pointChannelAtDocument` refuses any channel not prefixed
+`test-`, the same tripwire `promote` carries.
 
 ## The bug that only a browser found
 
@@ -431,6 +442,36 @@ changed all five ids and republished all five. The same argument, taken one step
 further than it was the first time. The suite refuses two scenario builds that
 publish to one shell id, because without that guard every promotion scenario
 passes by accident: the channel already serves the id being promoted to it.
+
+## The schema a rollback can land on
+
+A rollback is an older pointer, and a pointer old enough was written by a server
+that composed the page differently. Schema 2 shared one `assetBase` across the
+whole page and resolved the import map against it; schema 3 gives each unit its
+own. Both channels a visitor can reach are schema 3, so no browser had ever
+loaded the older shape. `manifest.test.ts` parses a schema 2 document, which
+proves the parser and says nothing about the page — and the page is where the
+question lives, because whether five bundles fetched from one directory still
+share one signals runtime is not something a parser can answer.
+
+`bun run fixture:schema-2` writes one, once: every unit's files into a single
+directory under `legacy/schema-2/<id>/`, and a schema 2 manifest naming them.
+Both copies are kept — nothing is deleted from the store, and
+`features/support/fixtures/schema-2.json` is committed — so the scenario points
+a channel at a manifest instead of building one, which is the operation an
+operator would perform.
+
+Two `@browser` scenarios read it. The page reports one build id and no
+composition, every file it fetched came from that one directory, and a count
+raised in alpha is read by charlie two views away. The first of those is what
+stops the pair passing on a channel that never moved: schema 3 renders a working
+page too, and it is the page the other seven scenarios are already looking at.
+
+`falsify` breaks both halves — the parser's schema 2 branch, and the import map
+schema 2 resolves against the shared base — and each turns its scenario red.
+These are the only mutations here that falsify a **server** edit through a
+scenario, because a `@test-channel` scenario runs `src/server/index.ts` from the
+working tree rather than against the deployed image.
 
 ## Cold edges
 
@@ -486,6 +527,7 @@ Do not rediscover these.
 | Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
 | A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
 | `dist/` treated as the build you just made | `e2e`, `verify:live` and `falsify` all overwrite `dist/build.json`. `--from-build` after any of them promotes a harness build, and every check stays green because the manifest is well-formed and describes the wrong units |
+| A schema the parser accepts and nothing serves | The unit test is green, the rollback onto it is untested, and the page it would produce has never been rendered. Keep a fixture in the store and point a test channel at it |
 | A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
 
 ## Conventions

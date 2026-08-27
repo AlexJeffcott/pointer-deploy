@@ -244,6 +244,29 @@ export async function warmUrls(urls: string[]): Promise<{ warmed: number; failed
 }
 
 /**
+ * Warms, then tries the misses again.
+ *
+ * Filling several cold edges at once times one of them out often enough to
+ * matter: the first publish of the schema 2 fixture lost two files of fifteen
+ * that way, and both were there on the next attempt. Retrying is the
+ * difference between reporting a fixture as incomplete and reporting it as
+ * slow.
+ */
+export async function warmAll(
+  urls: string[],
+  attempts = 3,
+): Promise<{ warmed: number; failed: string[] }> {
+  let pending = urls;
+  let failed: string[] = [];
+  for (let attempt = 0; attempt < attempts && pending.length > 0; attempt++) {
+    failed = (await warmUrls(pending)).failed;
+    // warmUrls reports "<url> -> <reason>", and the URL is what to try again.
+    pending = failed.map((f) => f.split(" -> ")[0]!);
+  }
+  return { warmed: urls.length - failed.length, failed };
+}
+
+/**
  * Every file a manifest names, as absolute URLs.
  *
  * Schema 3 has one base per unit, which is what lets a channel take its shell

@@ -12,6 +12,7 @@ The README carries the design, the traps and the conventions.
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
 | Contract | `9e79879` |
+| Schema 2 fixture | `legacy/schema-2/2d429c02/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Secrets | `.env.local`, gitignored |
 
 `prod` has no hostname. Reach it with `curl -H "Host: prod.pointer-deploy.test"`.
@@ -28,56 +29,52 @@ Build clean immediately before any real promote. `e2e`, `verify:live` and
 
 ## Open
 
-### 1. Nothing serves schema 2, so rollback onto it is untested in a browser
-
-Both real channels are schema 3. `manifest.test.ts` parses schema 1 and 2 in
-isolation; no browser loads such a page. Needs a kept schema 2 manifest as a
-fixture and a `@browser` scenario pointing a `test-*` channel at it.
-
-### 2. A stale clean build still promotes
+### 1. A stale clean build still promotes
 
 The guard catches harness builds, not a clean build from an older commit.
 Record the source commit in `dist/build.json` and refuse a mismatch, with an
 override for deliberate rollback.
 
-### 3. Port the suite to `playwright-bdd`
+### 2. Port the suite to `playwright-bdd`
 
 The `.feature` files do not change; the bindings and runner do. Buys traces,
 screenshots on failure, parallelism. Costs ~400 lines across five step files.
 Trap: the non-browser suites spawn a Bun server and shell out to
 publish/promote, so they must move too or the project runs two runners.
 
-### 4. A browser-reachable `prod`
+### 3. A browser-reachable `prod`
 
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 5. Subresource Integrity, then a Content-Security-Policy
+### 4. Subresource Integrity, then a Content-Security-Policy
 
 `BuildArtifact.hash` is in hand in `build.ts`. Roughly three lines and one
 header. Whoever can write `manifests/eu/prod.json` can execute JavaScript on
 the production origin — this is the fix for that.
 
-### 6. Raise the mutation score on `manifest.ts`
+### 5. Raise the mutation score on `manifest.ts`
 
 61.36%. Read the survivors first: some are log strings that no behaviour should
 catch, and those want excluding rather than chasing.
 
-### 7. Second region
+### 6. Second region
 
 `fly scale count 1 --region iad`. Needs `manifests/us/<channel>.json` published
 or the US machine answers 503.
 
-### 8. CI
+### 7. CI
 
 `verify:live` needs live credentials, and a bucket write key is the
 production-origin execution key. Needs a second Tigris key scoped to non-prod
 paths first.
 
-### 9. Asset retention
+### 8. Asset retention
 
 Nothing is deleted, so nothing dangles. If a policy is added, keep every build
-90 days, or a tab opened before a deploy breaks on its next lazy fetch.
+90 days, or a tab opened before a deploy breaks on its next lazy fetch. Exempt
+`legacy/schema-2/`: the rollback scenarios point a channel at what is there,
+and a retention sweep would delete the fixture rather than expire it.
 
 ## Open questions
 
@@ -151,3 +148,6 @@ not the data.
   scenarios and three `falsify` mutations hold it. 16/16 mutations caught.
 - Browser steps match assets by file name, so a schema change does not silently
   match nothing.
+- A kept schema 2 manifest in the store, and two `@browser` scenarios that point
+  `test-qa` at it and read the rendered page. Two falsify mutations hold them.
+  Written by `bun run fixture:schema-2`; nothing rebuilds it per run.

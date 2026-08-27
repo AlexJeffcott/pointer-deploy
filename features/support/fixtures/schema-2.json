@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "buildId": "schema2-2d429c02",
+  "commit": "3d6f4a199aff73b3027fbfcf5d8b2749f4410265",
+  "publishedAt": "2026-08-27T13:09:27.784Z",
+  "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/legacy/schema-2/2d429c02/",
+  "shell": {
+    "js": "index-2g3zbsqd.js",
+    "css": "index-rc565c4j.css"
+  },
+  "imports": {
+    "preact": "preact-v9p29445.js",
+    "preact/hooks": "preact-hooks-zje192n9.js",
+    "preact/jsx-runtime": "preact-jsx-runtime-w4jp7234.js",
+    "@preact/signals": "preact-signals-p2tmemfm.js",
+    "@pointer/shell": "api-1eb73g2h.js"
+  },
+  "apps": {
+    "alpha": {
+      "js": "apps/alpha-tffen971.js",
+      "css": "apps/alpha-p2qgpx86.css"
+    },
+    "bravo": {
+      "js": "apps/bravo-4vf0ywmv.js",
+      "css": "apps/bravo-299q0wfv.css"
+    },
+    "charlie": {
+      "js": "apps/charlie-n96jpw9t.js",
+      "css": "apps/charlie-r65ajmdr.css"
+    },
+    "delta": {
+      "js": "apps/delta-z85d1rqz.js",
+      "css": "apps/delta-dskptvwx.css"
+    }
+  }
+}

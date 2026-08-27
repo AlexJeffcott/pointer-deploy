@@ -19,6 +19,7 @@
     "falsify": "bun run scripts/falsify.ts",
     "e2e": "bun run scripts/e2e-independent-deploy.ts",
     "setup:store": "bun run scripts/setup-store.ts",
+    "fixture:schema-2": "bun run scripts/publish-schema-2-fixture.ts",
     "mutate": "stryker run",
     "verify:browser": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @browser"
   },

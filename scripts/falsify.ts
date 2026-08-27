@@ -30,6 +30,15 @@ type Mutation = {
    * passed - a mutation nobody ran is not evidence either.
    */
   live?: boolean;
+  /**
+   * A @browser scenario. Set `live` too: it needs the real store, the real
+   * bundles and a Chrome.
+   *
+   * These are the only scenarios that can falsify a SERVER edit, because a
+   * @test-channel scenario runs `bun src/server/index.ts` from this working
+   * tree rather than against the deployed image.
+   */
+  browser?: boolean;
 };
 
 const MUTATIONS: Mutation[] = [
@@ -202,13 +211,51 @@ const MUTATIONS: Mutation[] = [
     replace: "        joinUrl(Object.values(m.apps)[0]?.assetBase ?? m.shell.assetBase, file),",
     unitTest: "resolves the import map against the shell's base",
   },
+
+  // --- the schema a rollback can land on -----------------------------------
+  //
+  // These two break the SERVER, and unlike the @live scenarios above they can
+  // be falsified from here: a @test-channel scenario runs
+  // `bun src/server/index.ts` out of this working tree against the real store,
+  // because no browser can reach a test-* channel on Fly. So the edit reaches
+  // the code under test, which is exactly what an @live scenario about server
+  // behaviour cannot offer.
+
+  {
+    // The rollback nobody would miss until they needed it. A channel still
+    // pointing at a pointer written before the split would answer 503 to every
+    // visitor, and every other check would stay green.
+    name: "the server stops accepting schema 2",
+    file: "src/server/manifest.ts",
+    find: "  if (m.schema !== 1 && m.schema !== 2 && m.schema !== 3) {",
+    replace: "  if (m.schema !== 1 && m.schema !== 3) {",
+    scenario: "A page served from a schema 2 manifest comes from one build directory",
+    live: true,
+    browser: true,
+  },
+  {
+    // Schema 2's import map is the only thing making five separately fetched
+    // bundles share one signals runtime. Dropping it leaves a page that
+    // answers 200, paints the frame, and resolves not one sub-app.
+    name: "a schema 2 page is served with no import map",
+    file: "src/server/html.ts",
+    find:
+      "  return Object.fromEntries(\n" +
+      "    Object.entries(m.imports).map(([name, file]) => [name, joinUrl(m.assetBase, file)]),\n" +
+      "  );",
+    replace: "  return {};",
+    scenario: "Five bundles resolved through one import map are still one application",
+    live: true,
+    browser: true,
+  },
 ];
 
 const CUKE = ["bun", "node_modules/@cucumber/cucumber/bin/cucumber.js"];
 
-async function runScenario(scenario: string, live = false): Promise<boolean> {
-  const proc = Bun.spawn([...CUKE, "--tags", live ? "@live" : "@local", "--name", scenario], {
-    env: { ...process.env, HARNESS: live ? "live" : "local" },
+async function runScenario(m: Mutation): Promise<boolean> {
+  const tag = m.browser ? "@browser" : m.live ? "@live" : "@local";
+  const proc = Bun.spawn([...CUKE, "--tags", tag, "--name", m.scenario!], {
+    env: { ...process.env, HARNESS: m.live ? "live" : "local" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -216,7 +263,7 @@ async function runScenario(scenario: string, live = false): Promise<boolean> {
   await new Response(proc.stderr).text();
   const code = await proc.exited;
   if (!/\d+ scenarios? \(/.test(out)) {
-    throw new Error(`--name ${JSON.stringify(scenario)} matched no single scenario:\n${out}`);
+    throw new Error(`--name ${JSON.stringify(m.scenario)} matched no single scenario:\n${out}`);
   }
   return code === 0;
 }
@@ -243,7 +290,8 @@ for (const m of MUTATIONS) {
   if (m.live && !RUN_LIVE) {
     // Reported, never silently dropped. A mutation nobody ran proves nothing,
     // and a summary that hid it would read as though it had.
-    console.log(`- ${m.name}\n    SKIPPED: @live. Set FALSIFY_LIVE=1 to run it.`);
+    const tag = m.browser ? "@browser" : "@live";
+    console.log(`- ${m.name}\n    SKIPPED: ${tag}. Set FALSIFY_LIVE=1 to run it.`);
     skipped++;
     continue;
   }
@@ -260,9 +308,7 @@ for (const m of MUTATIONS) {
   await Bun.write(m.file, original.replace(m.find, m.replace));
   let stillGreen: boolean;
   try {
-    stillGreen = m.scenario
-      ? await runScenario(m.scenario, m.live ?? false)
-      : await runUnitTest(m.unitTest!);
+    stillGreen = m.scenario ? await runScenario(m) : await runUnitTest(m.unitTest!);
   } finally {
     await Bun.write(m.file, original);
   }
