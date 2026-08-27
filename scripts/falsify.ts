@@ -102,6 +102,37 @@ const MUTATIONS: Mutation[] = [
   // scenario green while the real path was broken.
 
   {
+    // The refusal is the only thing standing between a stale dist/ and a
+    // harness build on a real channel. It ran on prod once.
+    //
+    // Not live, though it breaks promote.ts: the scenario it must redden runs
+    // the real script from a temporary directory against an unresolvable store,
+    // so no credentials and no deployed machine are involved.
+    name: "the harness-build refusal is removed",
+    file: "scripts/promote.ts",
+    find: "  if (marked.length > 0 && !channelArg.startsWith(\"test-\")) {",
+    replace: "  if (false) {",
+    scenario: "A build the harness made is refused on a real channel",
+  },
+  {
+    // The other side of it. A blanket refusal of every marked build would pass
+    // the scenario above and stop the live suite promoting anything.
+    name: "the refusal stops exempting the suite's own channels",
+    file: "scripts/promote.ts",
+    find: "  if (marked.length > 0 && !channelArg.startsWith(\"test-\")) {",
+    replace: "  if (marked.length > 0) {",
+    scenario: "The suite's own channels still accept a build the harness made",
+  },
+  {
+    // And a refusal that ignored the marker would refuse every deploy.
+    name: "the refusal ignores the marker and refuses every build",
+    file: "scripts/promote.ts",
+    find: "  if (marked.length > 0 && !channelArg.startsWith(\"test-\")) {",
+    replace: "  if (!channelArg.startsWith(\"test-\")) {",
+    scenario: "An ordinary build is not refused on a real channel",
+  },
+
+  {
     // The merge IS the feature. Without it every promote replaces all five
     // units, and "deploy alpha" silently rolls bravo back to whatever the
     // operator last had on disk.

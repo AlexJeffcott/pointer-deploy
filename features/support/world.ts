@@ -210,6 +210,8 @@ export class PointerWorld extends World {
   lastResponse: Response | null = null;
   lastBody = "";
   lastRun: Run | null = null;
+  /** Temporary working directory a promote-refusal scenario runs from. */
+  guardDir: string | null = null;
   machinesBefore: string | null = null;
   elapsedMs = 0;
 

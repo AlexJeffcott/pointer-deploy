@@ -28,63 +28,53 @@ Build clean immediately before any real promote. `e2e`, `verify:live` and
 
 ## Open
 
-### 1. The `--from-build` guard has no automated test
-
-`promote` refuses a marked build on a real channel. It was checked by hand only.
-Needs a scenario seen red, then a `falsify` mutation dropping the marker check.
-
-### 2. Nothing serves schema 2, so rollback onto it is untested in a browser
+### 1. Nothing serves schema 2, so rollback onto it is untested in a browser
 
 Both real channels are schema 3. `manifest.test.ts` parses schema 1 and 2 in
 isolation; no browser loads such a page. Needs a kept schema 2 manifest as a
 fixture and a `@browser` scenario pointing a `test-*` channel at it.
 
-### 3. A stale clean build still promotes
+### 2. A stale clean build still promotes
 
 The guard catches harness builds, not a clean build from an older commit.
 Record the source commit in `dist/build.json` and refuse a mismatch, with an
 override for deliberate rollback.
 
-### 4. Re-run `falsify` and `mutate`
-
-Both stale since `promote.ts` changed. Last: 13/13 mutations caught, Stryker
-68.90%.
-
-### 5. Port the suite to `playwright-bdd`
+### 3. Port the suite to `playwright-bdd`
 
 The `.feature` files do not change; the bindings and runner do. Buys traces,
 screenshots on failure, parallelism. Costs ~400 lines across five step files.
 Trap: the non-browser suites spawn a Bun server and shell out to
 publish/promote, so they must move too or the project runs two runners.
 
-### 6. A browser-reachable `prod`
+### 4. A browser-reachable `prod`
 
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 7. Subresource Integrity, then a Content-Security-Policy
+### 5. Subresource Integrity, then a Content-Security-Policy
 
 `BuildArtifact.hash` is in hand in `build.ts`. Roughly three lines and one
 header. Whoever can write `manifests/eu/prod.json` can execute JavaScript on
 the production origin — this is the fix for that.
 
-### 8. Raise the mutation score on `manifest.ts`
+### 6. Raise the mutation score on `manifest.ts`
 
 61.36%. Read the survivors first: some are log strings that no behaviour should
 catch, and those want excluding rather than chasing.
 
-### 9. Second region
+### 7. Second region
 
 `fly scale count 1 --region iad`. Needs `manifests/us/<channel>.json` published
 or the US machine answers 503.
 
-### 10. CI
+### 8. CI
 
 `verify:live` needs live credentials, and a bucket write key is the
 production-origin execution key. Needs a second Tigris key scoped to non-prod
 paths first.
 
-### 11. Asset retention
+### 9. Asset retention
 
 Nothing is deleted, so nothing dangles. If a policy is added, keep every build
 90 days, or a tab opened before a deploy breaks on its next lazy fetch.
@@ -135,9 +125,8 @@ would warn before a promote refuses.
 
 ### A deprecation dynamic
 
-Read as deprecation — say if that is wrong. A way to mark a contract, a unit or
-a field as going away, so consumers see it before it is removed rather than
-after.
+A way to mark a contract, a unit or a field as going away, so consumers see it
+before it is removed rather than after.
 
 ### Analytics on which build sets are in use
 
@@ -158,6 +147,7 @@ not the data.
 - `qa` and `prod` both moved onto schema 3.
 - The live suite has its own `test-qa` and `test-prod`, so it no longer deploys
   to visitors.
-- `promote --from-build` refuses a harness build on a real channel.
+- `promote --from-build` refuses a harness build on a real channel. Three
+  scenarios and three `falsify` mutations hold it. 16/16 mutations caught.
 - Browser steps match assets by file name, so a schema change does not silently
   match nothing.
