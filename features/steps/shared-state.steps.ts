@@ -126,23 +126,33 @@ Then("every sub-app on the page is drawn in that colour", async function (this: 
   expect(colours).toEqual(colours.map(() => expected));
 });
 
+// Which directory a sub-app is served from is a property of the manifest schema,
+// not of the application. Schema 2 put every app under one build directory as
+// apps/<name>-<hash>.js; schema 3 gives each unit its own base and serves
+// units/<name>/<id>/<name>-<hash>.js. The FILE NAME is the same under both, so
+// match on the last path segment and these steps survive a schema change.
+const fetchesOf = (requests: string[], app: string) =>
+  requests.filter((u) => {
+    const file = new URL(u).pathname.split("/").pop() ?? "";
+    return file.startsWith(`${app}-`);
+  });
+
 Then("no bundle for the {word} view has been fetched", function (this: PointerWorld, name: string) {
   for (const app of view(name).apps) {
-    const hits = this.requests.filter((u) => u.includes(`/apps/${app}-`));
-    expect(hits).toEqual([]);
+    expect(fetchesOf(this.requests, app)).toEqual([]);
   }
 });
 
 Then("the bundles for the {word} view have been fetched", function (this: PointerWorld, name: string) {
   for (const app of view(name).apps) {
-    const hits = this.requests.filter((u) => u.includes(`/apps/${app}-`) && u.endsWith(".js"));
+    const hits = fetchesOf(this.requests, app).filter((u) => u.endsWith(".js"));
     expect(hits.length).toBeGreaterThan(0);
   }
 });
 
 Then("each bundle for the {word} view was fetched once", function (this: PointerWorld, name: string) {
   for (const app of view(name).apps) {
-    const hits = this.requests.filter((u) => u.includes(`/apps/${app}-`) && u.endsWith(".js"));
+    const hits = fetchesOf(this.requests, app).filter((u) => u.endsWith(".js"));
     expect(hits).toHaveLength(1);
   }
 });
