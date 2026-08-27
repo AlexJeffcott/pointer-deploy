@@ -141,6 +141,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
 | `scripts/publish.ts` | `dist/` → `builds/<id>/`. Manifest last |
 | `scripts/promote.ts` | `builds/<id>/manifest.json` → `manifests/<region>/<channel>.json` |
+| `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one check red |
 | `stryker.config.json` | Mutation testing over the server logic |
@@ -217,6 +218,37 @@ Both are answered by one machine, and `channel-selection.feature` asserts that.
 `.test` is IANA-reserved and never resolves, which keeps it obvious that no
 browser reaches prod yet. A domain is needed for a browser-reachable prod URL,
 not for the behaviour.
+
+## The suite deploys, so it deploys somewhere else
+
+`verify:live` publishes throwaway builds and promotes them, because a stub
+standing in for `promote` could pass while the real promote path was broken.
+Promoting is the deploy. Pointed at `qa` and `prod`, the suite therefore
+deployed a scenario's build every time it ran, and the application served a
+build marked `alpha` or `beta` until someone promoted a real one.
+
+There are four channels now. Two the application is served from, two the suite
+owns:
+
+| Channel | Host | Written by |
+| --- | --- | --- |
+| `qa` | `pointer-deploy.fly.dev` | an operator |
+| `prod` | `prod.pointer-deploy.test` | an operator |
+| `test-qa` | `test-qa.pointer-deploy.test` | `verify:live` |
+| `test-prod` | `test-prod.pointer-deploy.test` | `verify:live` |
+
+The `.feature` files still say "qa" and "prod": which channels the harness uses
+is not part of the specification, so `features/support/world.ts` maps them and
+nothing else changes. Two checks stand behind the mapping — `world.promote`
+refuses any live target not prefixed `test-`, and the run records what `qa` and
+`prod` point at before the first scenario and fails if either moved by the end.
+The second repairs nothing on purpose: a restore hook that fails leaves the
+channel wrong and reports success.
+
+`verify:browser` still loads `pointer-deploy.fly.dev`, so it reads the real `qa`
+channel — no browser can be made to send a `Host` header. It writes nothing.
+Promote a build to `qa` before running it, or it checks whatever was last
+deployed.
 
 ## The bug that only a browser found
 

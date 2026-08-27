@@ -10,7 +10,7 @@
 //
 // Pure. No I/O, no clock. The unit test is the point of this file.
 
-export type Channel = "prod" | "qa";
+export type Channel = "prod" | "qa" | "test-prod" | "test-qa";
 export type Region = "eu" | "us";
 
 export type Target = { region: Region; channel: Channel };
@@ -23,6 +23,13 @@ const DEPLOYED: Record<string, Channel> = {
   // for anything that can set one. .test is IANA-reserved and never resolves,
   // which keeps it obvious that no browser can reach this yet.
   "prod.pointer-deploy.test": "prod",
+  // The live acceptance suite's own channels. It publishes throwaway builds
+  // and promotes them, so pointing it at qa or prod deployed them: every run
+  // left the real channels serving whatever the last scenario had published.
+  // These are reachable the same way prod is - by a Host header, which no
+  // browser can be made to send - and nothing but the suite writes them.
+  "test-qa.pointer-deploy.test": "test-qa",
+  "test-prod.pointer-deploy.test": "test-prod",
   // With a domain, replace the line above and add:
   // "qa.EXAMPLE.COM": "qa",
   // "app.EXAMPLE.COM": "prod",

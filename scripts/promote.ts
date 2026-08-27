@@ -13,7 +13,10 @@ import {
   warmUrls,
 } from "./store.ts";
 
-const CHANNELS = ["prod", "qa"] as const;
+// test-prod and test-qa belong to the live acceptance suite. It runs this
+// script rather than a stand-in - a stub could pass while the real promote
+// path was broken - so the real script has to accept them.
+const CHANNELS = ["prod", "qa", "test-prod", "test-qa"] as const;
 type Channel = (typeof CHANNELS)[number];
 
 const [channelArg, buildId] = process.argv.slice(2);

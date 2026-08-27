@@ -1,4 +1,12 @@
-import { After, Before, setDefaultTimeout, setWorldConstructor, World } from "@cucumber/cucumber";
+import {
+  After,
+  AfterAll,
+  Before,
+  BeforeAll,
+  setDefaultTimeout,
+  setWorldConstructor,
+  World,
+} from "@cucumber/cucumber";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 
@@ -16,15 +24,39 @@ const LOCAL_TTL_MS = 300;
 
 const LIVE_ADDRESS = Bun.env.LIVE_ADDRESS ?? "https://pointer-deploy.fly.dev";
 
+const MANIFEST_BASE =
+  Bun.env.MANIFEST_BASE ?? "https://pointer-deploy-assets.fly.storage.tigris.dev/manifests";
+const REGION = Bun.env.REGION ?? "eu";
+
 /**
- * The Host each channel is reached by. Both channels are one app on one
- * machine; only the header differs. Until a domain is pointed at Fly the prod
- * name cannot resolve, so it is reached by setting the header directly - which
- * is what Fly forwards to the server anyway.
+ * The channel each scenario channel really is, live.
+ *
+ * The suite publishes throwaway builds and promotes them. Promoting them to
+ * qa and prod IS a deploy, so every live run used to leave the application
+ * serving a test build until someone promoted a real one. The suite gets two
+ * channels of its own instead, and never writes the two the application is
+ * served from.
+ *
+ * The scenarios keep saying "qa" and "prod": which channels the harness uses
+ * is not part of the specification.
+ */
+const LIVE_CHANNELS: Record<Channel, string> = {
+  qa: "test-qa",
+  prod: "test-prod",
+};
+
+/** The channels the suite must never write. Asserted before and after a run. */
+const REAL_CHANNELS = ["qa", "prod"] as const;
+
+/**
+ * The Host each channel is reached by. Every channel is one app on one
+ * machine; only the header differs. No .test name resolves, so each is reached
+ * by setting the header directly - which is what Fly forwards to the server
+ * anyway.
  */
 const LIVE_HOSTS: Record<Channel, string> = {
-  qa: Bun.env.QA_HOST ?? "pointer-deploy.fly.dev",
-  prod: Bun.env.PROD_HOST ?? "prod.pointer-deploy.test",
+  qa: Bun.env.TEST_QA_HOST ?? "test-qa.pointer-deploy.test",
+  prod: Bun.env.TEST_PROD_HOST ?? "test-prod.pointer-deploy.test",
 };
 
 type Run = { code: number; stdout: string; stderr: string };
@@ -47,14 +79,51 @@ export async function run(cmd: string[], env: Record<string, string> = {}): Prom
   return { code: await proc.exited, stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
-/** A GET whose Host may differ from the address it connects to. */
+/**
+ * A GET whose Host may differ from the address it connects to.
+ *
+ * `-D -` writes the response headers to stdout ahead of the body. Without them
+ * the returned Response carries a status and nothing else, and a scenario
+ * about a response header - "A shell is never stored by an intermediary" - has
+ * nothing to read.
+ */
 export async function curlGet(url: string, host: string): Promise<Response> {
-  const r = await run(["curl", "-sS", "-o", "-", "-w", "\n%{http_code}", "-H", `Host: ${host}`, url]);
+  const r = await run(["curl", "-sS", "-D", "-", "-o", "-", "-H", `Host: ${host}`, url]);
   if (r.code !== 0) throw new Error(`curl ${url} (Host: ${host}) failed: ${r.stderr}`);
-  const cut = r.stdout.lastIndexOf("\n");
-  return new Response(cut === -1 ? "" : r.stdout.slice(0, cut), {
-    status: Number(r.stdout.slice(cut + 1)),
-  });
+  return responseFromCurl(r.stdout, `${url} (Host: ${host})`);
+}
+
+/** Header block, blank line, body. Header lines end CRLF; the body does not. */
+function responseFromCurl(raw: string, what: string): Response {
+  const cut = raw.indexOf("\r\n\r\n");
+  if (cut === -1) throw new Error(`curl ${what} returned no header block:\n${raw.slice(0, 200)}`);
+  const lines = raw.slice(0, cut).split("\r\n");
+  const status = Number(/^HTTP\/[\d.]+\s+(\d{3})/.exec(lines[0] ?? "")?.[1]);
+  if (!status) {
+    throw new Error(`curl ${what} returned no status line: ${JSON.stringify(lines[0] ?? "")}`);
+  }
+
+  const headers = new Headers();
+  for (const line of lines.slice(1)) {
+    const colon = line.indexOf(":");
+    if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+  }
+
+  // 204, 205 and 304 may carry no body, and Response throws if given one.
+  const bodyless = status === 204 || status === 205 || status === 304;
+  return new Response(bodyless ? null : raw.slice(cut + 4), { status, headers });
+}
+
+/** What a channel's pointer names in the store, or why it could not be read. */
+async function pointerBuildId(channel: string): Promise<string> {
+  const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${channel}.json`;
+  const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+  if (!res.ok) return `absent (${res.status})`;
+  try {
+    return (((await res.json()) as { buildId?: string }).buildId ?? "no buildId field");
+  } catch {
+    return "unreadable";
+  }
 }
 
 export function buildIdInShell(html: string): string | null {
@@ -185,6 +254,11 @@ export class PointerWorld extends World {
     return id;
   }
 
+  /** The channel this scenario channel writes. The stub store has no others. */
+  storeChannel(channel: Channel): string {
+    return this.mode === "live" ? LIVE_CHANNELS[channel] : channel;
+  }
+
   async promote(channel: Channel, name: string): Promise<Run> {
     if (this.mode === "local") {
       const id = this.idOf(name);
@@ -194,7 +268,17 @@ export class PointerWorld extends World {
       this.stub!.point(channel, manifestDoc(id));
       return { code: 0, stdout: id, stderr: "" };
     }
-    return run(["bun", "run", "--silent", "scripts/promote.ts", channel, this.idOf(name)]);
+    const target = this.storeChannel(channel);
+    // A tripwire on the path that caused the defect. Promoting is a deploy, so
+    // a mapping that ever resolves to a real channel must stop the run rather
+    // than ship a scenario's build to visitors.
+    if (!target.startsWith("test-")) {
+      throw new Error(
+        `the suite tried to promote to ${JSON.stringify(target)}, which is a real channel. ` +
+          `Live scenarios may only write test-* channels.`,
+      );
+    }
+    return run(["bun", "run", "--silent", "scripts/promote.ts", target, this.idOf(name)]);
   }
 
   /** Setup helper: make the channel point at the build, however that is done. */
@@ -255,20 +339,14 @@ export class PointerWorld extends World {
     const url = `${this.originFor("qa")}${path}`;
     const host = "not-configured.example.com";
 
-    if (this.mode === "local") {
-      const res = await fetch(url, { headers: { host }, redirect: "manual" });
-      this.lastResponse = res;
-      this.lastBody = await res.text();
-      return res;
-    }
+    const res =
+      this.mode === "local"
+        ? await fetch(url, { headers: { host }, redirect: "manual" })
+        : await curlGet(url, host);
 
-    const r = await run(["curl", "-sS", "-o", "-", "-w", "\n%{http_code}", "-H", `Host: ${host}`, url]);
-    if (r.code !== 0) throw new Error(`curl failed: ${r.stderr}`);
-    const cut = r.stdout.lastIndexOf("\n");
-    const status = Number(r.stdout.slice(cut + 1));
-    this.lastBody = cut === -1 ? "" : r.stdout.slice(0, cut);
-    this.lastResponse = new Response(this.lastBody, { status });
-    return this.lastResponse;
+    this.lastResponse = res;
+    this.lastBody = await res.text();
+    return res;
   }
 
   /** Poll until the channel serves the named build, or time out. */
@@ -336,6 +414,36 @@ export class PointerWorld extends World {
 }
 
 setWorldConstructor(PointerWorld);
+
+// The suite's own channels are the fix; this is the check on it. A live run
+// that writes qa or prod is a deploy nobody asked for, so the run records what
+// the real channels point at and fails if either moved. It repairs nothing on
+// purpose - a restore that fails leaves the channel wrong and says it did not.
+const realChannelsBefore = new Map<string, string>();
+
+BeforeAll(async function () {
+  if (MODE !== "live") return;
+  for (const channel of REAL_CHANNELS) {
+    realChannelsBefore.set(channel, await pointerBuildId(channel));
+  }
+});
+
+AfterAll(async function () {
+  if (MODE !== "live") return;
+  const moved: string[] = [];
+  for (const channel of REAL_CHANNELS) {
+    const before = realChannelsBefore.get(channel);
+    const after = await pointerBuildId(channel);
+    if (before !== after) moved.push(`  ${channel}: ${before} -> ${after}`);
+  }
+  if (moved.length) {
+    throw new Error(
+      `the live suite moved ${moved.length} real channel(s). That is a deploy:\n` +
+        `${moved.join("\n")}\n` +
+        `Promote the build that should be live, then find what wrote the channel.`,
+    );
+  }
+});
 
 Before({ tags: "@local" }, async function (this: PointerWorld) {
   if (this.mode !== "local") return;

@@ -26,6 +26,20 @@ describe("resolveChannel", () => {
     expect(resolveChannel("prod.pointer-deploy.test", prod)).toBe("prod");
   });
 
+  // The live acceptance suite promotes throwaway builds. If its hosts resolved
+  // to qa or prod, every run would deploy one of them - which is what happened
+  // before these existed.
+  test("gives the acceptance suite channels of its own", () => {
+    expect(resolveChannel("test-qa.pointer-deploy.test", prod)).toBe("test-qa");
+    expect(resolveChannel("test-prod.pointer-deploy.test", prod)).toBe("test-prod");
+  });
+
+  test("keeps the suite's channels out of the ones visitors are served", () => {
+    const suite = new Set(["test-qa", "test-prod"]);
+    expect(suite.has(resolveChannel("pointer-deploy.fly.dev", prod)!)).toBe(false);
+    expect(suite.has(resolveChannel("prod.pointer-deploy.test", prod)!)).toBe(false);
+  });
+
   test("separates the local channels", () => {
     expect(resolveChannel("qa.localhost", dev)).toBe("qa");
     expect(resolveChannel("prod.localhost", dev)).toBe("prod");
