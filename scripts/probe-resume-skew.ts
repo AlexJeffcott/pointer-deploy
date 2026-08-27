@@ -24,11 +24,16 @@
 //
 // Two readings come out of it, and they are independent:
 //
+// Read the first answer after the resume as well, and it is printed for that
+// reason: if it names the OLD marker, the process survived the suspension with
+// its cache intact and the staleness below is a real reading. If it names the
+// new one, the machine was stopped and started rather than suspended, the cache
+// came back empty, and the run measured a cold read instead.
+//
 //   staleness  how long the origin served the old composition after the resume.
-//              Anything far past MANIFEST_TTL_MS is the fault in TODO item 7.
-//   skew       the guest's clock against this one. Negative is the mechanism
-//              above; the round trip is included, so treat anything inside a
-//              second as noise.
+//              Anything far past MANIFEST_TTL_MS is the fault this is for.
+//   skew       how far the guest's clock falls OUTSIDE the round trip that read
+//              it. Zero means the clock is correct to the resolution below.
 
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "./store.ts";
 
@@ -113,6 +118,8 @@ const machine = machines[0]!;
 
 let staleMs = -1;
 let skewMs = Number.NaN;
+/** The width of the round trip the clock was read across. The resolution. */
+let bracketMs = Number.NaN;
 try {
   // 1. A cached entry for the origin to go stale on. Without this the resumed
   //    server reads the store from cold and the probe measures nothing.
@@ -161,11 +168,24 @@ try {
     await Bun.sleep(1_000);
   }
 
-  // 5. The guest's clock against this one, round trip included.
-  const here = Date.now();
+  // 5. The guest's clock, bracketed by the round trip that read it.
+  //
+  // `fly ssh console` takes seconds - connect, then start bun - so a bare
+  // subtraction measures the command and not the clock. Measured here, an
+  // awake machine reads 2802 to 4742 ms of round trip with its clock landing
+  // 136 to 273 ms before the end of it. A correct clock lands ANYWHERE inside
+  // the interval, so only a value outside it is skew, and only by how far
+  // outside. The resolution is the width of the bracket, which is reported
+  // beside the number: a skew smaller than that cannot be seen this way, and a
+  // skew that matters here is the length of the suspension.
+  const readStart = Date.now();
   const guest = await run(["fly", "ssh", "console", "-C", 'bun -e "console.log(Date.now())"']);
-  const value = Number(guest.stdout.split("\n").pop());
-  if (Number.isFinite(value)) skewMs = value - here;
+  const readEnd = Date.now();
+  const value = Number(guest.stdout.trim().split("\n").pop());
+  if (Number.isFinite(value)) {
+    bracketMs = readEnd - readStart;
+    skewMs = value < readStart ? value - readStart : value > readEnd ? value - readEnd : 0;
+  }
 } finally {
   await putObject(cfg, key, new TextEncoder().encode(original), {
     contentType: "application/json; charset=utf-8",
@@ -179,7 +199,7 @@ console.log(
   `\nstaleness  ${staleMs < 0 ? `over ${BUDGET_MS} ms and still behind` : `${staleMs} ms`}` +
     ` (the server's TTL is ${ttlMs} ms)\n` +
     `skew       ${Number.isFinite(skewMs) ? `${skewMs} ms` : "could not be read"}` +
-    ` (the guest's clock against this one, round trip included)`,
+    ` (outside a ${Number.isFinite(bracketMs) ? bracketMs : "?"} ms round trip, which is the resolution)`,
 );
 
 // A run that measured nothing must not read as a run that found nothing.

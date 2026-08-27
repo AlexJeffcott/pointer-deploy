@@ -101,9 +101,25 @@ no request is ever made to fail. `fly.toml` sets `auto_stop_machines =
 "suspend"`, and a guest resumed from a snapshot can come back with its clock
 behind. Two unit tests and a falsify mutation hold it.
 
-**Still unrun: whether that is what happened.** It needs `fly machine suspend`,
-a pointer rewrite while it sleeps, a resume, and the guest's clock read against
-this one. `scripts/` has no artefact for it yet.
+**Run, and it does not explain the failure.** `scripts/probe-resume-skew.ts`
+suspended the machine for 120 s, moved the pointer while it slept, and resumed
+it with a request. The first answer after the resume was the OLD marker, so the
+process survived the suspension with its cache intact - and the origin caught up
+in 2220 ms, far inside the 10 s TTL. The guest's clock read 0 ms outside the
+3299 ms round trip that measured it. A clock 120 s behind would have made
+`now() - checkedAt` about zero and frozen the entry; instead it expired at once.
+Fly corrects the guest clock on resume.
+
+So rule 9 closes a real hole and is NOT the diagnosis. One sample, and
+`fly machine suspend` may not be what `auto_stop_machines = "suspend"` does on
+its own.
+
+**What is left**, with the store, the load, the repeated promotes and the resume
+all measured out: a Tigris overwrite the MACHINE's read path sees late, for tens
+of seconds, rarely. That read was sampled once, at a quiet moment, and it was
+1.46 s. Nothing here can force it. The deployed headers settle it on the next
+occurrence - an age under the TTL with the wrong composition is the store's
+answer, an age far above it is the origin.
 
 The next failure says which hop it is without another investigation. Every
 shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
