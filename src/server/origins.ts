@@ -43,6 +43,15 @@ const LOCAL: Record<string, Channel> = {
   "qa.localhost": "qa",
   "prod.localhost": "prod",
   "127.0.0.1": "qa",
+  // The suite's own channels, reachable by a browser.
+  //
+  // Live, they are reached by a Host header, which no browser can be made to
+  // send - Host is forbidden to setExtraHTTPHeaders, and Fly routes on SNI, so
+  // a resolver override cannot supply it either. scripts/e2e-independent-deploy
+  // therefore runs this same server locally against the real store and drives
+  // Chrome at these names. Development only, like everything else here.
+  "test-qa.localhost": "test-qa",
+  "test-prod.localhost": "test-prod",
 };
 
 const FLY_TO_REGION: Record<string, Region> = {

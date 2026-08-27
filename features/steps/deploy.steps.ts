@@ -12,23 +12,27 @@ import {
   putObject,
 } from "../../scripts/store.ts";
 import { type Channel, PointerWorld, run } from "../support/world.ts";
+import { UNITS, type Unit } from "../../scripts/contract.ts";
 
-type AnyManifest = {
+type UnitManifest = {
   assetBase: string;
-  entry?: { js: string; css: string };
-  shell?: { js: string; css: string };
+  js: string;
+  files: string[];
 };
 
-/** The build's entry script, whichever schema named it. */
-async function entryScriptOf(world: PointerWorld, name: string): Promise<string> {
+/** One published unit's manifest, straight from the store. */
+async function unitManifest(unit: Unit, id: string): Promise<UnitManifest> {
   const cfg = configFromEnv();
-  const url = publicUrl(cfg, `builds/${world.idOf(name)}/manifest.json`);
+  const url = publicUrl(cfg, `units/${unit}/${id}/unit.json`);
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
   if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
-  const m = (await res.json()) as AnyManifest;
-  const entry = m.shell ?? m.entry;
-  if (!entry) throw new Error(`manifest for ${name} names no entry script`);
-  return `${m.assetBase}${entry.js}`;
+  return (await res.json()) as UnitManifest;
+}
+
+/** The shell unit's entry script for a named scenario build. */
+async function entryScriptOf(world: PointerWorld, name: string): Promise<string> {
+  const m = await unitManifest("shell", world.unitIdOf(name, "shell"));
+  return `${m.assetBase}${m.js}`;
 }
 
 Given("build {string} is published", async function (this: PointerWorld, name: string) {
@@ -40,16 +44,19 @@ Given("build {string} is published and promoted to the {word} channel", async fu
 });
 
 // Produces exactly the state an interrupted publish leaves behind: files in
-// the build directory, no manifest beside them.
+// the unit's directory, no unit.json beside them. Every unit, because promote
+// reads all five and any one of them being incomplete must stop it.
 Given("a publish of build {string} is interrupted after some files are uploaded", async function (this: PointerWorld, name: string) {
   const cfg = configFromEnv();
   const id = `interrupted-${Bun.hash(`${name}-${process.pid}`).toString(16)}`;
-  await putObject(
-    cfg,
-    `builds/${id}/index-partial.js`,
-    new TextEncoder().encode("// half an upload\n"),
-    { contentType: contentTypeFor("x.js"), cacheControl: CACHE_IMMUTABLE },
-  );
+  for (const unit of UNITS) {
+    await putObject(
+      cfg,
+      `units/${unit}/${id}/${unit}-partial.js`,
+      new TextEncoder().encode("// half an upload\n"),
+      { contentType: contentTypeFor("x.js"), cacheControl: CACHE_IMMUTABLE },
+    );
+  }
   this.setId(name, id);
 });
 
@@ -57,11 +64,11 @@ When("the operator promotes build {string} to the {word} channel", async functio
   this.lastRun = await this.promote(channel as Channel, name);
 });
 
-When("the operator publishes a build with the id of build {string}", async function (this: PointerWorld, name: string) {
+When("the operator publishes build {string} again", async function (this: PointerWorld, name: string) {
   const built = await run(["bun", "run", "build"], { BUILD_MARKER: name });
   expect(built.code).toBe(0);
-  // No --force: the same marker yields the same content hash, so this is the
-  // same build id that is already in the store.
+  // The same marker yields the same bytes, so every unit hashes to the id it
+  // already has in the store.
   this.lastRun = await run(["bun", "run", "--silent", "scripts/publish.ts"]);
 });
 
@@ -105,9 +112,17 @@ Then("the promotion is refused because build {string} has no manifest", function
   expect(this.lastRun?.stderr).toContain(this.idOf(name));
 });
 
-Then("the publish is refused because that build is already published", function (this: PointerWorld) {
-  expect(this.lastRun?.code).not.toBe(0);
-  expect(this.lastRun?.stderr).toContain("already published");
+Then("no unit is uploaded, because none of them changed", function (this: PointerWorld) {
+  // A unit id is a hash of that unit's own output, so an id already in the
+  // store names bytes that are already there. Refusing would be wrong: the
+  // common case is publishing after changing one app, where the other four
+  // are legitimately unchanged and must be skipped rather than rejected.
+  expect(this.lastRun?.code).toBe(0);
+  expect(this.lastRun?.stderr).not.toContain("uploaded");
+  for (const unit of UNITS) {
+    expect(this.lastRun?.stderr).toContain(`${unit.padEnd(7)} `);
+  }
+  expect((this.lastRun?.stderr.match(/unchanged/g) ?? []).length).toBe(UNITS.length);
 });
 
 Then("the file is marked as safe to cache indefinitely", function (this: PointerWorld) {
@@ -118,10 +133,13 @@ Then("the file is marked as safe to cache indefinitely", function (this: Pointer
 });
 
 Then("every file that build names can be fetched", async function (this: PointerWorld) {
-  const { urlsInManifest } = await import("../../scripts/store.ts");
-  const cfg = configFromEnv();
-  const url = publicUrl(cfg, `builds/${this.idOf("alpha")}/manifest.json`);
-  const urls = urlsInManifest(await (await fetch(url)).json());
+  // Every file of every unit, not only the shell's. A composition whose alpha
+  // uploaded and whose delta did not still renders three panels and an error.
+  const urls: string[] = [];
+  for (const unit of UNITS) {
+    const m = await unitManifest(unit, this.unitIdOf("alpha", unit));
+    urls.push(...m.files.map((f) => `${m.assetBase}${f}`));
+  }
   expect(urls.length).toBeGreaterThan(0);
 
   const statuses = await Promise.all(

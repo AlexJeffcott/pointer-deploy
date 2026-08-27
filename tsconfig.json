@@ -6,8 +6,13 @@
 
     // Sub-apps import the shell store by the name the import map uses. The
     // bundler marks it external, so this mapping is for typechecking only -
-    // nothing is inlined.
-    "paths": { "@pointer/shell": ["./src/web/shell/api.ts"] },
+    // nothing is inlined. These two specifiers are also the two halves of the
+    // contract; the matrix re-points them at a contract's .d.ts files, and
+    // these are the head values.
+    "paths": {
+      "@pointer/shell": ["./src/web/shell/api.ts"],
+      "@pointer/subapp": ["./src/web/shell/subapp.ts"]
+    },
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun-types"],
 

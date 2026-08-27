@@ -41,9 +41,36 @@ export type ManifestV2 = Common & {
   apps: Record<string, { js: string; css?: string }>;
 };
 
-// Both are readable, so promoting a build from before the split is still a
-// working rollback rather than a 503.
-export type Manifest = ManifestV1 | ManifestV2;
+/** One unit inside a composition. Carries its own base. */
+export type ComposedUnit = {
+  unitId: string;
+  commit: string;
+  assetBase: string;
+  js: string;
+  css: string | null;
+  imports?: Record<string, string>;
+  marker: string;
+};
+
+/**
+ * A composition of independently published units.
+ *
+ * The difference from schema 2 is one field in one place: each unit has its
+ * OWN assetBase. Schema 2 shared one base across everything, so every file had
+ * to come from one build directory - which is exactly what made the five
+ * bundles deploy and roll back together.
+ */
+export type ManifestV3 = {
+  schema: 3;
+  composedAt: string;
+  contract: string;
+  shell: ComposedUnit;
+  apps: Record<string, ComposedUnit>;
+};
+
+// All three are readable, so promoting a pointer written before the split is
+// still a working rollback rather than a 503.
+export type Manifest = ManifestV1 | ManifestV2 | ManifestV3;
 
 export type ManifestStore = {
   get(url: string): Promise<Manifest | null>;
@@ -79,9 +106,11 @@ const str = (name: string, value: unknown): string => {
 export function parseManifest(input: unknown): Manifest {
   const m = input as Record<string, unknown> | null;
   if (!m || typeof m !== "object") throw new Error("manifest is not an object");
-  if (m.schema !== 1 && m.schema !== 2) {
+  if (m.schema !== 1 && m.schema !== 2 && m.schema !== 3) {
     throw new Error(`unsupported manifest schema ${String(m.schema)}`);
   }
+
+  if (m.schema === 3) return parseComposition(m);
 
   const common: Common = {
     buildId: str("buildId", m.buildId),
@@ -135,6 +164,64 @@ export function parseManifest(input: unknown): Manifest {
     schema: 2,
     shell: { js: str("shell.js", shell?.js), css: str("shell.css", shell?.css) },
     imports,
+    apps,
+  };
+}
+
+function parseComposedUnit(label: string, value: unknown): ComposedUnit {
+  const u = value as Record<string, unknown> | null;
+  if (!u || typeof u !== "object") throw new Error(`manifest field ${label} is not an object`);
+
+  let imports: Record<string, string> | undefined;
+  if (u.imports !== undefined) {
+    if (!u.imports || typeof u.imports !== "object") {
+      throw new Error(`manifest field ${label}.imports is not an object`);
+    }
+    imports = {};
+    for (const [name, file] of Object.entries(u.imports as Record<string, unknown>)) {
+      imports[name] = str(`${label}.imports.${name}`, file);
+    }
+  }
+
+  return {
+    unitId: str(`${label}.unitId`, u.unitId),
+    // Provenance, so a composition that predates the field still parses.
+    commit: typeof u.commit === "string" ? u.commit : "",
+    assetBase: str(`${label}.assetBase`, u.assetBase),
+    js: str(`${label}.js`, u.js),
+    css: u.css === null || u.css === undefined ? null : str(`${label}.css`, u.css),
+    ...(imports ? { imports } : {}),
+    marker: typeof u.marker === "string" ? u.marker : "",
+  };
+}
+
+function parseComposition(m: Record<string, unknown>): ManifestV3 {
+  const rawApps = m.apps;
+  if (!rawApps || typeof rawApps !== "object") {
+    throw new Error("manifest field apps is missing or not an object");
+  }
+
+  const apps: Record<string, ComposedUnit> = {};
+  for (const [name, value] of Object.entries(rawApps as Record<string, unknown>)) {
+    apps[name] = parseComposedUnit(`apps.${name}`, value);
+  }
+
+  // A shell with no sub-apps renders an empty page. Better to keep the last
+  // good composition than to serve that.
+  if (Object.keys(apps).length === 0) throw new Error("manifest names no apps");
+
+  const shell = parseComposedUnit("shell", m.shell);
+  // The shell is the only unit that carries the import map. Without it every
+  // sub-app's bare specifiers fail to resolve and the page renders empty.
+  if (!shell.imports || Object.keys(shell.imports).length === 0) {
+    throw new Error("manifest field shell.imports is missing or empty");
+  }
+
+  return {
+    schema: 3,
+    composedAt: str("composedAt", m.composedAt),
+    contract: str("contract", m.contract),
+    shell,
     apps,
   };
 }

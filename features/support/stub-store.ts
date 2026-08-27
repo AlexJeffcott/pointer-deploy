@@ -19,22 +19,44 @@ export type StubStore = {
   stop(): Promise<void>;
 };
 
-export function manifestDoc(buildId: string, assetBase = "https://assets.test") {
+const APPS = ["alpha", "bravo", "charlie", "delta"] as const;
+
+const composedUnit = (name: string, id: string, assetBase: string) => ({
+  unitId: id,
+  commit: `${id}${"0".repeat(40)}`.slice(0, 40),
+  assetBase: `${assetBase}/units/${name}/${id}/`,
+  js: `${name}-${id}.js`,
+  css: `${name}-${id}.css`,
+  marker: "",
+});
+
+/**
+ * A composition, as promote.ts writes one.
+ *
+ * `ids` names a unit id per unit. A bare string is shorthand for "every unit
+ * at this id", which is what a scenario about the whole channel wants; naming
+ * one unit is what a scenario about one app moving wants.
+ */
+export function manifestDoc(
+  ids: string | Partial<Record<"shell" | (typeof APPS)[number], string>>,
+  assetBase = "https://assets.test",
+) {
+  const at = (unit: string) =>
+    typeof ids === "string" ? ids : ((ids as Record<string, string>)[unit] ?? "unset");
   return {
-    schema: 2,
-    buildId,
-    commit: `${buildId}${"0".repeat(40 - buildId.length)}`.slice(0, 40),
-    publishedAt: "2026-08-26T20:14:02.000Z",
-    assetBase: `${assetBase}/builds/${buildId}/`,
-    shell: { js: `index-${buildId}.js`, css: `index-${buildId}.css` },
-    imports: {
-      preact: `preact-${buildId}.js`,
-      "@pointer/shell": `api-${buildId}.js`,
+    schema: 3,
+    composedAt: "2026-08-26T20:14:02.000Z",
+    contract: "9e79879",
+    shell: {
+      ...composedUnit("shell", at("shell"), assetBase),
+      js: `index-${at("shell")}.js`,
+      css: `index-${at("shell")}.css`,
+      imports: {
+        preact: `preact-${at("shell")}.js`,
+        "@pointer/shell": `api-${at("shell")}.js`,
+      },
     },
-    apps: {
-      alpha: { js: `apps/alpha-${buildId}.js`, css: `apps/alpha-${buildId}.css` },
-      bravo: { js: `apps/bravo-${buildId}.js`, css: `apps/bravo-${buildId}.css` },
-    },
+    apps: Object.fromEntries(APPS.map((a) => [a, composedUnit(a, at(a), assetBase)])),
   };
 }
 

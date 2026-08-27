@@ -11,7 +11,7 @@ function Delta() {
   const peak = Math.max(1, ...rows.map(([, v]) => v));
 
   return (
-    <section class={styles.panel} style={{ borderTopColor: who.colour }}>
+    <section class={styles.panel} style={{ borderTopColor: who.colour }} data-unit-marker={__UNIT_MARKER__}>
       <p class={styles.name}>{NS}</p>
       <p class={styles.count} style={{ color: who.colour }}>
         {countOf(NS)}

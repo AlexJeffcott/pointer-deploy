@@ -4,13 +4,14 @@
 // so the browser never fetches the manifest itself. Each bundle is imported
 // once and cached: switching views twice must not fetch twice.
 
+import type { SubApp } from "./subapp.ts";
+
 export type AppAssets = { js: string; css?: string };
 export type AppMap = Record<string, AppAssets>;
 
-export type SubApp = {
-  /** Renders into el. Returns a function that removes what it rendered. */
-  mount(el: HTMLElement): () => void;
-};
+// Re-exported so the shell's own imports are unchanged. The type itself lives
+// in subapp.ts because it is half the contract sub-apps are compiled against.
+export type { SubApp };
 
 export function readAppMap(): AppMap {
   const el = document.getElementById("__APPS__");

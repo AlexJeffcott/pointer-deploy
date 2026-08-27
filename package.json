@@ -8,6 +8,8 @@
     "start": "bun src/server/index.ts",
     "dev": "bun --watch src/server/index.ts",
     "typecheck": "tsc --noEmit",
+    "contract:mint": "bun run scripts/contract-mint.ts",
+    "contract:matrix": "bun run scripts/contract-matrix.ts",
     "test": "bun test src/server",
     "publish": "bun run scripts/publish.ts",
     "promote": "bun run scripts/promote.ts",
@@ -15,6 +17,7 @@
     "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags '@live and not @needs-domain'",
     "verify:all": "bun run verify && bun run verify:live && bun run verify:browser",
     "falsify": "bun run scripts/falsify.ts",
+    "e2e": "bun run scripts/e2e-independent-deploy.ts",
     "setup:store": "bun run scripts/setup-store.ts",
     "mutate": "stryker run",
     "verify:browser": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @browser"
