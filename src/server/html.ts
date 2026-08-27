@@ -71,12 +71,20 @@ const unitUrls = (u: ComposedUnit): { js: string; css?: string } => ({
   ...(u.css ? { css: joinUrl(u.assetBase, u.css) } : {}),
 });
 
-/** The entry script and stylesheet, whichever schema named them. */
-export function assetUrls(m: Manifest): { js: string; css: string } {
+/**
+ * The entry script and stylesheet, whichever schema named them.
+ *
+ * `css` is null when the shell unit published none. A composition may say so -
+ * `ComposedUnit.css` is `string | null` - and joining the base against an empty
+ * name produced the unit's own DIRECTORY, which the page then linked as a
+ * stylesheet and the browser fetched as a listing. Schemas 1 and 2 require the
+ * field, so only a composition reaches the null.
+ */
+export function assetUrls(m: Manifest): { js: string; css: string | null } {
   if (m.schema === 3) {
     return {
       js: joinUrl(m.shell.assetBase, m.shell.js),
-      css: joinUrl(m.shell.assetBase, m.shell.css ?? ""),
+      css: m.shell.css === null ? null : joinUrl(m.shell.assetBase, m.shell.css),
     };
   }
   const entry = m.schema === 1 ? m.entry : m.shell;
@@ -202,10 +210,12 @@ function assetOrigins(m: Manifest): string[] {
   ];
   const origins = new Set<string>();
   for (const url of urls) {
-    // Stryker disable next-line ConditionalExpression: no input reaches it.
-    // An absent file names no origin, and so does one this server cannot
-    // parse - new URL("") and new URL(undefined) both throw into the same
-    // catch below. The guard says which of the two this is; it decides nothing.
+    // Stryker disable next-line ConditionalExpression: it decides nothing.
+    // An absent file names no origin, and a shell with no stylesheet now
+    // reaches this with null rather than with a joined base. Removing the
+    // guard cannot change the answer: new URL(null), new URL(undefined) and
+    // new URL("") all throw into the same catch below, which adds no origin
+    // either. The guard says which of the two cases this is, and nothing more.
     if (!url) continue;
     try {
       origins.add(new URL(url).origin);
@@ -274,14 +284,18 @@ export function renderShell(m: Manifest, target: Target): string {
   const appsTag = Object.keys(apps).length
     ? `\n    <script type="application/json" id="__APPS__">${jsonBlock(apps)}</script>`
     : "";
+  // Dropped rather than emptied, the same way the import map and the app list
+  // are. A link whose href is the unit's directory makes the browser fetch a
+  // listing and parse it as CSS.
+  const styleTag =
+    css === null ? "" : `\n    <link rel="stylesheet" href="${attr(css)}"${sri(digest.css)} />`;
 
   return `<!doctype html>
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>pointer-deploy</title>
-    <link rel="stylesheet" href="${attr(css)}"${sri(digest.css)} />${importMapTag}
+    <title>pointer-deploy</title>${styleTag}${importMapTag}
   </head>
   <body>
     <div id="app"></div>

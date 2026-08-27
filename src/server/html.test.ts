@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { moduleIntegrity, renderShell, shellResponse } from "./html.ts";
+import { contentSecurityPolicy, moduleIntegrity, renderShell, shellResponse } from "./html.ts";
 import type { Manifest, ManifestV3 } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
@@ -178,11 +178,27 @@ describe("a composition of independently published units", () => {
   });
 
   // A shell unit published without a stylesheet. Nothing build.ts emits looks
-  // like this, and the page it renders links the unit's own directory as a
-  // stylesheet. Recorded as what happens, not as what should: see TODO.
-  test("a shell unit with no stylesheet links its unit base", () => {
+  // like this and no channel has ever served it, but `ComposedUnit.css` is
+  // `string | null`, so a composition may say it. Joining the base against an
+  // empty name produced the unit's own DIRECTORY, the page linked that as a
+  // stylesheet, and the browser fetched a listing and parsed it as CSS.
+  test("a shell unit with no stylesheet links no stylesheet at all", () => {
     const bare: Manifest = { ...v3, shell: { ...v3.shell, css: null } };
-    expect(renderShell(bare, TARGET)).toContain(`href="${SHELL_BASE}"`);
+    const page = renderShell(bare, TARGET);
+    expect(page).not.toContain("<link");
+    expect(page).not.toContain(`"${SHELL_BASE}"`);
+    // The two negatives above pass on a page that rendered nothing, and on one
+    // that put anything at all where the tag was. The head is asserted as the
+    // exact join instead, so the title runs straight into the import map.
+    expect(page).toContain('<title>pointer-deploy</title>\n    <script type="importmap">');
+    expect(page).toContain(`<script type="module" src="${SHELL_BASE}index-a.js"`);
+  });
+
+  // The policy is derived from the files the manifest names, so dropping the
+  // tag must not drop the origin the script is still fetched from.
+  test("a shell unit with no stylesheet still names its origin in the policy", () => {
+    const bare: Manifest = { ...v3, shell: { ...v3.shell, css: null } };
+    expect(contentSecurityPolicy(bare)).toContain("style-src https://store.test");
   });
 
   test("identifies every unit and the contract they agreed on", () => {

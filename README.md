@@ -322,12 +322,12 @@ comparison; the reading is what makes it diagnosable next time.
 ## Verifying
 
 ```sh
-bun test src/server        # 116 unit tests
+bun test src/server        # 117 unit tests
 bun run verify             # 21 @local scenarios, stub store, ~6 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris
 bun run verify:browser     # 12 @browser scenarios in a real Chrome
-bun run falsify            # 33 architectural mutations, each must turn a check red
+bun run falsify            # 34 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the ten that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run mutate             # Stryker over the server logic

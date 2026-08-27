@@ -279,6 +279,18 @@ const MUTATIONS: Mutation[] = [
     unitTest: "loads each sub-app from its own unit's base",
   },
   {
+    // The defect this fix closed. `ComposedUnit.css` is `string | null`, and
+    // joining a base against an empty name gives the unit's own DIRECTORY - so
+    // the page linked a listing as its stylesheet. A unit test, not a scenario:
+    // nothing build.ts emits has a shell with no stylesheet, so no channel can
+    // be made to serve one.
+    name: "a shell with no stylesheet links its own directory",
+    file: "src/server/html.ts",
+    find: "      css: m.shell.css === null ? null : joinUrl(m.shell.assetBase, m.shell.css),",
+    replace: '      css: joinUrl(m.shell.assetBase, m.shell.css ?? ""),',
+    unitTest: "no stylesheet links no stylesheet",
+  },
+  {
     // The other half of the same invariant, and the one that would go unnoticed
     // longest: the map resolving against an app's base gives that app its own
     // Preact, so the page loads, renders, and silently stops agreeing with
