@@ -74,30 +74,61 @@ and a retention sweep would delete the fixture rather than expire it.
 
 ### 7. `verify:live` fails intermittently in a full run
 
-Three consecutive full runs on 2026-08-27 each failed one or two scenarios, and
-the same scenarios pass on their own. Run the pair alone to see it:
+Both leads are refuted by measurement, and the lagging hop is named. What is
+left is one unrun experiment.
 
-```sh
-HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @live \
-  --name "Deploying one sub-app leaves the others where they were" \
-  --name "Republishing a build that has not changed uploads nothing"
+**The store is not the lagging hop.** Overwriting a key and reading it back:
+the new bytes reached a signed GET in 151 ms, a public GET in 305 ms and a
+`no-cache` GET in 465 ms, under `immutable` and under `max-age=5` alike. No
+response carried an `age` header. Read from inside the ams machine rather than
+from here, 1.46 s. So "an immutable claim that is rewritten" is not a caching
+fault.
+
+**Propagation does not accumulate over repeated promotes.** Eight consecutive
+rewrites of `test-qa`'s pointer reached the origin in 1047, 10360, 10716,
+10286, 10704, 10423, 10325 and 10438 ms. The 10 s is the server's own
+`MANIFEST_TTL_MS`, and it does not grow with the number of promotes. The
+image's server, run locally against the real store with the machine's
+settings, followed 20 rewrites in a row: median 10536 ms, max 10660 ms, no
+failed refresh.
+
+**The failure is the origin, and it is not slowness.** A full run on
+2026-08-27 reproduced it:
+
+```
+the prod origin did not serve the whole composition after 30520 ms.
+Still wrong: shell: 5329b397 != e4599956, ...
+the store's pointer names ... shell=e4599956, composed 31 s ago
 ```
 
-2 scenarios, 2 passed, 33 seconds. In a full run they read:
+The pointer moved at once. The origin served the composition before it for
+three TTLs, with not one failed refresh in the machine's log.
 
-| Run | Failure |
+**One mechanism found and fixed.** `now() - checkedAt < ttlMs` reads a clock
+that has moved BACKWARDS as freshness: the difference is negative, which is
+smaller than any TTL, so the entry never expires and the origin serves a
+composition nobody promoted for as long as the skew lasts - silently, because
+no request is ever made to fail. `fly.toml` sets `auto_stop_machines =
+"suspend"`, and a guest resumed from a snapshot can come back with its clock
+behind. Two unit tests and a falsify mutation hold it.
+
+**Still unrun: whether that is what happened.** It needs `fly machine suspend`,
+a pointer rewrite while it sleeps, a resume, and the guest's clock read against
+this one. `scripts/` has no artefact for it yet.
+
+The next failure says which hop it is without another investigation. Every
+shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
+quotes both beside what the store holds:
+
+| The origin says | What it means |
 | --- | --- |
-| 1 | `curl: (16) Error in the HTTP2 framing layer`. Fixed: `curlGet` now retries a request that gets no response |
-| 3 | `the qa origin did not serve the whole composition after 42903 ms`, all five units still naming the previous build |
-| 3 | Republishing reported 0 of 5 units unchanged, so the record beside the bytes had moved |
+| age under the TTL, wrong composition | the store answered with the old document |
+| age far above the TTL, refresh `ok` | the origin stopped refreshing. Rule 9 |
+| a named error | the refresh is failing and the last good build is being kept |
 
-Two leads, neither confirmed. **Propagation**: `awaitComposition` waits for the
-channel to serve what was just promoted, and a full run promotes to `test-qa`
-many times, so a previous composition can still be cached when the next
-scenario starts counting. **An immutable claim that is rewritten**: `publish`
-rewrites a unit.json in place when the contracts, the digests or the provenance
-have moved, and writes it with `CACHE_IMMUTABLE`. Anything holding the old copy
-keeps it.
+Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
+not reproduce and is not explained. Its assertion now carries publish's whole
+output, which names which of contracts, digests or provenance moved.
 
 ## Open questions
 

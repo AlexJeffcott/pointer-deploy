@@ -143,6 +143,41 @@ describe("caching", () => {
     expect(h.state.calls).toBe(2);
   });
 
+  // Rule 9. A wall clock moves backwards - an NTP correction does it, and so
+  // does a machine resumed from a snapshot with its clock behind the world's.
+  // `now() - checkedAt` is then negative, which is smaller than any TTL, so an
+  // unguarded check reads the entry as fresh and never refreshes it again. The
+  // origin then serves a composition nobody promoted for as long as the skew
+  // lasts, with no failed request and no warning to show for it.
+  test("a clock that has moved backwards refreshes rather than reading as fresh", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.state.respond = async () => Response.json(doc("beta"));
+
+    h.tick(-60_000);
+
+    // Rule 2 still holds: the visitor gets the previous build immediately.
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(2);
+    await settle();
+    expect(idOf(await h.store.get(URL_QA))).toBe("beta");
+  });
+
+  // The skew is not permanent damage: one refresh stamps the entry with this
+  // clock, and the entry is comparable again from there.
+  test("an entry stamped by the moved clock is fresh again", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(-60_000);
+    await h.store.get(URL_QA);
+    await settle();
+    expect(h.state.calls).toBe(2);
+
+    h.tick(1_000);
+    await h.store.get(URL_QA);
+    expect(h.state.calls).toBe(2);
+  });
+
   test("a burst of cold readers causes one fetch", async () => {
     const h = harness();
     const results = await Promise.all(
@@ -334,6 +369,85 @@ describe("failure", () => {
     h.tick(11_000);
     await h.store.get(URL_QA);
     expect(h.state.calls).toBe(2);
+  });
+});
+
+// What an operator reads off a response. The whole point is telling a manifest
+// that is one TTL behind from one that has stopped being refreshed, so every
+// test here is about a NUMBER rather than about the manifest beside it.
+describe("state", () => {
+  test("a URL nothing has fetched has no age and no error", () => {
+    const h = harness();
+    expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: null, lastError: null });
+  });
+
+  // An entry exists the moment a URL is asked for, and its fetchedAt is still
+  // zero. Measuring an age from zero would report the manifest as older than
+  // this machine, which reads as a stuck origin rather than as one that has
+  // never had a manifest at all.
+  test("a URL whose only fetch failed has no age, and names the failure", async () => {
+    const h = harness();
+    h.state.respond = async () => {
+      throw new Error("the store is gone");
+    };
+    expect(await h.store.get(URL_QA)).toBeNull();
+    expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: null, lastError: "the store is gone" });
+  });
+
+  test("a fresh fetch is zero milliseconds old", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: 0, lastError: null });
+  });
+
+  test("the age is measured from the last SUCCESSFUL fetch", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(7_000);
+    expect(h.store.stateOf(URL_QA).ageMs).toBe(7_000);
+  });
+
+  // The reading that separates "behind" from "stopped". A failed refresh
+  // advances the retry clock (rule 6) and must NOT advance the age, or an
+  // origin serving a manifest it can no longer refresh reports it as new.
+  test("a failed refresh names its error and leaves the age growing", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(11_000);
+    h.state.respond = async () => {
+      throw new Error("the store is gone");
+    };
+    await h.store.get(URL_QA);
+    await settle();
+
+    expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: 11_000, lastError: "the store is gone" });
+  });
+
+  test("a refresh that works again clears the error", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(11_000);
+    h.state.respond = async () => {
+      throw new Error("the store is gone");
+    };
+    await h.store.get(URL_QA);
+    await settle();
+
+    h.state.respond = async () => Response.json(doc("beta"));
+    h.tick(11_000);
+    await h.store.get(URL_QA);
+    await settle();
+
+    expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: 0, lastError: null });
+  });
+
+  // Not clamped. A negative age is the state in which a TTL over a wall clock
+  // stops expiring, and an operator who cannot read it cannot diagnose it.
+  test("a clock behind the one that stamped the entry reports a negative age", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(-60_000);
+    expect(h.store.stateOf(URL_QA).ageMs).toBe(-60_000);
   });
 });
 

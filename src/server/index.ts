@@ -57,14 +57,26 @@ const server = Bun.serve({
     // Fails closed. An unknown host must never fall back to a channel.
     if (!target) return text("not found", 404);
 
-    const manifest = await manifests.get(
-      manifestUrl(MANIFEST_BASE, target.region, target.channel),
-    );
+    const url = manifestUrl(MANIFEST_BASE, target.region, target.channel);
+    const manifest = await manifests.get(url);
     if (!manifest) {
       return text("the application manifest is not available", 503);
     }
 
-    return shellResponse(manifest, target);
+    // What this page was assembled from, said out loud.
+    //
+    // A pointer deploy has one failure nobody outside the process can see: the
+    // channel moved and this origin is still serving the composition before
+    // it. The page looks correct, every check is green, and the only reading
+    // anyone had was "the deploy has not arrived yet" - which is also what a
+    // deploy that will never arrive looks like. The age separates a manifest
+    // that is one TTL behind from one that has stopped being refreshed, and
+    // the refresh line names the store's own error when there is one.
+    const state = manifests.stateOf(url);
+    const res = shellResponse(manifest, target);
+    res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));
+    res.headers.set("x-manifest-refresh", state.lastError ?? "ok");
+    return res;
   },
 
   error(err) {

@@ -103,6 +103,35 @@ const MUTATIONS: Mutation[] = [
     replace: "      e.value = (await res.json()) as Manifest;",
     scenario: "A manifest the server cannot trust does not replace a good one",
   },
+  {
+    // The TTL over a wall clock. A machine resumed from a snapshot can come
+    // back with its clock behind, and an unguarded `now() - checkedAt` is then
+    // negative - smaller than any TTL, so the entry reads as fresh forever and
+    // the origin serves a composition nobody promoted with nothing to show for
+    // it. A unit test, not a scenario: reproducing it through the network
+    // means moving a machine's clock.
+    name: "a clock that moved backwards counts as freshness",
+    file: "src/server/manifest.ts",
+    find: "      if (age >= 0 && age < ttlMs) return e.value;",
+    replace: "      if (age < ttlMs) return e.value;",
+    unitTest: "backwards",
+  },
+  {
+    // index.ts is outside stryker's mutate set, so these two are the only
+    // thing holding the reading an operator diagnoses a stuck origin with.
+    name: "the shell stops reporting its manifest's age",
+    file: "src/server/index.ts",
+    find: 'res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));',
+    replace: 'res.headers.set("x-manifest-age", "never");',
+    scenario: "A shell says how old the manifest it was rendered from is",
+  },
+  {
+    name: "a refresh that failed is reported as one that worked",
+    file: "src/server/index.ts",
+    find: 'res.headers.set("x-manifest-refresh", state.lastError ?? "ok");',
+    replace: 'res.headers.set("x-manifest-refresh", "ok");',
+    scenario: "An origin that could not refresh its manifest says so",
+  },
 
   // --- the composition ----------------------------------------------------
   //

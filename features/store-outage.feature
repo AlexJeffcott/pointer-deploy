@@ -17,6 +17,26 @@ Feature: Serving through a store outage
     When the store becomes unreachable
     Then visitors to the qa origin continue to receive build "alpha"
 
+  # Keeping the last good build is the right behaviour and it is indistinguishable
+  # from a healthy origin, which is the problem: a channel that has moved and an
+  # origin that can no longer read the store look the same from outside. The age
+  # stops growing only when a refresh works, so an origin that is stuck says a
+  # bigger number every time it is asked.
+  #
+  # Two visits, because rule 2 is that a visitor never waits for the store: the
+  # first request after the interval is answered from the copy the server
+  # already had and STARTS the refresh, so what that refresh failed with is on
+  # the next response and not on this one.
+  @local
+  Scenario: An origin that could not refresh its manifest says so
+    Given a visitor has already loaded the qa origin
+    When the store becomes unreachable
+    And the server's copy of the manifest is older than its refresh interval
+    And a visitor loads the qa origin
+    And a visitor loads the qa origin
+    Then the shell reports the manifest it was rendered from as older than the refresh interval
+    And the shell names what its last refresh failed with
+
   @local
   Scenario: A visitor is never made to wait for the store
     Given a visitor has already loaded the qa origin

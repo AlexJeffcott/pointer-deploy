@@ -13,6 +13,10 @@
 //      retried on the TTL rather than on every request.
 //   7. A cold cache plus a failed fetch yields null. The caller answers 503.
 //   8. An invalid document is a failed refresh, not a poisoned cache.
+//   9. A clock that moved backwards is not freshness. See `get`.
+//  10. Every entry can say how old its manifest is and what its last refresh
+//      said, so an origin serving a superseded composition can be read as
+//      doing so rather than guessed at.
 
 type Common = {
   buildId: string;
@@ -82,13 +86,42 @@ export type Manifest = ManifestV1 | ManifestV2 | ManifestV3;
 
 export type ManifestStore = {
   get(url: string): Promise<Manifest | null>;
+  /** How old this URL's manifest is, and what its last refresh said. */
+  stateOf(url: string): ManifestState;
 };
 
 type Entry = {
   value: Manifest | null;
   /** When the last attempt finished, success or failure. 0 means never. */
   checkedAt: number;
+  /** When the last SUCCESSFUL fetch finished. 0 means never. */
+  fetchedAt: number;
+  /** What the last attempt failed with, or null if it succeeded. */
+  lastError: string | null;
   inflight: Promise<void> | null;
+};
+
+/**
+ * What an entry can say about itself, for an operator reading a response.
+ *
+ * The fault this exists for: a channel's pointer moves, and the origin goes on
+ * serving the composition before it. Nothing a visitor or a suite could read
+ * separated the three causes - the store had not taken the write, the refresh
+ * was failing, or the refresh was never attempted - so a wrong page and a slow
+ * one looked identical from outside.
+ */
+export type ManifestState = {
+  /**
+   * Milliseconds since the last successful fetch, or null if there has never
+   * been one.
+   *
+   * NOT clamped at zero. A negative age means this process's clock is behind
+   * the one that stamped the entry, which is a reading worth having: it is the
+   * state in which a TTL over a wall clock stops expiring.
+   */
+  ageMs: number | null;
+  /** What the last refresh attempt failed with, or null if it succeeded. */
+  lastError: string | null;
 };
 
 export type StoreOptions = {
@@ -262,7 +295,7 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
   const entryFor = (url: string): Entry => {
     let e = entries.get(url);
     if (!e) {
-      e = { value: null, checkedAt: 0, inflight: null };
+      e = { value: null, checkedAt: 0, fetchedAt: 0, lastError: null, inflight: null };
       entries.set(url, e);
     }
     return e;
@@ -281,11 +314,14 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
       // itself is held next door; only the sentence is here.
       if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
       e.value = parseManifest(await res.json());
+      e.fetchedAt = now();
+      e.lastError = null;
     } catch (err) {
       // e.value is deliberately untouched. Rules 5 and 8.
+      e.lastError = err instanceof Error ? err.message : String(err);
       // Stryker disable next-line StringLiteral: log wording. That warn is
       // called at all is held by "a failed refresh reports through onWarn".
-      warn(`[manifest] refresh failed for ${url}: ${err instanceof Error ? err.message : String(err)}`);
+      warn(`[manifest] refresh failed for ${url}: ${e.lastError}`);
     } finally {
       e.checkedAt = now(); // Rule 6: advances on failure too.
     }
@@ -307,11 +343,34 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
   }
 
   return {
+    stateOf(url: string): ManifestState {
+      // Never creates an entry. Asking what a URL's state is must not be the
+      // thing that gives it one, or a caller reading before serving would
+      // report an age for a manifest nothing has ever fetched.
+      const e = entries.get(url);
+      return {
+        ageMs: e && e.fetchedAt !== 0 ? now() - e.fetchedAt : null,
+        lastError: e ? e.lastError : null,
+      };
+    },
+
     async get(url: string): Promise<Manifest | null> {
       const e = entryFor(url);
 
       // Covers both "good and fresh" and "failed recently". Rules 1 and 6.
-      if (now() - e.checkedAt < ttlMs) return e.value;
+      //
+      // The lower bound is rule 9, and it is not defensive: a wall clock moves
+      // backwards. An NTP correction does it, and so does a machine resumed
+      // from a snapshot with its clock behind the world's - which is what this
+      // one runs on, since fly.toml suspends it when nobody is asking. A
+      // negative age would then read as fresher than any TTL, the entry would
+      // never be refreshed again, and the origin would serve a composition
+      // nobody promoted for as long as the skew lasted, silently and without
+      // one failed request to show for it. A clock that cannot be compared
+      // with the one that stamped the entry is a reason to refetch, not a
+      // reason to trust what is held.
+      const age = now() - e.checkedAt;
+      if (age >= 0 && age < ttlMs) return e.value;
 
       const pending = e.inflight ?? beginRefresh(url, e);
       if (e.value) return e.value; // Rule 2: never wait when something is serveable.

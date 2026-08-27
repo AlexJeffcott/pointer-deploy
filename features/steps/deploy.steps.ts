@@ -117,12 +117,20 @@ Then("no unit is uploaded, because none of them changed", function (this: Pointe
   // store names bytes that are already there. Refusing would be wrong: the
   // common case is publishing after changing one app, where the other four
   // are legitimately unchanged and must be skipped rather than rejected.
-  expect(this.lastRun?.code).toBe(0);
-  expect(this.lastRun?.stderr).not.toContain("uploaded");
+  //
+  // publish prints one line per unit saying what it did, and every way this
+  // can fail is written on those lines - uploaded, a contract set that moved,
+  // digests, a provenance upgrade. A bare count would report "expected 5,
+  // received 0" and throw the reason away, so the whole block travels with
+  // each assertion.
+  const said = this.lastRun?.stderr ?? "";
+  expect(`code ${this.lastRun?.code}\n${said}`).toBe(`code 0\n${said}`);
+  expect(said.includes("uploaded") ? said : "nothing uploaded").toBe("nothing uploaded");
   for (const unit of UNITS) {
-    expect(this.lastRun?.stderr).toContain(`${unit.padEnd(7)} `);
+    expect(said.includes(`${unit.padEnd(7)} `) ? unit : `${unit} is missing from:\n${said}`).toBe(unit);
   }
-  expect((this.lastRun?.stderr.match(/unchanged/g) ?? []).length).toBe(UNITS.length);
+  const unchanged = (said.match(/unchanged/g) ?? []).length;
+  expect(`${unchanged} unchanged\n${said}`).toBe(`${UNITS.length} unchanged\n${said}`);
 });
 
 Then("the file is marked as safe to cache indefinitely", function (this: PointerWorld) {

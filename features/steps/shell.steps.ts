@@ -128,6 +128,44 @@ Then("the server reports itself healthy", function (this: PointerWorld) {
   expect(this.lastBody.trim()).toBe("ok");
 });
 
+/** The two headers the server puts on every shell it renders. */
+const manifestAge = (world: PointerWorld): string =>
+  world.lastResponse?.headers.get("x-manifest-age") ?? "absent";
+const lastRefresh = (world: PointerWorld): string =>
+  world.lastResponse?.headers.get("x-manifest-refresh") ?? "absent";
+
+Then("the shell reports the age of the manifest it was rendered from", function (this: PointerWorld) {
+  const age = manifestAge(this);
+  // A number, not merely a header. "never" is the honest answer for a manifest
+  // nothing has fetched, and a shell rendered from one cannot exist.
+  expect(`${age} is a number: ${/^-?\d+$/.test(age)}`).toBe(`${age} is a number: true`);
+});
+
+Then("the shell reports that its last refresh worked", function (this: PointerWorld) {
+  expect(lastRefresh(this)).toBe("ok");
+});
+
+Then(
+  "the shell reports the manifest it was rendered from as older than the refresh interval",
+  function (this: PointerWorld) {
+    const age = Number(manifestAge(this));
+    // The server's TTL for a @local run. An age below it would mean the store
+    // answered and this scenario proved nothing about a refresh that failed.
+    expect(`${age} ms >= ${LOCAL_TTL_MS} ms: ${age >= LOCAL_TTL_MS}`).toBe(
+      `${age} ms >= ${LOCAL_TTL_MS} ms: true`,
+    );
+  },
+);
+
+Then("the shell names what its last refresh failed with", function (this: PointerWorld) {
+  const said = lastRefresh(this);
+  // Whatever the fetch threw. Pinning the sentence would pin Bun's wording for
+  // a refused connection, which is not this project's behaviour to fix.
+  expect(`${JSON.stringify(said)} is an error: ${said !== "ok" && said !== "absent" && said.length > 0}`).toBe(
+    `${JSON.stringify(said)} is an error: true`,
+  );
+});
+
 Then("the shell is returned without waiting for the store", function (this: PointerWorld) {
   expect(this.lastResponse?.status).toBe(200);
   // The store is answering in 1500 ms. Anything close to that means the

@@ -527,6 +527,59 @@ export class PointerWorld extends World {
     return res;
   }
 
+  /**
+   * What the store's pointer says, for a message about the origin lagging it.
+   *
+   * A timeout on the origin has two readings and the message could not tell
+   * them apart: the promote wrote the composition and the origin is still
+   * serving an older one, or the pointer itself never moved. This reads the
+   * pointer at the moment of the failure and says which.
+   *
+   * It answers rather than throws. A diagnosis that fails is still a timeout,
+   * and losing the original message to a second fault would be worse than
+   * reporting the timeout with nothing beside it.
+   */
+  async pointerNow(channel: Channel): Promise<string> {
+    try {
+      const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${this.storeChannel(channel)}.json`;
+      const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+      if (!res.ok) return `the store answered ${res.status} for ${url}`;
+      const doc = (await res.json()) as {
+        composedAt?: string;
+        shell?: { unitId?: string };
+        apps?: Record<string, { unitId?: string }>;
+      };
+      const ids = [
+        `shell=${doc.shell?.unitId ?? "?"}`,
+        ...Object.entries(doc.apps ?? {}).map(([n, a]) => `${n}=${a.unitId ?? "?"}`),
+      ]
+        .sort()
+        .join(" ");
+      const ageMs = doc.composedAt ? Date.now() - Date.parse(doc.composedAt) : NaN;
+      const age = Number.isFinite(ageMs) ? `, composed ${Math.round(ageMs / 1000)} s ago` : "";
+      return `the store's pointer names ${ids}${age}`;
+    } catch (err) {
+      return `the store's pointer could not be read: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  /**
+   * What the origin said about the manifest it rendered the last page from.
+   *
+   * The other half of the diagnosis. `pointerNow` says what the store holds;
+   * this says whether the origin has read it. An age below the server's TTL
+   * with the wrong composition in it means the store answered with the old
+   * one; an age far above the TTL means the origin stopped refreshing.
+   */
+  originSays(): string {
+    const age = this.lastResponse?.headers.get("x-manifest-age");
+    if (age === null || age === undefined) {
+      return "the origin reported no manifest age";
+    }
+    const refresh = this.lastResponse?.headers.get("x-manifest-refresh") ?? "unreported";
+    return `the origin rendered from a manifest ${age} ms old, last refresh ${refresh}`;
+  }
+
   /** Poll until the channel serves this exact composition, or time out. */
   async awaitComposition(channel: Channel, want: UnitIds, budgetMs: number): Promise<number> {
     const started = Date.now();
@@ -542,7 +595,8 @@ export class PointerWorld extends World {
       .join(", ");
     throw new Error(
       `the ${channel} origin did not serve the whole composition after ` +
-        `${Date.now() - started} ms. Still wrong: ${wrong}`,
+        `${Date.now() - started} ms. Still wrong: ${wrong}. ` +
+        `${await this.pointerNow(channel)}. ${this.originSays()}`,
     );
   }
 
@@ -558,7 +612,8 @@ export class PointerWorld extends World {
     }
     throw new Error(
       `the ${channel} origin still served ${unit}=${JSON.stringify(seen)} after ` +
-        `${Date.now() - started} ms; expected ${JSON.stringify(id)}`,
+        `${Date.now() - started} ms; expected ${JSON.stringify(id)}. ` +
+        `${await this.pointerNow(channel)}. ${this.originSays()}`,
     );
   }
 
@@ -579,7 +634,8 @@ export class PointerWorld extends World {
     }
     throw new Error(
       `the ${channel} origin still served ${JSON.stringify(seen)} after ` +
-        `${Date.now() - started} ms; expected ${JSON.stringify(want)}`,
+        `${Date.now() - started} ms; expected ${JSON.stringify(want)}. ` +
+        `${await this.pointerNow(channel)}. ${this.originSays()}`,
     );
   }
 
@@ -599,7 +655,8 @@ export class PointerWorld extends World {
     }
     throw new Error(
       `the ${channel} origin did not serve a shell containing ${JSON.stringify(text)} ` +
-        `within ${Date.now() - started} ms`,
+        `within ${Date.now() - started} ms. ${await this.pointerNow(channel)}. ` +
+        `${this.originSays()}`,
     );
   }
 

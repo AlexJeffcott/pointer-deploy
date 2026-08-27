@@ -287,15 +287,47 @@ logged.
 `/healthz` reads no manifest. If health depended on the store, a store outage
 would make the platform kill machines that were serving visitors correctly.
 
+## What the origin says about its manifest
+
+Every shell carries two headers naming what it was assembled from.
+
+| Header | Reading |
+| --- | --- |
+| `x-manifest-age` | milliseconds since the last SUCCESSFUL fetch, or `never`. Not clamped: a negative value means this machine's clock is behind the one that stamped the entry |
+| `x-manifest-refresh` | `ok`, or what the last refresh failed with |
+
+The fault they exist for has one shape and three causes, and nothing outside the
+process could tell them apart: **the channel moved and this origin is still
+serving the composition before it.** The page looks correct, every check is
+green, and "the deploy has not arrived yet" reads exactly like "this origin
+stopped reading the store".
+
+| The origin says | What it means |
+| --- | --- |
+| age under the TTL, wrong composition | the store answered with the old document |
+| age far above the TTL, refresh `ok` | the origin stopped refreshing |
+| a named error | the refresh is failing, and the last good build is being kept |
+
+Reading the second row cost a day. `manifest.ts` decides freshness with
+`now() - checkedAt < ttlMs`, over a WALL clock. A wall clock moves backwards —
+an NTP correction does it, and so does a machine resumed from a snapshot with
+its clock behind, which is what `auto_stop_machines = "suspend"` arranges here.
+The subtraction is then negative, negative is smaller than any TTL, the entry
+never expires, and the origin serves a superseded composition for as long as the
+skew lasts with not one failed request to show for it. The guard is one
+comparison; the reading is what makes it diagnosable next time.
+
+`scripts/probe-resume-skew.ts` measures both, and suspends the machine to do it.
+
 ## Verifying
 
 ```sh
-bun test src/server        # 63 unit tests
-bun run verify             # 19 @local scenarios, stub store, ~6 s
+bun test src/server        # 116 unit tests
+bun run verify             # 21 @local scenarios, stub store, ~6 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris
 bun run verify:browser     # 12 @browser scenarios in a real Chrome
-bun run falsify            # 30 architectural mutations, each must turn a check red
+bun run falsify            # 33 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the ten that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run mutate             # Stryker over the server logic
