@@ -202,6 +202,10 @@ function assetOrigins(m: Manifest): string[] {
   ];
   const origins = new Set<string>();
   for (const url of urls) {
+    // Stryker disable next-line ConditionalExpression: no input reaches it.
+    // An absent file names no origin, and so does one this server cannot
+    // parse - new URL("") and new URL(undefined) both throw into the same
+    // catch below. The guard says which of the two this is; it decides nothing.
     if (!url) continue;
     try {
       origins.add(new URL(url).origin);

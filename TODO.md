@@ -43,12 +43,16 @@ publish/promote, so they must move too or the project runs two runners.
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 3. Raise the mutation score on `origins.ts` and `html.ts`
+### 3. A shell unit with no stylesheet links its own directory
 
-68.09% and 87.33%. `manifest.ts` is done and settled how: read the README under
-"Two kinds of mutation testing" before starting. A survivor is a real gap, or
-wording no behaviour should catch, or a mutant no input can reach. Only the
-first is chased; the other two are excluded in place with the reason.
+`assetUrls` joins the shell's base against `css ?? ""`, so a schema 3 shell
+whose `css` is null renders `<link rel="stylesheet" href="<unit base>">` and the
+browser fetches a directory listing as a stylesheet. Nothing `build.ts` emits
+looks like this, so no channel has ever served it, and the type allows it:
+`ComposedUnit.css` is `string | null`. Found while raising the mutation score.
+Held as what happens by "a shell unit with no stylesheet links its unit base" in
+`src/server/html.test.ts`, which has to change with the fix. The fix is to drop
+the link tag, the same way the import map and the app list are dropped.
 
 ### 4. Second region
 
@@ -167,6 +171,16 @@ not the data.
   Still not held by anything: `publish` upgrading a dirty record when a clean
   tree later produces the same bytes. Staging it needs the harness to dirty
   the tree.
+- The server logic at a 100% mutation score: 417 mutants, 0 survivors, across
+  `manifest.ts` (from 61.86%), `html.ts` (from 87.33%) and `origins.ts` (from
+  68.09%). 44 more unit tests. Nine survivors were excluded rather than chased
+  and each carries its reason. The gaps that were real: attribute escaping was
+  never tested, so a file name carrying a quote could leave its attribute; a
+  digest was matched by `.js` anywhere in a name rather than at its end, so a
+  source map got one; the policy's origins were never compared in order, so the
+  sort could go; six of ten Fly regions had no test, and the six mapping to
+  `eu` cannot be told from the fallback by what they RETURN — only by the
+  warning the fallback prints. See the README for the three kinds of survivor.
 - `manifest.ts` at 100% mutation score, from 61.86%. 33 more unit tests, and a
   changed assertion shape: a rejected manifest must throw the PARSER's error,
   anchored, naming the field an operator has to fix. `toThrow("apps.alpha")`

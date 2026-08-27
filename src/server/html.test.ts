@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { renderShell, shellResponse } from "./html.ts";
-import type { Manifest } from "./manifest.ts";
+import { moduleIntegrity, renderShell, shellResponse } from "./html.ts";
+import type { Manifest, ManifestV3 } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
 const TARGET: Target = { region: "eu", channel: "qa" };
 const BASE = "https://store.test/builds/b1/";
+
+const policyOf = (m: Manifest) =>
+  shellResponse(m, TARGET).headers.get("content-security-policy") ?? "";
+
+/** One directive's value, so a test compares that and not the whole header. */
+const directiveOf = (csp: string, name: string) =>
+  csp.split("; ").find((d) => d.startsWith(`${name} `))?.slice(name.length + 1) ?? "";
+
+const importMapOf = (html: string) =>
+  JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!);
 
 const v2: Manifest = {
   schema: 2,
@@ -74,6 +84,43 @@ describe("a single-bundle manifest", () => {
     expect(html).not.toContain("importmap");
     expect(html).not.toContain("__APPS__");
   });
+
+  // The four places that render nothing when there is nothing to say: the
+  // import map tag, the app list tag, and the two digest attributes. A stray
+  // character in any of them is a malformed tag, and not.toContain() above
+  // cannot see one - it only knows the text it was told to look for is absent.
+  test("puts nothing at all where it names nothing", () => {
+    expect(html).toContain(`<link rel="stylesheet" href="${BASE}index-b.css" />\n  </head>`);
+    expect(html).toContain(
+      `</script>\n    <script type="module" src="${BASE}index-a.js"></script>`,
+    );
+  });
+
+  // Reached only through this schema: the policy asks for the digests and the
+  // hash of an import map that does not exist.
+  test("its policy names the store and allows no inline script", () => {
+    const csp = policyOf(v1);
+    expect(directiveOf(csp, "script-src")).toBe("https://store.test");
+    expect(directiveOf(csp, "style-src")).toBe("https://store.test");
+  });
+});
+
+// moduleIntegrity is exported and answers for any schema, and only schema 3
+// carries the units it reads. Through renderShell the older schemas never reach
+// it - the import map is empty, so the document is null before the digests are
+// asked for - which leaves this the only caller that can tell the guard is
+// there. Without it the two older schemas throw on a field they do not have.
+test("a manifest older than digests names no module digests", () => {
+  expect(moduleIntegrity(v1)).toEqual({});
+  expect(moduleIntegrity(v2)).toEqual({});
+});
+
+// A file this server cannot resolve to an origin is a file the page cannot be
+// allowed to fetch, and an empty directive value allows everything instead.
+test("a manifest naming no origin this server can parse allows nothing", () => {
+  const csp = policyOf({ ...v1, assetBase: "not a url/" });
+  expect(directiveOf(csp, "style-src")).toBe("'none'");
+  expect(directiveOf(csp, "script-src")).toBe("'none'");
 });
 
 // Schema 3. Three separately published units, on three different bases,
@@ -86,7 +133,7 @@ describe("a composition of independently published units", () => {
   const ALPHA_BASE = "https://store.test/units/alpha/a9/";
   const BRAVO_BASE = "https://store.test/units/bravo/b7/";
 
-  const v3: Manifest = {
+  const v3: ManifestV3 = {
     schema: 3,
     composedAt: "2026-08-27T10:00:00.000Z",
     contract: "9e79879",
@@ -130,6 +177,14 @@ describe("a composition of independently published units", () => {
     });
   });
 
+  // A shell unit published without a stylesheet. Nothing build.ts emits looks
+  // like this, and the page it renders links the unit's own directory as a
+  // stylesheet. Recorded as what happens, not as what should: see TODO.
+  test("a shell unit with no stylesheet links its unit base", () => {
+    const bare: Manifest = { ...v3, shell: { ...v3.shell, css: null } };
+    expect(renderShell(bare, TARGET)).toContain(`href="${SHELL_BASE}"`);
+  });
+
   test("identifies every unit and the contract they agreed on", () => {
     const build = JSON.parse(/id="__BUILD__">(.*?)<\/script>/s.exec(html)![1]!);
     expect(build).toMatchObject({
@@ -145,6 +200,26 @@ describe("a composition of independently published units", () => {
       region: "eu",
     });
   });
+});
+
+// Whoever writes a manifest names the files, so a file name is untrusted text
+// arriving in an HTML attribute.
+test("escapes what an attribute cannot carry, in the order that keeps it escaped", () => {
+  // Both characters in one value on purpose. The ampersand has to be replaced
+  // FIRST: escape the quote first and the ampersand it introduces is escaped
+  // again, so the href reads &amp;quot; and the browser fetches another file.
+  const awkward: Manifest = { ...v2, shell: { js: 'index&"a.js', css: "index<b.css" } };
+  const html = renderShell(awkward, TARGET);
+  expect(html).toContain(`src="${BASE}index&amp;&quot;a.js"`);
+  expect(html).toContain(`href="${BASE}index&lt;b.css"`);
+});
+
+// One separator between a base and a file, whichever of them carries it.
+test("joins a base and a file that both carry the separator", () => {
+  const slashed: Manifest = { ...v2, shell: { js: "/index-a.js", css: "/index-b.css" } };
+  const html = renderShell(slashed, TARGET);
+  expect(html).toContain(`src="${BASE}index-a.js"`);
+  expect(html).toContain(`href="${BASE}index-b.css"`);
 });
 
 test("a value containing a closing script tag cannot end the JSON block", () => {
@@ -177,7 +252,7 @@ describe("a composition carrying digests", () => {
     alphaCss: "sha384-alphastyle",
   };
 
-  const signed: Manifest = {
+  const signed: ManifestV3 = {
     schema: 3,
     composedAt: "2026-08-27T10:00:00.000Z",
     contract: "9e79879",
@@ -232,6 +307,22 @@ describe("a composition carrying digests", () => {
     });
   });
 
+  // A source map is fetched by devtools and never imported, and the integrity
+  // section is read for modules alone. Matching ".js" anywhere in a name rather
+  // than at its end puts one in, where it is at best ignored.
+  test("only a module carries a digest in the import map", () => {
+    const mapped: ManifestV3 = {
+      ...signed,
+      shell: {
+        ...signed.shell,
+        integrity: { ...signed.shell.integrity, "index-a.js.map": "sha384-sourcemap" },
+      },
+    };
+    const digests = importMapOf(renderShell(mapped, TARGET)).integrity;
+    expect(Object.keys(digests)).not.toContain(`${SHELL_BASE}index-a.js.map`);
+    expect(digests[`${SHELL_BASE}index-a.js`]).toBe(D.shellJs);
+  });
+
   // A stylesheet is not a module and never resolves through the map, so the
   // digest has to reach the loader instead.
   test("a sub-app's stylesheet digest is handed to the loader", () => {
@@ -244,15 +335,15 @@ describe("a composition carrying digests", () => {
   });
 
   describe("and its content policy", () => {
-    const csp = shellResponse(signed, TARGET).headers.get("content-security-policy") ?? "";
-    const directive = (name: string) =>
-      csp.split("; ").find((d) => d.startsWith(`${name} `))?.slice(name.length + 1) ?? "";
+    const csp = policyOf(signed);
+    const directive = (name: string) => directiveOf(csp, name);
 
     test("permits nothing the manifest does not name", () => {
       expect(csp).toContain("default-src 'none'");
       expect(directive("script-src")).toContain("https://store.test");
       expect(directive("style-src")).toBe("https://store.test");
       expect(csp).toContain("base-uri 'none'");
+      expect(csp).toContain("form-action 'none'");
       expect(csp).toContain("frame-ancestors 'none'");
     });
 
@@ -268,15 +359,21 @@ describe("a composition carrying digests", () => {
     // A file whose origin is not in the policy is fetched by nobody, whatever
     // digest sits beside it.
     test("names the origin of a sub-app published to another store", () => {
-      const elsewhere: Manifest = {
+      const elsewhere: ManifestV3 = {
         ...signed,
         apps: {
           alpha: { ...signed.apps.alpha!, assetBase: "https://other.test/units/alpha/a9/" },
         },
       };
-      const other = shellResponse(elsewhere, TARGET).headers.get("content-security-policy") ?? "";
-      expect(other).toContain("https://other.test");
-      expect(other).toContain("https://store.test");
+      const other = policyOf(elsewhere);
+      // Sorted, and separated. The shell's origin is reached first and
+      // other.test second, so an unsorted policy reads the other way round and
+      // its text depends on what order the manifest happened to name things.
+      // A header nothing can compare against is a header nothing checks.
+      expect(directiveOf(other, "style-src")).toBe("https://other.test https://store.test");
+      expect(directiveOf(other, "script-src")).toMatch(
+        /^https:\/\/other\.test https:\/\/store\.test 'sha256-/,
+      );
     });
   });
 });

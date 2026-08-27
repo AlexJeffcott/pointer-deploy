@@ -330,13 +330,12 @@ store. The other five cover the schema they would agree about after a long
 rollback, and what the page is allowed to load — see below.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
-mutates operators and literals in the pure logic — 91.98% killed, with
-`manifest.ts` at 100%, `html.ts` at 87.33% and `origins.ts` at 68.09%. It found a
-real gap: every entry in `FLY_TO_REGION` returned `"eu"`, the same as the
-fallback, so deleting the lookup left every test green. **`falsify.ts`** makes
-the architectural changes Stryker cannot generate — removing single-flight,
-making the health check read the manifest, unsharing the store. Neither replaces
-the other.
+mutates operators and literals in the pure logic — 417 mutants, 0 survivors,
+across all three files. It found a real gap: every entry in `FLY_TO_REGION`
+returned `"eu"`, the same as the fallback, so deleting the lookup left every
+test green. **`falsify.ts`** makes the architectural changes Stryker cannot
+generate — removing single-flight, making the health check read the manifest,
+unsharing the store. Neither replaces the other.
 
 A survivor is one of three things, and only the first is chased:
 
@@ -368,6 +367,15 @@ And every timing test named its own `ttlMs` and `timeoutMs`, so the defaults a
 server actually starts with were never run — a default timeout that is not a
 number aborts every request before it is sent, and the store looks dead while
 sitting there healthy.
+
+The other two files gave up four gaps of their own:
+
+| | |
+| --- | --- |
+| Attribute escaping | Nothing tested it. Whoever writes a manifest names the files, and a file name carrying a double quote leaves its attribute. The order matters too: the ampersand must be escaped first, or the one inside `&quot;` is escaped again |
+| A digest pattern with no end anchor | A source map is named `index-a.js.map`. Matching `.js` anywhere in a name rather than at its end puts a digest on one, where the module loader never looks |
+| An unsorted policy | The origins came out in manifest order, so the header's text depended on which unit was named first. A header nothing can compare against is a header nothing checks |
+| Six of ten Fly regions | Untested, and the six mapping to `eu` cannot be told from the fallback by what they RETURN. What separates them is the warning: a mapped region is silent. That silence is the only signal the table is complete |
 
 `@local` covers only what needs an injected failure — an unreachable store, a
 corrupt manifest, a counted read. Everything that publishes or promotes is

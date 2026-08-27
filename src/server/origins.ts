@@ -72,6 +72,9 @@ export function hostTable(isProduction: boolean): Record<string, Channel> {
 }
 
 export function resolveRegion(flyRegion: string | undefined): Region {
+  // Stryker disable next-line StringLiteral: no input reaches it. "" is here to
+  // give the index a string, and no key of FLY_TO_REGION is the empty string,
+  // so every miss lands on the same fallback whatever this default is.
   const region = FLY_TO_REGION[flyRegion ?? ""];
   if (region) return region;
   // Not an error path worth refusing traffic over, but it must be visible:
@@ -90,6 +93,13 @@ export function resolveChannel(
   if (!host) return null;
   // Strip the port, lowercase, and drop a trailing dot (a fully qualified
   // "example.com." is the same host).
+  //
+  // Stryker disable next-line OptionalChaining,StringLiteral: no input reaches
+  // either. String.prototype.split always returns at least one element, so
+  // index 0 is never undefined; both exist to satisfy noUncheckedIndexedAccess.
+  // They are kept rather than rewritten because this parser is the only thing
+  // separating prod from qa, and its semantics are not worth changing for a
+  // score.
   const name = host.toLowerCase().split(":")[0]?.replace(/\.$/, "") ?? "";
   return table[name] ?? null;
 }
