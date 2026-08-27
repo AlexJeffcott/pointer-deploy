@@ -145,6 +145,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/falsify.ts` | Breaks the server eight ways; each break must turn one check red |
 | `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
+| `TODO.md` | Working state, open items, and the traps already paid for |
 
 ## Two failure rules, on purpose
 
