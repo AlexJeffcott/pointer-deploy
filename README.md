@@ -311,7 +311,10 @@ stopped reading the store".
 Reading the second row cost a day. `manifest.ts` decides freshness with
 `now() - checkedAt < ttlMs`, over a WALL clock. A wall clock moves backwards —
 an NTP correction does it, and so does a machine resumed from a snapshot with
-its clock behind, which is what `auto_stop_machines = "suspend"` arranges here.
+its clock behind. `auto_stop_machines = "suspend"` can arrange that here, though
+it has never been seen to: left idle for 30 minutes the machine did not stop,
+because `min_machines_running = 1` holds it up, and a manual suspend and resume
+brought the clock back correct.
 The subtraction is then negative, negative is smaller than any TTL, the entry
 never expires, and the origin serves a superseded composition for as long as the
 skew lasts with not one failed request to show for it. The guard is one

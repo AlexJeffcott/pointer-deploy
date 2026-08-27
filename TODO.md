@@ -114,13 +114,18 @@ So rule 9 closes a real hole and is NOT the diagnosis. One sample, and
 `fly machine suspend` may not be what `auto_stop_machines = "suspend"` does on
 its own.
 
-**The automatic cycle is a cold restart, not a resume.** `fly logs` through a
-full run shows `machine is in a non-startable state: stopping`, then
-`reboot: Restarting system`, then a fresh `pointer-deploy listening` line. That
-is a new process with an EMPTY cache, and a cold read fetches the current
-pointer - so the automatic half of `auto_stop_machines = "suspend"` cannot
-produce stale serving at all. Only the manual `fly machine suspend` kept the
-process, and that one's clock came back correct.
+**The machine does not stop on its own, and the restarts in the logs are the
+suite's.** Corrected on 2026-08-28: the restarts through a run were read as
+Fly's automatic cycle, and they are not. `features/steps/shell.steps.ts:46` runs
+`fly machine stop` for "A visitor arriving at a suspended server receives the
+current build" - one per run, which is exactly the five seen across the batch of
+five. Left alone for 30 minutes the machine restarted ZERO times and its
+`updated_at` did not move: `min_machines_running = 1` holds it up.
+
+So a resumed process is not a routine state here at all.
+`auto_stop_machines = "suspend"` is configured and was never observed to fire.
+Rule 9 stays correct - a negative age reads as fresher than any TTL - but the
+condition it was written for is rarer than the guard's own comment claims.
 
 **What is left**, with the store, the load, the repeated promotes and the resume
 all measured out: a Tigris overwrite the MACHINE's read path sees late, for tens
@@ -133,7 +138,12 @@ answer, an age far above it is the origin.
 0 failed refreshes logged. Five of them ran back to back on 2026-08-27 between
 21:20 and 21:49 UTC, 4m35s to 6m33s each, with the propagation budgets used
 running 4304 to 9741 ms of 15000. The machine restarted five times inside that
-window and no run noticed it, which is the cold-restart reading above.
+window - once per run, from the scenario that stops it - and no run noticed.
+
+An eighth run followed 30 minutes of idle: green, 28 scenarios, 0 retries,
+propagation 8976 and 6703 ms. It did NOT reach the condition it was built for -
+the machine never stopped - so it measured a machine that had been up and quiet,
+not one resumed from sleep.
 
 Before the fixes, four runs the same day each failed one or two scenarios. The
 comparison is observational, not controlled: the code changed, the image was
