@@ -35,6 +35,12 @@ The guard catches harness builds, not a clean build from an older commit.
 Record the source commit in `dist/build.json` and refuse a mismatch, with an
 override for deliberate rollback.
 
+Related, and now fixed: a unit first published from a dirty tree used to keep
+`commit` and `dirty` forever, because the id is a content hash and the
+unchanged-check skipped the rewrite. `publish` now upgrades a dirty record when
+a clean tree produces the same bytes. No scenario and no mutation hold that
+rule — staging it needs the harness to dirty the tree.
+
 ### 2. Port the suite to `playwright-bdd`
 
 The `.feature` files do not change; the bindings and runner do. Buys traces,
@@ -47,29 +53,23 @@ publish/promote, so they must move too or the project runs two runners.
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 4. Subresource Integrity, then a Content-Security-Policy
-
-`BuildArtifact.hash` is in hand in `build.ts`. Roughly three lines and one
-header. Whoever can write `manifests/eu/prod.json` can execute JavaScript on
-the production origin — this is the fix for that.
-
-### 5. Raise the mutation score on `manifest.ts`
+### 4. Raise the mutation score on `manifest.ts`
 
 61.36%. Read the survivors first: some are log strings that no behaviour should
 catch, and those want excluding rather than chasing.
 
-### 6. Second region
+### 5. Second region
 
 `fly scale count 1 --region iad`. Needs `manifests/us/<channel>.json` published
 or the US machine answers 503.
 
-### 7. CI
+### 6. CI
 
 `verify:live` needs live credentials, and a bucket write key is the
 production-origin execution key. Needs a second Tigris key scoped to non-prod
 paths first.
 
-### 8. Asset retention
+### 7. Asset retention
 
 Nothing is deleted, so nothing dangles. If a policy is added, keep every build
 90 days, or a tab opened before a deploy breaks on its next lazy fetch. Exempt
@@ -151,3 +151,13 @@ not the data.
 - A kept schema 2 manifest in the store, and two `@browser` scenarios that point
   `test-qa` at it and read the rendered page. Two falsify mutations hold them.
   Written by `bun run fixture:schema-2`; nothing rebuilds it per run.
+- A digest per file, and a Content-Security-Policy. `build.ts` takes a sha384 of
+  every file it emits; the digests travel with the unit through `publish` and
+  `promote`, so a rollback keeps its own. Three carriers, because three
+  mechanisms fetch the files: the tag for the shell's two, the import map's
+  `integrity` section for every other script, and the `__APPS__` block for a
+  sub-app's stylesheet. The policy is derived from the manifest, and the import
+  map is allowed by the hash of its own bytes rather than `'unsafe-inline'`.
+  Five scenarios and seven falsify mutations hold it. 25/25 mutations caught.
+  Not yet on the deployed image: `fly deploy` is what puts the header and the
+  attributes in front of visitors.

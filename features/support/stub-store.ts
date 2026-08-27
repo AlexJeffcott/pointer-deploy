@@ -21,12 +21,21 @@ export type StubStore = {
 
 const APPS = ["alpha", "bravo", "charlie", "delta"] as const;
 
+// A digest a browser would reject. Nothing here loads a file: these scenarios
+// read the served HTML, and what they check is that the digest the manifest
+// carries is the digest the page tells the browser to expect.
+const fakeDigest = (file: string) => `sha384-${btoa(file.padEnd(64, "x")).slice(0, 64)}`;
+
 const composedUnit = (name: string, id: string, assetBase: string) => ({
   unitId: id,
   commit: `${id}${"0".repeat(40)}`.slice(0, 40),
   assetBase: `${assetBase}/units/${name}/${id}/`,
   js: `${name}-${id}.js`,
   css: `${name}-${id}.css`,
+  integrity: {
+    [`${name}-${id}.js`]: fakeDigest(`${name}-${id}.js`),
+    [`${name}-${id}.css`]: fakeDigest(`${name}-${id}.css`),
+  },
   marker: "",
 });
 
@@ -55,6 +64,15 @@ export function manifestDoc(
         preact: `preact-${at("shell")}.js`,
         "@pointer/shell": `api-${at("shell")}.js`,
       },
+      // The shell's own names, and the two files the import map resolves to.
+      integrity: Object.fromEntries(
+        [
+          `index-${at("shell")}.js`,
+          `index-${at("shell")}.css`,
+          `preact-${at("shell")}.js`,
+          `api-${at("shell")}.js`,
+        ].map((f) => [f, fakeDigest(f)]),
+      ),
     },
     apps: Object.fromEntries(APPS.map((a) => [a, composedUnit(a, at(a), assetBase)])),
   };

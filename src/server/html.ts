@@ -86,11 +86,32 @@ export function assetUrls(m: Manifest): { js: string; css: string } {
   };
 }
 
+/** What the shell's loader is told about one sub-app. */
+export type AppAssets = {
+  js: string;
+  css?: string;
+  /**
+   * The stylesheet's digest, when the unit published one.
+   *
+   * Only the stylesheet: a sub-app's script is imported by URL, and a dynamic
+   * import takes no integrity argument. That one is attached in the import map
+   * instead, which is the only place a module fetched by specifier can carry a
+   * digest at all.
+   */
+  cssIntegrity?: string;
+};
+
 /** Every sub-app's absolute URLs, for the shell to fetch on demand. */
-export function appUrls(m: Manifest): Record<string, { js: string; css?: string }> {
+export function appUrls(m: Manifest): Record<string, AppAssets> {
   if (m.schema === 1) return {};
   if (m.schema === 3) {
-    return Object.fromEntries(Object.entries(m.apps).map(([name, a]) => [name, unitUrls(a)]));
+    return Object.fromEntries(
+      Object.entries(m.apps).map(([name, a]) => {
+        const urls = unitUrls(a);
+        const digest = a.css ? a.integrity?.[a.css] : undefined;
+        return [name, { ...urls, ...(digest ? { cssIntegrity: digest } : {}) }];
+      }),
+    );
   }
   return Object.fromEntries(
     Object.entries(m.apps).map(([name, a]) => [
@@ -126,15 +147,126 @@ export function importMap(m: Manifest): Record<string, string> {
   );
 }
 
+const JAVASCRIPT = /\.m?js$/;
+
+/**
+ * URL to digest, for every script the page can fetch as a module.
+ *
+ * This is the only mechanism that reaches them. The shell's entry carries its
+ * digest on the tag, but the chunk that entry imports, and every sub-app the
+ * loader imports by URL, are fetched by the module loader with no tag and no
+ * argument to put a digest in. The import map's own `integrity` section is
+ * where those are declared.
+ */
+export function moduleIntegrity(m: Manifest): Record<string, string> {
+  if (m.schema !== 3) return {};
+  const digests: Record<string, string> = {};
+  for (const u of [m.shell, ...Object.values(m.apps)]) {
+    for (const [file, digest] of Object.entries(u.integrity ?? {})) {
+      if (JAVASCRIPT.test(file)) digests[joinUrl(u.assetBase, file)] = digest;
+    }
+  }
+  return digests;
+}
+
+export type ImportMapDocument = {
+  imports: Record<string, string>;
+  integrity?: Record<string, string>;
+};
+
+/** The import map, or null when the manifest names no shared specifiers. */
+export function importMapDocument(m: Manifest): ImportMapDocument | null {
+  const imports = importMap(m);
+  if (Object.keys(imports).length === 0) return null;
+  const integrity = moduleIntegrity(m);
+  return Object.keys(integrity).length ? { imports, integrity } : { imports };
+}
+
+/** The exact text of the inline import map. The policy allows these bytes. */
+function importMapText(m: Manifest): string | null {
+  const doc = importMapDocument(m);
+  return doc === null ? null : jsonBlock(doc);
+}
+
+const sha256 = (text: string) =>
+  `sha256-${new Bun.CryptoHasher("sha256").update(text).digest("base64")}`;
+
+/** Every origin the manifest names a file on. */
+function assetOrigins(m: Manifest): string[] {
+  const { js, css } = assetUrls(m);
+  const urls = [
+    js,
+    css,
+    ...Object.values(importMap(m)),
+    ...Object.values(appUrls(m)).flatMap((a) => [a.js, a.css]),
+  ];
+  const origins = new Set<string>();
+  for (const url of urls) {
+    if (!url) continue;
+    try {
+      origins.add(new URL(url).origin);
+    } catch {
+      // A manifest naming a URL this server cannot parse names no origin to
+      // allow. The page then fails to load that file, which is the right end.
+    }
+  }
+  return [...origins].sort();
+}
+
+/**
+ * What the page is allowed to fetch, and from where.
+ *
+ * Derived from the manifest rather than configured, because which store the
+ * files come from is what the manifest is for: a composition served from a
+ * second bucket would otherwise be refused by a policy naming the first.
+ *
+ * `default-src 'none'` and no exception for anything the page does not do. The
+ * import map is the page's one inline script and is allowed by the hash of its
+ * own bytes, so injected script in this HTML is still refused. The JSON data
+ * blocks need no allowance: a script element the browser does not execute is
+ * not a script the policy is asked about.
+ */
+export function contentSecurityPolicy(m: Manifest): string {
+  const origins = assetOrigins(m);
+  const files = origins.length ? origins.join(" ") : "'none'";
+  const text = importMapText(m);
+  const script = [...origins, ...(text === null ? [] : [`'${sha256(text)}'`])];
+  return [
+    "default-src 'none'",
+    `script-src ${script.length ? script.join(" ") : "'none'"}`,
+    `style-src ${files}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+/**
+ * A digest on a tag, with the CORS the browser needs to check it.
+ *
+ * Without `crossorigin` a cross-origin stylesheet with an integrity attribute
+ * is refused rather than checked, so the page renders unstyled. The bucket
+ * allows GET from any origin, which is what `bun run setup:store` sets.
+ */
+const sri = (digest?: string) =>
+  digest ? ` integrity="${attr(digest)}" crossorigin="anonymous"` : "";
+
+/** The digests for the shell's own entry and stylesheet, when it has them. */
+function shellDigests(m: Manifest): { js?: string; css?: string } {
+  if (m.schema !== 3) return {};
+  const at = (file: string | null) => (file ? m.shell.integrity?.[file] : undefined);
+  return { js: at(m.shell.js), css: at(m.shell.css) };
+}
+
 export function renderShell(m: Manifest, target: Target): string {
   const { js, css } = assetUrls(m);
-  const imports = importMap(m);
   const apps = appUrls(m);
+  const digest = shellDigests(m);
 
   // The import map must be parsed before any module script runs.
-  const importMapTag = Object.keys(imports).length
-    ? `\n    <script type="importmap">${jsonBlock({ imports })}</script>`
-    : "";
+  const mapText = importMapText(m);
+  const importMapTag =
+    mapText === null ? "" : `\n    <script type="importmap">${mapText}</script>`;
   const appsTag = Object.keys(apps).length
     ? `\n    <script type="application/json" id="__APPS__">${jsonBlock(apps)}</script>`
     : "";
@@ -145,12 +277,12 @@ export function renderShell(m: Manifest, target: Target): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>pointer-deploy</title>
-    <link rel="stylesheet" href="${attr(css)}" />${importMapTag}
+    <link rel="stylesheet" href="${attr(css)}"${sri(digest.css)} />${importMapTag}
   </head>
   <body>
     <div id="app"></div>
     <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>${appsTag}
-    <script type="module" src="${attr(js)}"></script>
+    <script type="module" src="${attr(js)}"${sri(digest.js)}></script>
   </body>
 </html>
 `;
@@ -163,6 +295,10 @@ export function shellResponse(m: Manifest, target: Target): Response {
       // Not optional. An edge cache that stores this serves one visitor's
       // build to everyone, and it outlives the promotion that replaced it.
       "cache-control": "no-store, must-revalidate",
+      // The second half of the answer to "whoever can write the pointer can
+      // run script on this origin". The digests say the files must be the
+      // published bytes; this says nothing else may be fetched at all.
+      "content-security-policy": contentSecurityPolicy(m),
     },
   });
 }

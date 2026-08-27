@@ -40,6 +40,13 @@ export type ComposedUnit = {
   js: string;
   css: string | null;
   imports?: Record<string, string>;
+  /**
+   * File name to SRI digest, copied from the unit that was published.
+   *
+   * Absent on a unit published before digests were recorded, which is what
+   * makes rolling back that far still work rather than refuse.
+   */
+  integrity?: Record<string, string>;
   marker: string;
 };
 
@@ -257,6 +264,20 @@ for (const unit of UNITS) {
   }
 }
 
+// A unit published before digests were recorded carries none, so the browser
+// checks nothing for its files. Reported, not refused: refusing would make
+// rolling back onto such a unit impossible, which is the operation the whole
+// design exists for.
+const undigested = UNITS.filter(
+  (u) => Object.keys(manifests.get(u)!.integrity ?? {}).length === 0,
+);
+if (undigested.length) {
+  console.error(
+    `  WARNING ${undigested.join(", ")} carry no digests, so the browser will check ` +
+      `nothing they load. Republish them to record some.`,
+  );
+}
+
 // -- compose ----------------------------------------------------------------
 
 const composedUnit = (m: UnitManifest): ComposedUnit => ({
@@ -266,6 +287,7 @@ const composedUnit = (m: UnitManifest): ComposedUnit => ({
   js: m.js,
   css: m.css,
   ...(m.imports ? { imports: m.imports } : {}),
+  ...(m.integrity && Object.keys(m.integrity).length ? { integrity: m.integrity } : {}),
   marker: m.marker ?? "",
 });
 

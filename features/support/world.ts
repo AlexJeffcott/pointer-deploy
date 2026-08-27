@@ -460,6 +460,11 @@ export class PointerWorld extends World {
   /** What the channel's pointer held before a scenario overwrote it. */
   private pointerBefore: { key: string; text: string } | null = null;
 
+  /** The object key of a channel's pointer. Never a real channel's. */
+  pointerKey(channel: Channel): string {
+    return `manifests/${REGION}/${this.targetChannel(channel)}.json`;
+  }
+
   /**
    * Point a channel at a document promote.ts cannot write.
    *
@@ -470,7 +475,7 @@ export class PointerWorld extends World {
    */
   async pointChannelAtDocument(channel: Channel, doc: unknown): Promise<void> {
     const cfg = configFromEnv();
-    const key = `manifests/${REGION}/${this.targetChannel(channel)}.json`;
+    const key = this.pointerKey(channel);
     const before = await getObjectText(cfg, key);
     if (before === null) {
       throw new Error(`${key} does not exist. This scenario replaces a pointer, never invents one.`);
@@ -625,14 +630,51 @@ export class PointerWorld extends World {
     );
   }
 
+  /**
+   * Poll until the served shell carries this text, or time out.
+   *
+   * For a change no build id reports: rewriting one digest inside a pointer
+   * leaves every unit id where it was, so nothing above can tell the new
+   * manifest from the old one.
+   */
+  async awaitShellContaining(channel: Channel, text: string, budgetMs: number): Promise<number> {
+    const started = Date.now();
+    while (Date.now() - started < budgetMs) {
+      await this.visit(channel);
+      if (this.lastBody.includes(text)) return Date.now() - started;
+      await Bun.sleep(500);
+    }
+    throw new Error(
+      `the ${channel} origin did not serve a shell containing ${JSON.stringify(text)} ` +
+        `within ${Date.now() - started} ms`,
+    );
+  }
+
   // -- browser ---------------------------------------------------------------
 
   async openBrowser(): Promise<Page> {
     this.browser = await chromium.launch({ channel: "chrome", headless: true });
     const page = await this.browser.newPage();
     page.on("request", (r) => this.requests.push(r.url()));
+    // Every content policy refusal the page reports, in order. Installed here
+    // rather than in a step because a refusal of the shell's own script happens
+    // before any step could attach a listener.
+    await page.addInitScript(() => {
+      const seen: string[] = [];
+      (globalThis as unknown as { __refusals: string[] }).__refusals = seen;
+      document.addEventListener("securitypolicyviolation", (e) => {
+        seen.push(`${e.violatedDirective} ${e.blockedURI}`);
+      });
+    });
     this.page = page;
     return page;
+  }
+
+  /** Every content policy refusal the page has reported so far. */
+  async policyRefusals(): Promise<string[]> {
+    return this.browserPage.evaluate(
+      () => (globalThis as unknown as { __refusals?: string[] }).__refusals ?? [],
+    );
   }
 
   async closeBrowser(): Promise<void> {

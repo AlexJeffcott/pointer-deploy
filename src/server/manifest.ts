@@ -49,6 +49,14 @@ export type ComposedUnit = {
   js: string;
   css: string | null;
   imports?: Record<string, string>;
+  /**
+   * File name to SRI digest, for the files this unit published.
+   *
+   * Optional, and its absence is not an error: a unit published before digests
+   * were recorded has none, and a composition naming one must still render.
+   * What the page can check it checks; what it cannot it says nothing about.
+   */
+  integrity?: Record<string, string>;
   marker: string;
 };
 
@@ -183,6 +191,17 @@ function parseComposedUnit(label: string, value: unknown): ComposedUnit {
     }
   }
 
+  let integrity: Record<string, string> | undefined;
+  if (u.integrity !== undefined) {
+    if (!u.integrity || typeof u.integrity !== "object") {
+      throw new Error(`manifest field ${label}.integrity is not an object`);
+    }
+    integrity = {};
+    for (const [file, digest] of Object.entries(u.integrity as Record<string, unknown>)) {
+      integrity[file] = str(`${label}.integrity.${file}`, digest);
+    }
+  }
+
   return {
     unitId: str(`${label}.unitId`, u.unitId),
     // Provenance, so a composition that predates the field still parses.
@@ -191,6 +210,7 @@ function parseComposedUnit(label: string, value: unknown): ComposedUnit {
     js: str(`${label}.js`, u.js),
     css: u.css === null || u.css === undefined ? null : str(`${label}.css`, u.css),
     ...(imports ? { imports } : {}),
+    ...(integrity ? { integrity } : {}),
     marker: typeof u.marker === "string" ? u.marker : "",
   };
 }

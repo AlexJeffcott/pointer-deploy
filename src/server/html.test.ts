@@ -159,3 +159,135 @@ test("the shell response is never stored by a cache", () => {
   expect(headers.get("cache-control")).toContain("no-store");
   expect(headers.get("content-type")).toContain("text/html");
 });
+
+// Subresource Integrity. Whoever can write a manifest can name any file on the
+// store; the digests are what stops a named file being a file the build never
+// produced.
+describe("a composition carrying digests", () => {
+  const SHELL_BASE = "https://store.test/units/shell/s1/";
+  const ALPHA_BASE = "https://store.test/units/alpha/a9/";
+
+  const D = {
+    shellJs: "sha384-shellentry",
+    shellCss: "sha384-shellstyle",
+    shared: "sha384-sharedchunk",
+    preact: "sha384-preactcopy",
+    api: "sha384-storeapi",
+    alphaJs: "sha384-alphaentry",
+    alphaCss: "sha384-alphastyle",
+  };
+
+  const signed: Manifest = {
+    schema: 3,
+    composedAt: "2026-08-27T10:00:00.000Z",
+    contract: "9e79879",
+    shell: {
+      unitId: "s1",
+      commit: "c".repeat(40),
+      assetBase: SHELL_BASE,
+      js: "index-a.js",
+      css: "index-b.css",
+      imports: { preact: "preact-c.js", "@pointer/shell": "api-d.js" },
+      integrity: {
+        "index-a.js": D.shellJs,
+        "index-b.css": D.shellCss,
+        "shared-e.js": D.shared,
+        "preact-c.js": D.preact,
+        "api-d.js": D.api,
+      },
+      marker: "",
+    },
+    apps: {
+      alpha: {
+        unitId: "a9",
+        commit: "a".repeat(40),
+        assetBase: ALPHA_BASE,
+        js: "alpha-e.js",
+        css: "alpha-f.css",
+        integrity: { "alpha-e.js": D.alphaJs, "alpha-f.css": D.alphaCss },
+        marker: "",
+      },
+    },
+  };
+
+  const html = renderShell(signed, TARGET);
+  const map = () => JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!);
+
+  test("the shell's own script and stylesheet carry theirs on the tag", () => {
+    expect(html).toContain(`src="${SHELL_BASE}index-a.js" integrity="${D.shellJs}" crossorigin="anonymous"`);
+    expect(html).toContain(`href="${SHELL_BASE}index-b.css" integrity="${D.shellCss}" crossorigin="anonymous"`);
+  });
+
+  // The chunk the entry imports and the sub-app the loader imports are fetched
+  // by the module loader, which reads no tag. This section is the only place
+  // they can be declared, so a page without it checks the entry and nothing
+  // behind it.
+  test("every module the page can import is named in the import map", () => {
+    expect(map().integrity).toEqual({
+      [`${SHELL_BASE}index-a.js`]: D.shellJs,
+      [`${SHELL_BASE}shared-e.js`]: D.shared,
+      [`${SHELL_BASE}preact-c.js`]: D.preact,
+      [`${SHELL_BASE}api-d.js`]: D.api,
+      [`${ALPHA_BASE}alpha-e.js`]: D.alphaJs,
+    });
+  });
+
+  // A stylesheet is not a module and never resolves through the map, so the
+  // digest has to reach the loader instead.
+  test("a sub-app's stylesheet digest is handed to the loader", () => {
+    const apps = JSON.parse(/id="__APPS__">(.*?)<\/script>/s.exec(html)![1]!);
+    expect(apps.alpha).toEqual({
+      js: `${ALPHA_BASE}alpha-e.js`,
+      css: `${ALPHA_BASE}alpha-f.css`,
+      cssIntegrity: D.alphaCss,
+    });
+  });
+
+  describe("and its content policy", () => {
+    const csp = shellResponse(signed, TARGET).headers.get("content-security-policy") ?? "";
+    const directive = (name: string) =>
+      csp.split("; ").find((d) => d.startsWith(`${name} `))?.slice(name.length + 1) ?? "";
+
+    test("permits nothing the manifest does not name", () => {
+      expect(csp).toContain("default-src 'none'");
+      expect(directive("script-src")).toContain("https://store.test");
+      expect(directive("style-src")).toBe("https://store.test");
+      expect(csp).toContain("base-uri 'none'");
+      expect(csp).toContain("frame-ancestors 'none'");
+    });
+
+    // The whole point of a hash rather than 'unsafe-inline': the import map is
+    // allowed, and a script injected beside it is not.
+    test("allows the import map by the hash of its own bytes", () => {
+      const text = /<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!;
+      const hash = new Bun.CryptoHasher("sha256").update(text).digest("base64");
+      expect(directive("script-src")).toContain(`'sha256-${hash}'`);
+      expect(csp).not.toContain("unsafe-inline");
+    });
+
+    // A file whose origin is not in the policy is fetched by nobody, whatever
+    // digest sits beside it.
+    test("names the origin of a sub-app published to another store", () => {
+      const elsewhere: Manifest = {
+        ...signed,
+        apps: {
+          alpha: { ...signed.apps.alpha!, assetBase: "https://other.test/units/alpha/a9/" },
+        },
+      };
+      const other = shellResponse(elsewhere, TARGET).headers.get("content-security-policy") ?? "";
+      expect(other).toContain("https://other.test");
+      expect(other).toContain("https://store.test");
+    });
+  });
+});
+
+// A unit published before digests were recorded carries none. The page must
+// still render: a composition naming one is what a rollback that far IS.
+test("a composition with no digests renders and is still restricted", () => {
+  const csp = shellResponse(v2, TARGET).headers.get("content-security-policy") ?? "";
+  const html = renderShell(v2, TARGET);
+  expect(html).not.toContain("integrity=");
+  expect(JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!).integrity).toBeUndefined();
+  expect(csp).toContain("default-src 'none'");
+  expect(csp).toContain("https://store.test");
+});

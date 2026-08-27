@@ -140,6 +140,34 @@ const shell = await Bun.build({
 });
 if (!shell.success) fail("the shell", shell.logs);
 
+/**
+ * The SRI digest of one emitted file.
+ *
+ * sha384 because that is what Subresource Integrity takes, base64 because that
+ * is the encoding the attribute is defined in. `BuildArtifact.hash` is NOT this:
+ * it is an 8-character content hash Bun uses for `[hash]` in a file name, and a
+ * browser will not check it.
+ */
+const digestOf = async (artifact: Bun.BuildArtifact): Promise<string> =>
+  `sha384-${new Bun.CryptoHasher("sha384")
+    .update(new Uint8Array(await artifact.arrayBuffer()))
+    .digest("base64")}`;
+
+/**
+ * A digest for every file the browser fetches with a digest to check.
+ *
+ * Source maps are left out: only DevTools asks for one, and never with an
+ * integrity check. Recording a digest nothing verifies would read as coverage.
+ */
+const integrityOf = async (outputs: Bun.BuildArtifact[]): Promise<Record<string, string>> => {
+  const digests: Record<string, string> = {};
+  for (const o of outputs) {
+    if (o.kind === "sourcemap") continue;
+    digests[basename(o.path)] = await digestOf(o);
+  }
+  return digests;
+};
+
 const named = (build: Bun.BuildOutput, stem: string, ext: string) => {
   const hit = build.outputs.find(
     (o) => o.kind !== "sourcemap" && basename(o.path).startsWith(`${stem}-`) && o.path.endsWith(ext),
@@ -170,7 +198,7 @@ const specifiersIn = (source: string): string[] =>
     .map((m) => m[1]!)
     .concat([...source.matchAll(/(?:^|[;}\s])import\s*["']([^"']+)["']/g)].map((m) => m[1]!));
 
-type UnitFiles = { js: string; css?: string; files: string[] };
+type UnitFiles = { js: string; css?: string; files: string[]; integrity: Record<string, string> };
 const appOutputs: Record<string, UnitFiles> = {};
 
 for (const app of APPS) {
@@ -192,6 +220,7 @@ for (const app of APPS) {
     js: basename(js.path),
     ...(css ? { css: basename(css.path) } : {}),
     files: built.outputs.map((o) => basename(o.path)),
+    integrity: await integrityOf(built.outputs),
   };
 
   // The invariant the whole design rests on: a sub-app reaches the shared
@@ -239,6 +268,14 @@ export type UnitRecord = {
   imports?: Record<string, string>;
   /** Every emitted file, relative to the unit's directory. */
   files: string[];
+  /**
+   * File name to SRI digest, for every file but the source maps.
+   *
+   * Travels with the unit rather than with the composition, because the bytes
+   * it describes are the unit's own. A composition that names an older unit
+   * gets that unit's digests with it.
+   */
+  integrity: Record<string, string>;
   /** Which contracts this unit compiles against. Generated, never written. */
   contracts: string[];
   /** Resolved versions of the shared packages. Compared at promote, not enforced. */
@@ -260,6 +297,7 @@ const units: Record<string, UnitRecord> = {
     css: shellEntry.css,
     imports,
     files: shellFiles,
+    integrity: await integrityOf(shell.outputs),
     contracts: matrix.sets.shell,
     shared: versions,
     marker: markerFor("shell"),
@@ -272,6 +310,7 @@ for (const app of APPS) {
     js: out.js,
     css: out.css ?? null,
     files: out.files,
+    integrity: out.integrity,
     contracts: matrix.sets[app],
     shared: versions,
     marker: markerFor(app),

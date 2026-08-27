@@ -101,7 +101,7 @@ together.
 | The store is on the critical path | Only for a cold start. A running server survives an outage on its last good answer |
 | Old units can be deleted | No. A tab opened before the deploy still fetches its own files |
 | A unit can be composed with any other | No. `promote` refuses a composition with no contract in common |
-| Anyone who can write the JSON | can run JavaScript on the production origin |
+| Anyone who can write the JSON | can serve an older composition, or break the page. Running their own code on the origin is closed: see below |
 
 ### Compared with
 
@@ -271,7 +271,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 18 ways; each break must turn one check red |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 25 ways; each break must turn one check red |
 | `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
 | `TODO.md` | Open items and what is done. Read it first after a context clear |
@@ -290,13 +290,13 @@ would make the platform kill machines that were serving visitors correctly.
 ## Verifying
 
 ```sh
-bun test src/server        # 53 unit tests
-bun run verify             # 12 @local scenarios, stub store, ~5 s
+bun test src/server        # 63 unit tests
+bun run verify             # 14 @local scenarios, stub store, ~5 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris
-bun run verify:browser     # 9 @browser scenarios in a real Chrome
-bun run falsify            # 18 architectural mutations, each must turn a check red
-FALSIFY_LIVE=1 bun run falsify   # including the five that need the real store
+bun run verify:browser     # 12 @browser scenarios in a real Chrome
+bun run falsify            # 25 architectural mutations, each must turn a check red
+FALSIFY_LIVE=1 bun run falsify   # including the ten that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run mutate             # Stryker over the server logic
 ```
@@ -488,22 +488,86 @@ cold file. Pass `--no-warm` to skip it.
 The browser suite's mount wait dropped from 60 s to 20 s as a result. The fix
 belongs at the source, not in the timeout.
 
+## What the browser is allowed to load
+
+A pointer names files. Whoever can write one can name any file on the store, and
+before this the page would load it and run it. Two mechanisms answer that, and
+neither is sufficient alone.
+
+**A digest per file.** `build.ts` takes a sha384 of every file it emits and
+records it in `dist/build.json`; `publish.ts` writes it into the unit's
+`unit.json`; `promote.ts` copies it into the composition. So the digests travel
+with the **unit**, not with the composition — a channel rolled back to an older
+alpha gets that alpha's digests, and the check keeps working across a rollback.
+
+`BuildArtifact.hash` is **not** this, despite what an earlier version of this
+file said: it is an 8-character content hash Bun uses for `[hash]` in a file
+name, and no browser will check it.
+
+Three places carry a digest, because three different mechanisms fetch the files:
+
+| What | Where the digest goes | Why not somewhere else |
+| --- | --- | --- |
+| The shell's entry and stylesheet | `integrity` on the tag | They are the only two files named by a tag |
+| Every other script | The import map's `integrity` section | The shared chunk and every sub-app are fetched by the module loader, which reads no tag, and `import()` takes no integrity argument |
+| A sub-app's stylesheet | The `__APPS__` block, and `loader.ts` sets it on the `link` | A stylesheet is not a module and never resolves through the import map |
+
+The middle row is the one that is easy to miss. A digest on the shell's tag
+covers `index-*.js` and nothing behind it: the five `shared-*.js` chunks that
+entry imports, and the four sub-apps, are all fetched without one.
+
+**A policy.** `content-security-policy` on the shell response, derived from the
+manifest rather than configured — which store a composition is served from is
+what the manifest is *for*, so a hard-coded origin would refuse a composition
+published to a second bucket.
+
+```
+default-src 'none'; script-src <the origins the manifest names> 'sha256-<the import map>';
+style-src <the same origins>; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+```
+
+The import map is the page's one inline script, allowed by the hash of its own
+bytes rather than by `'unsafe-inline'`, so a script injected into this HTML is
+still refused. The `application/json` blocks need no allowance: a script element
+the browser does not execute is not a script the policy is asked about.
+
+The digest answers a swapped file. The policy answers a manifest naming an
+origin of its author's choosing, which no digest can catch — whoever wrote the
+manifest wrote the digest beside it. Only the two together close it.
+
+`features/checking-what-the-page-loads.feature` is the evidence. Two scenarios
+read the served HTML, which is enough to say what the page *claims* it will
+check. Three more drive a real Chrome, because whether a browser **refuses** a
+file is not observable to anything else: one digest in the pointer is replaced
+with a well-formed one that matches nothing, and the sub-app must not run. Seven
+`falsify` mutations hold them, five of which only a browser can catch.
+
+None of the five is @live. An @live scenario runs against the deployed image, so
+one written here would be red until someone deployed — a red reporting the
+deploy queue rather than a defect. The two that read HTML are @local; the three
+browser ones are @test-channel, which runs this working tree's server against
+the real store.
+
+Not closed by this: a unit published before digests were recorded carries none,
+and `promote` warns rather than refuses. Refusing would make rolling back that
+far impossible, which is the operation the whole design exists for.
+
 ## Not done
 
 | | |
 | --- | --- |
 | A browser-reachable `prod` URL | Needs a domain pointed at Fly and a certificate. The channel itself works; see above |
-| SRI on the script and link tags | `BuildArtifact.hash` is already in hand in `build.ts`. Bucket CORS is set, which SRI needs |
-| Content-Security-Policy | One response header |
 | Second region | `fly scale count 1 --region iad`. The region is already in the manifest path |
 | Asset retention | Nothing is deleted, so nothing can dangle |
 | Contract pruning | `contracts/registry.json` retains by hand. Pruning is a decision, never automatic |
 | Concurrent promotes | `promote` is a read-modify-write with no compare-and-set, so two at once can lose one. One operator. Tigris conditional writes are unchecked; an `If-Match` on the ETag would close it |
 
-Whoever can write `manifests/eu/prod.json` can execute JavaScript on the
-production origin. The only writer here is one machine holding the key in a
-gitignored `.env.local`. That is fine for an experiment and is not fine once
-anyone else uses it: SRI, a CSP, and a scoped write key are the fix.
+Whoever can write `manifests/eu/prod.json` can still point a channel at an older
+composition, and can still stop the page working. What they can no longer do is
+run their own code on the origin: see above. The remaining hole is the key
+itself — one machine holds a bucket write key in a gitignored `.env.local`, and
+it is scoped to the whole bucket. A second key scoped to non-prod paths is what
+item 7 in `TODO.md` is waiting for.
 
 ## Traps, already paid for
 
@@ -529,6 +593,9 @@ Do not rediscover these.
 | `dist/` treated as the build you just made | `e2e`, `verify:live` and `falsify` all overwrite `dist/build.json`. `--from-build` after any of them promotes a harness build, and every check stays green because the manifest is well-formed and describes the wrong units |
 | A schema the parser accepts and nothing serves | The unit test is green, the rollback onto it is untested, and the page it would produce has never been rendered. Keep a fixture in the store and point a test channel at it |
 | A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
+| `integrity` on a cross-origin tag with no `crossorigin` | The browser refuses the file rather than checking it. The stylesheet never applies and the page renders unstyled, while every other check stays green |
+| `BuildArtifact.hash` read as an SRI digest | It is an 8-character content hash for `[hash]` in a file name. An `integrity` attribute holding one is refused by every browser |
+| A digest on the tags alone | The tags name two files. The shared chunks and every sub-app are fetched by the module loader, which reads no tag, so the import map's `integrity` section is the only place they can be declared |
 
 ## Conventions
 

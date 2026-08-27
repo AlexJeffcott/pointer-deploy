@@ -192,11 +192,8 @@ const MUTATIONS: Mutation[] = [
     // and promote.ts, which run here.
     name: "every unit is joined against the shell's base",
     file: "src/server/html.ts",
-    find: "    return Object.fromEntries(Object.entries(m.apps).map(([name, a]) => [name, unitUrls(a)]));",
-    replace:
-      "    return Object.fromEntries(\n" +
-      "      Object.entries(m.apps).map(([name, a]) => [name, unitUrls({ ...a, assetBase: m.shell.assetBase })]),\n" +
-      "    );",
+    find: "        const urls = unitUrls(a);",
+    replace: "        const urls = unitUrls({ ...a, assetBase: m.shell.assetBase });",
     unitTest: "loads each sub-app from its own unit's base",
   },
   {
@@ -247,6 +244,86 @@ const MUTATIONS: Mutation[] = [
     scenario: "Five bundles resolved through one import map are still one application",
     live: true,
     browser: true,
+  },
+
+  // --- what the browser is allowed to load ---------------------------------
+  //
+  // Every mutation here leaves a page that loads, renders and reports the
+  // right build. That is the whole difficulty: a digest nobody checks and a
+  // policy that permits everything look exactly like the ones that work.
+
+  {
+    // A digest on the shell's tag covers the shell's entry and nothing behind
+    // it. The chunk that entry imports, and every sub-app the loader imports
+    // by URL, are declared here or nowhere.
+    name: "the import map stops carrying digests",
+    file: "src/server/html.ts",
+    find: "  const integrity = moduleIntegrity(m);",
+    replace: "  const integrity: Record<string, string> = {};",
+    scenario: "A sub-app whose script does not match its digest does not run",
+    live: true,
+    browser: true,
+  },
+  {
+    // The other mechanism. A stylesheet never resolves through the import map,
+    // so its digest has to reach the loader on the app list instead.
+    name: "a sub-app's stylesheet digest never reaches the loader",
+    file: "src/server/html.ts",
+    find: "        const digest = a.css ? a.integrity?.[a.css] : undefined;",
+    replace: "        const digest: string | undefined = undefined;",
+    scenario: "A sub-app whose stylesheet does not match its digest does not run",
+    live: true,
+    browser: true,
+  },
+  {
+    // A policy naming no origin refuses every file the manifest names. The
+    // shell still answers 200 and still paints its frame, which is why only a
+    // browser can tell.
+    name: "the policy names none of the origins the files come from",
+    file: "src/server/html.ts",
+    find: "  const script = [...origins, ...(text === null ? [] : [`'${sha256(text)}'`])];",
+    replace: "  const script = [...(text === null ? [] : [`'${sha256(text)}'`])];",
+    scenario: "The page assembles from five bundles under its own policy",
+    live: true,
+    browser: true,
+  },
+  {
+    // The hash is what lets the one inline script on the page run. Without it
+    // the import map is refused, every bare specifier in every sub-app fails
+    // to resolve, and the frame renders with four refusals in it.
+    name: "the policy stops allowing the import map it emitted",
+    file: "src/server/html.ts",
+    find: "  const script = [...origins, ...(text === null ? [] : [`'${sha256(text)}'`])];",
+    replace: "  const script = [...origins];",
+    scenario: "The page assembles from five bundles under its own policy",
+    live: true,
+    browser: true,
+  },
+  {
+    // The trap this pays for once: a cross-origin file carrying a digest is
+    // REFUSED rather than checked unless it is fetched with CORS. The page
+    // then renders unstyled, and every other check stays green.
+    name: "a digest is attached without the CORS needed to check it",
+    file: "src/server/html.ts",
+    find: " crossorigin=\"anonymous\"",
+    replace: "",
+    scenario: "The page assembles from five bundles under its own policy",
+    live: true,
+    browser: true,
+  },
+  {
+    name: "the shell is served with no content policy",
+    file: "src/server/html.ts",
+    find: '      "content-security-policy": contentSecurityPolicy(m),',
+    replace: "      // (no policy)",
+    scenario: "A shell names the only origins its files may come from",
+  },
+  {
+    name: "the shell's own script and stylesheet carry no digest",
+    file: "src/server/html.ts",
+    find: "  return { js: at(m.shell.js), css: at(m.shell.css) };",
+    replace: "  return {};",
+    scenario: "A shell names the digest of every file it tells the browser to fetch",
   },
 ];
 

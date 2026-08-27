@@ -6,7 +6,7 @@
 
 import type { SubApp } from "./subapp.ts";
 
-export type AppAssets = { js: string; css?: string };
+export type AppAssets = { js: string; css?: string; cssIntegrity?: string };
 export type AppMap = Record<string, AppAssets>;
 
 // Re-exported so the shell's own imports are unchanged. The type itself lives
@@ -25,12 +25,19 @@ export function readAppMap(): AppMap {
 
 const stylesheets = new Set<string>();
 
-function addStylesheet(href: string): Promise<void> {
+function addStylesheet(href: string, integrity?: string): Promise<void> {
   if (stylesheets.has(href)) return Promise.resolve();
   stylesheets.add(href);
   return new Promise((resolve, reject) => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
+    if (integrity) {
+      link.integrity = integrity;
+      // Without this the browser refuses a cross-origin stylesheet carrying a
+      // digest rather than checking it, and the sub-app renders unstyled. The
+      // sub-app's script needs no equivalent: the import map carries its digest.
+      link.crossOrigin = "anonymous";
+    }
     link.href = href;
     link.onload = () => resolve();
     link.onerror = () => reject(new Error(`could not load ${href}`));
@@ -46,7 +53,7 @@ export function loadApp(name: string, assets: AppAssets): Promise<SubApp> {
 
   pending = (async () => {
     // The stylesheet first, so the app is never painted unstyled.
-    if (assets.css) await addStylesheet(assets.css);
+    if (assets.css) await addStylesheet(assets.css, assets.cssIntegrity);
     // A variable specifier, so the bundler leaves this as a real runtime
     // import of a file it has never seen.
     const mod = (await import(assets.js)) as Partial<SubApp>;

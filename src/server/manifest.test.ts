@@ -276,4 +276,33 @@ describe("parseManifest", () => {
   test("rejects a composition naming no apps", () => {
     expect(() => parseManifest({ ...composed("s1"), apps: {} })).toThrow("no apps");
   });
+
+  test("keeps the digests a unit carries", () => {
+    const doc3 = composed("s1");
+    (doc3.apps.alpha as Record<string, unknown>).integrity = {
+      "alpha-aaaa.js": "sha384-one",
+      "alpha-bbbb.css": "sha384-two",
+    };
+    const m = parseManifest(doc3);
+    if (m.schema !== 3) throw new Error("unreachable");
+    expect(m.apps.alpha!.integrity).toEqual({
+      "alpha-aaaa.js": "sha384-one",
+      "alpha-bbbb.css": "sha384-two",
+    });
+  });
+
+  // A unit published before digests were recorded carries none, and a
+  // composition naming one is what a rollback that far IS. Refusing it here
+  // would turn the oldest rollback into a 503.
+  test("accepts a composed unit with no digests at all", () => {
+    const m = parseManifest(composed("s1"));
+    if (m.schema !== 3) throw new Error("unreachable");
+    expect(m.apps.alpha!.integrity).toBeUndefined();
+  });
+
+  test("rejects a digest that is not a string", () => {
+    const doc3 = composed("s1");
+    (doc3.apps.alpha as Record<string, unknown>).integrity = { "alpha-aaaa.js": 7 };
+    expect(() => parseManifest(doc3)).toThrow("apps.alpha.integrity.alpha-aaaa.js");
+  });
 });

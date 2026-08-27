@@ -26,6 +26,7 @@ type UnitRecord = {
   css: string | null;
   imports?: Record<string, string>;
   files: string[];
+  integrity: Record<string, string>;
   contracts: string[];
   shared: Record<string, string>;
   marker: string;
@@ -50,6 +51,8 @@ export type UnitManifest = {
   css: string | null;
   imports?: Record<string, string>;
   files: string[];
+  /** File name to SRI digest. Absent on a unit published before digests. */
+  integrity?: Record<string, string>;
   contracts: string[];
   shared: Record<string, string>;
   marker: string;
@@ -98,18 +101,29 @@ for (const unit of wanted) {
     t === null ? null : (JSON.parse(t) as UnitManifest),
   )) as UnitManifest | null;
 
+  // Provenance is upgraded, never replaced. Two commits can produce the same
+  // bytes, so the first publish of them owns the record - except when that
+  // record says `dirty`, which means "these bytes came from an uncommitted
+  // working tree" and stops being true the moment a clean tree produces them.
+  // Without this the first publish of a bundle decides its commit forever, and
+  // one publish from a dirty tree leaves a unit permanently claiming a commit
+  // that does not contain its own source.
+  const upgrade = existing !== null && existing.dirty && !dirty;
+  const provenance =
+    existing && !upgrade ? { commit: existing.commit, dirty: existing.dirty } : { commit, dirty };
+
   const manifest: UnitManifest = {
     schema: 3,
     unit,
     id: built.id,
-    commit,
-    dirty,
+    ...provenance,
     publishedAt: existing?.publishedAt ?? new Date().toISOString(),
     assetBase: `${publicUrl(cfg, prefix)}/`,
     js: built.js,
     css: built.css,
     ...(built.imports ? { imports: built.imports } : {}),
     files: built.files,
+    integrity: built.integrity,
     contracts: built.contracts,
     shared: built.shared,
     marker: built.marker,
@@ -117,14 +131,25 @@ for (const unit of wanted) {
 
   if (existing) {
     // The id is a hash of the bytes, so an existing id means the bundle is
-    // already there and identical. Its CONTRACT SET can still be out of date:
-    // the shell may since have dropped an export this unit never used, which
-    // makes this unit compile against a contract it was published before. The
-    // bundle stays immutable; the claim beside it does not.
+    // already there and identical. What the unit.json CLAIMS beside it can
+    // still be out of date, in two ways:
+    //
+    //   contracts  the shell may since have dropped an export this unit never
+    //              used, so it now compiles against a contract it was
+    //              published before.
+    //   integrity  a unit published before digests were recorded carries none,
+    //              and the browser then checks nothing for it.
+    //   provenance a unit first published from a dirty tree names a commit
+    //              that does not contain its own source. See above.
+    //
+    // The bundle stays immutable; the claim beside it is rewritten.
     const sameSet =
       existing.contracts.length === built.contracts.length &&
       existing.contracts.every((c, i) => c === built.contracts[i]);
-    if (sameSet) {
+    const canon = (d: Record<string, string> = {}) =>
+      JSON.stringify(Object.entries(d).sort(([a], [b]) => a.localeCompare(b)));
+    const sameDigests = canon(existing.integrity) === canon(manifest.integrity);
+    if (sameSet && sameDigests && !upgrade) {
       console.error(`  ${unit.padEnd(width)} ${built.id}  unchanged`);
       published[unit] = built.id;
       continue;
@@ -135,10 +160,14 @@ for (const unit of wanted) {
       new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
       { contentType: "application/json; charset=utf-8", cacheControl: CACHE_IMMUTABLE },
     );
-    console.error(
-      `  ${unit.padEnd(width)} ${built.id}  contracts ` +
-        `${existing.contracts.join(",") || "none"} -> ${built.contracts.join(",")}`,
-    );
+    const changed = [
+      sameSet
+        ? null
+        : `contracts ${existing.contracts.join(",") || "none"} -> ${built.contracts.join(",")}`,
+      sameDigests ? null : `digests for ${Object.keys(manifest.integrity ?? {}).length} files`,
+      upgrade ? `commit ${existing.commit.slice(0, 8)} dirty -> ${commit.slice(0, 8)} clean` : null,
+    ].filter(Boolean);
+    console.error(`  ${unit.padEnd(width)} ${built.id}  ${changed.join(", ")}`);
     published[unit] = built.id;
     continue;
   }

@@ -46,7 +46,10 @@ function Slot({ name }: { name: string }) {
     };
   }, [name]);
 
-  if (error) return <p class={styles.slotError}>{error}</p>;
+  // Named, because a refusal is a state a visitor and a scenario both have to
+  // be able to see. A browser that rejects a bundle whose digest does not match
+  // reports it here and nowhere else.
+  if (error) return <p class={styles.slotError} data-app-error={name}>{error}</p>;
   return <div ref={host} class={styles.slot} data-app={name} />;
 }
 
