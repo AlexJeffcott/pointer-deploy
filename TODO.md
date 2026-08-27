@@ -11,6 +11,7 @@ Working state for `pointer-deploy`. Read this first after a context clear.
 | Fly app | `pointer-deploy`, one machine, region `ams`, org `personal` |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for `verify:live` |
+| Deployed | `qa` and `prod` both at schema 3, commit `7c6eadf` |
 | Contract | `9e79879`, `contracts/counters-2026-08/` |
 
 All green as of 2026-08-27, after `fly deploy` of the schema 3 server:
@@ -67,22 +68,45 @@ matrix rather than written, and `promote` refuses a composition whose sets do
 not intersect. See the README for why a hash and not a number, and what the
 contract does not cover.
 
-### The real `qa` channel is still on schema 2
+### Both real channels are on schema 3
 
-Deliberately. The new server reads schemas 1, 2 and 3, so `qa` renders exactly
-as it did and visitors saw nothing. Moving it onto a composition is a decision,
-not a leftover:
+`qa` and `prod` were promoted on 2026-08-27 from commit `7c6eadf`, both at the
+same composition:
 
-```sh
-bun run build
-bun run publish
-bun run promote qa --from-build
-```
+| Unit | Id |
+| --- | --- |
+| shell | `b41d82f2` |
+| alpha | `36226fb9` |
+| bravo | `483316f3` |
+| charlie | `8511a387` |
+| delta | `d728f064` |
 
-Until then `verify:browser`, which reads the real `qa` because no browser can be
-made to send a `Host` header, is exercising the schema 2 path. That is worth
-having — it is the rollback-compatibility check — but it means schema 3 in a
-browser is covered by `bun run e2e` and by nothing else.
+Nothing now serves a schema 2 manifest. The server still reads schemas 1 and 2,
+and `manifest.test.ts` is the only thing that checks it — no live channel
+exercises that path any more. Rolling a channel back onto an old schema 2
+manifest is untested against a browser.
+
+`verify:browser` reads the real `qa`, so it now exercises schema 3 rather than
+schema 2. That is the gap the old note said was covered by `e2e` alone; it is
+closed.
+
+### `--from-build` refuses a harness build
+
+Found by it firing on a real channel. `dist/` is shared, and `e2e`,
+`verify:live` and `falsify` each overwrite `dist/build.json` with a throwaway
+build. Promoting `prod --from-build` minutes after `e2e` ran handed `prod` the
+e2e build, whose every sub-app renders the marker `alpha`. Every check was
+green throughout: the manifest written was well-formed, it described the wrong
+units.
+
+`scripts/promote.ts` now refuses `--from-build` when any unit in
+`dist/build.json` carries a non-empty marker, unless the channel is `test-*`.
+A marker is set only by `BUILD_MARKER` / `BUILD_MARKER_<UNIT>`, which only the
+harnesses set, so the signal is exact. Seen refusing on a marked build with the
+`qa` manifest hash unchanged either side, and seen not firing on `test-qa`.
+
+The residue: a clean `bun run build` immediately before any real promote is
+still the only thing that makes `--from-build` mean what it says.
 
 ### `bun run e2e` is the one that matters
 

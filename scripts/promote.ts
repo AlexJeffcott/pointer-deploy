@@ -115,11 +115,34 @@ for (let i = 1; i < argv.length; i++) {
 if (fromBuild) {
   const built = (await Bun.file("dist/build.json")
     .json()
-    .catch(() => null)) as { units?: Record<string, { id: string }> } | null;
+    .catch(() => null)) as {
+    units?: Record<string, { id: string; marker?: string }>;
+  } | null;
   if (!built?.units) {
     console.error("--from-build needs dist/build.json. Run `bun run build` first.");
     process.exit(1);
   }
+
+  // dist/ is shared, and `e2e`, `verify:live` and `falsify` all overwrite it
+  // with throwaway builds. So --from-build can hand a real channel a harness
+  // build minutes after a correct promote, and every check stays green because
+  // the manifest it wrote is well-formed - it just describes the wrong units.
+  //
+  // A marker is the tell. It is empty unless BUILD_MARKER or BUILD_MARKER_<UNIT>
+  // was set, and only the harnesses set those. Marked builds belong on the
+  // test-* channels, which is where the suites promote them.
+  const marked = UNITS.filter((u) => (built.units![u]?.marker ?? "") !== "");
+  if (marked.length > 0 && !channelArg.startsWith("test-")) {
+    console.error(
+      `refusing: dist/build.json is a harness build. ${marked
+        .map((u) => `${u}=${JSON.stringify(built.units![u]!.marker)}`)
+        .join(", ")}`,
+    );
+    console.error(`A build carries a marker only when BUILD_MARKER is set, which e2e,`);
+    console.error(`verify:live and falsify do. Run \`bun run build\` and promote again.`);
+    process.exit(1);
+  }
+
   // Explicit flags win, so --from-build --app alpha=<older> is a rollback of
   // one unit inside an otherwise current composition.
   for (const unit of UNITS) {
