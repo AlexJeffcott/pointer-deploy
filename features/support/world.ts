@@ -9,10 +9,13 @@ import {
 } from "@cucumber/cucumber";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
+import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
 
 setDefaultTimeout(180_000);
+
+export { curlGet, run };
 
 export type Channel = "qa" | "prod";
 export type Mode = "local" | "live";
@@ -61,8 +64,6 @@ const LIVE_HOSTS: Record<Channel, string> = {
   prod: Bun.env.TEST_PROD_HOST ?? "test-prod.pointer-deploy.test",
 };
 
-type Run = { code: number; stdout: string; stderr: string };
-
 /** Every unit id a named scenario build resolved to. */
 export type UnitIds = Record<Unit, string>;
 
@@ -70,54 +71,6 @@ export type UnitIds = Record<Unit, string>;
 // scenario, and rebuilding and republishing the same five bundles for each one
 // would add minutes without testing anything the first publish did not.
 const BUILD_IDS = new Map<string, UnitIds>();
-
-export async function run(cmd: string[], env: Record<string, string> = {}): Promise<Run> {
-  const proc = Bun.spawn(cmd, {
-    env: { ...process.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  return { code: await proc.exited, stdout: stdout.trim(), stderr: stderr.trim() };
-}
-
-/**
- * A GET whose Host may differ from the address it connects to.
- *
- * `-D -` writes the response headers to stdout ahead of the body. Without them
- * the returned Response carries a status and nothing else, and a scenario
- * about a response header - "A shell is never stored by an intermediary" - has
- * nothing to read.
- */
-export async function curlGet(url: string, host: string): Promise<Response> {
-  const r = await run(["curl", "-sS", "-D", "-", "-o", "-", "-H", `Host: ${host}`, url]);
-  if (r.code !== 0) throw new Error(`curl ${url} (Host: ${host}) failed: ${r.stderr}`);
-  return responseFromCurl(r.stdout, `${url} (Host: ${host})`);
-}
-
-/** Header block, blank line, body. Header lines end CRLF; the body does not. */
-function responseFromCurl(raw: string, what: string): Response {
-  const cut = raw.indexOf("\r\n\r\n");
-  if (cut === -1) throw new Error(`curl ${what} returned no header block:\n${raw.slice(0, 200)}`);
-  const lines = raw.slice(0, cut).split("\r\n");
-  const status = Number(/^HTTP\/[\d.]+\s+(\d{3})/.exec(lines[0] ?? "")?.[1]);
-  if (!status) {
-    throw new Error(`curl ${what} returned no status line: ${JSON.stringify(lines[0] ?? "")}`);
-  }
-
-  const headers = new Headers();
-  for (const line of lines.slice(1)) {
-    const colon = line.indexOf(":");
-    if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
-  }
-
-  // 204, 205 and 304 may carry no body, and Response throws if given one.
-  const bodyless = status === 204 || status === 205 || status === 304;
-  return new Response(bodyless ? null : raw.slice(cut + 4), { status, headers });
-}
 
 /** What a channel's pointer names in the store, or why it could not be read. */
 async function pointerBuildId(channel: string): Promise<string> {

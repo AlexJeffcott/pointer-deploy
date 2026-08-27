@@ -72,6 +72,33 @@ Nothing is deleted, so nothing dangles. If a policy is added, keep every build
 `legacy/schema-2/`: the rollback scenarios point a channel at what is there,
 and a retention sweep would delete the fixture rather than expire it.
 
+### 7. `verify:live` fails intermittently in a full run
+
+Three consecutive full runs on 2026-08-27 each failed one or two scenarios, and
+the same scenarios pass on their own. Run the pair alone to see it:
+
+```sh
+HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @live \
+  --name "Deploying one sub-app leaves the others where they were" \
+  --name "Republishing a build that has not changed uploads nothing"
+```
+
+2 scenarios, 2 passed, 33 seconds. In a full run they read:
+
+| Run | Failure |
+| --- | --- |
+| 1 | `curl: (16) Error in the HTTP2 framing layer`. Fixed: `curlGet` now retries a request that gets no response |
+| 3 | `the qa origin did not serve the whole composition after 42903 ms`, all five units still naming the previous build |
+| 3 | Republishing reported 0 of 5 units unchanged, so the record beside the bytes had moved |
+
+Two leads, neither confirmed. **Propagation**: `awaitComposition` waits for the
+channel to serve what was just promoted, and a full run promotes to `test-qa`
+many times, so a previous composition can still be cached when the next
+scenario starts counting. **An immutable claim that is rewritten**: `publish`
+rewrites a unit.json in place when the contracts, the digests or the provenance
+have moved, and writes it with `CACHE_IMMUTABLE`. Anything holding the old copy
+keeps it.
+
 ## Open questions
 
 Not scoped, not ranked. Each one is a hole in the model that a demonstration
