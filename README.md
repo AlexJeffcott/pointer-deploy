@@ -330,12 +330,44 @@ store. The other five cover the schema they would agree about after a long
 rollback, and what the page is allowed to load — see below.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
-mutates operators and literals in the pure logic — 69.91% killed. It found a real
-gap: every entry in `FLY_TO_REGION` returned `"eu"`, the same as the fallback, so
-deleting the lookup left every test green. **`falsify.ts`** makes the
-architectural changes Stryker cannot generate — removing single-flight, making
-the health check read the manifest, unsharing the store. Neither replaces the
-other.
+mutates operators and literals in the pure logic — 91.98% killed, with
+`manifest.ts` at 100%, `html.ts` at 87.33% and `origins.ts` at 68.09%. It found a
+real gap: every entry in `FLY_TO_REGION` returned `"eu"`, the same as the
+fallback, so deleting the lookup left every test green. **`falsify.ts`** makes
+the architectural changes Stryker cannot generate — removing single-flight,
+making the health check read the manifest, unsharing the store. Neither replaces
+the other.
+
+A survivor is one of three things, and only the first is chased:
+
+| | |
+| --- | --- |
+| A real gap | Something the tests never asserted. Write the test |
+| Wording | A log sentence, the default log sink, a request header the store does not negotiate on. A test that killed it would pin a choice nothing depends on |
+| Unreachable | No input distinguishes the mutant from the original |
+
+The second and third are excluded in place, with the reason on the line above
+them, so the next reader gets the argument rather than the number. `manifest.ts`
+has one of the third kind: a single-flight guard whose only caller cannot
+violate the invariant it checks, kept because it states what a second call site
+would have to keep.
+
+Reaching 100% on `manifest.ts` changed the shape of its assertions, and that is
+the transferable part. `toThrow("apps.alpha")` passes on ANY throw carrying that
+text — including the TypeError from one line further in, which is exactly what a
+deleted guard produces. The tests now assert the parser's own message, anchored,
+naming the field: `^manifest field apps\.alpha `. The trailing space is what
+pins the depth. Without it a failure one field deeper, at `apps.alpha.js`,
+satisfies the same assertion, and a guard that stops rejecting malformed apps
+passes.
+
+Two tests were also green for the wrong reason. The non-2xx case sent a body
+that could not parse, so the refresh failed on the body and the status check
+could be deleted with nothing noticing; it now sends a VALID manifest with a 500.
+And every timing test named its own `ttlMs` and `timeoutMs`, so the defaults a
+server actually starts with were never run — a default timeout that is not a
+number aborts every request before it is sent, and the store looks dead while
+sitting there healthy.
 
 `@local` covers only what needs an injected failure — an unreachable store, a
 corrupt manifest, a counted read. Everything that publishes or promotes is

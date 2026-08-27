@@ -52,6 +52,31 @@ const composed = (shellId: string, alphaId = "a1") => ({
   apps: { alpha: unit("alpha", alphaId) },
 });
 
+/** A copy a test may delete fields from. The fixtures above are typed shapes. */
+const loosen = (value: unknown): Record<string, unknown> =>
+  value as Record<string, unknown>;
+
+/**
+ * The parser's own rejection, naming the field an operator has to fix.
+ *
+ * Two things are pinned, and both earn their place. The `manifest field`
+ * prefix says the parser rejected the document itself: a guard that stops
+ * firing still throws a line later, from a property read on null, and a bare
+ * `toThrow()` passes on that TypeError while the manifest it was meant to
+ * reject goes unexamined.
+ *
+ * The TRAILING SPACE pins how deep the failure is. `manifest field apps.alpha `
+ * does not match a message about `apps.alpha.js`, so a guard that lets a
+ * malformed app through and fails one field further in is a failure here.
+ *
+ * Nothing else about the wording is asserted, because nothing else is
+ * behaviour. The field path is what an operator acts on.
+ */
+const rejects = (input: unknown, field: string) => {
+  const path = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  expect(() => parseManifest(input)).toThrow(new RegExp(`^manifest field ${path} `));
+};
+
 function harness(ttlMs = 10_000) {
   const state = {
     clock: 1_000_000,
@@ -93,6 +118,16 @@ describe("caching", () => {
     expect(h.state.calls).toBe(1);
   });
 
+  // The boundary itself. A TTL of 10s that still counts 10s as fresh is a TTL
+  // of 10s plus one request, and nothing above this line can tell the two apart.
+  test("a read exactly at the TTL refreshes", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(10_000);
+    await h.store.get(URL_QA);
+    expect(h.state.calls).toBe(2);
+  });
+
   test("a stale read returns the old build without waiting, then updates", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -115,6 +150,71 @@ describe("caching", () => {
     );
     expect(results.every((m) => idOf(m) === "alpha")).toBe(true);
     expect(h.state.calls).toBe(1);
+  });
+});
+
+// Every test above names ttlMs and timeoutMs, so none of them runs the numbers
+// a server started with no configuration actually uses.
+describe("defaults", () => {
+  /**
+   * A store with the timing options left out.
+   *
+   * The environment is cleared and put back for the same reason the options
+   * are omitted: MANIFEST_TTL_MS set on one machine would otherwise decide
+   * what these two tests measure.
+   */
+  function unconfigured() {
+    const saved = {
+      ttl: Bun.env.MANIFEST_TTL_MS,
+      timeout: Bun.env.MANIFEST_TIMEOUT_MS,
+    };
+    delete Bun.env.MANIFEST_TTL_MS;
+    delete Bun.env.MANIFEST_TIMEOUT_MS;
+    const state = { clock: 1_000_000, calls: 0 };
+    const store = createManifestStore({
+      now: () => state.clock,
+      onWarn: () => {},
+      fetchImpl: (async () => {
+        state.calls++;
+        return Response.json(doc("alpha"));
+      }) as unknown as typeof fetch,
+    });
+    return {
+      store,
+      state,
+      tick: (ms: number) => (state.clock += ms),
+      restore() {
+        if (saved.ttl !== undefined) Bun.env.MANIFEST_TTL_MS = saved.ttl;
+        if (saved.timeout !== undefined) Bun.env.MANIFEST_TIMEOUT_MS = saved.timeout;
+      },
+    };
+  }
+
+  test("the default TTL is ten seconds", async () => {
+    const h = unconfigured();
+    try {
+      expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+      h.tick(9_999);
+      await h.store.get(URL_QA);
+      expect(h.state.calls).toBe(1);
+
+      h.tick(1);
+      await h.store.get(URL_QA);
+      expect(h.state.calls).toBe(2);
+    } finally {
+      h.restore();
+    }
+  });
+
+  // A default timeout that is not a number aborts the request before it is
+  // sent, and every cold read answers 503 with the store sitting there healthy.
+  test("a cold read with the default timeout returns the manifest", async () => {
+    const h = unconfigured();
+    try {
+      expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    } finally {
+      h.restore();
+    }
   });
 });
 
@@ -157,12 +257,66 @@ describe("failure", () => {
     expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
   });
 
+  // The body is a valid manifest on purpose. Against a 500 whose body cannot
+  // parse, a status check that stopped firing is invisible: the refresh fails
+  // on the body instead, the last good build survives, and the test above
+  // passes over a check that is no longer there.
+  test("a non-2xx response is rejected even when its body is a manifest", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.state.respond = async () => Response.json(doc("beta"), { status: 500 });
+    h.tick(11_000);
+    await h.store.get(URL_QA);
+    await settle();
+
+    h.tick(11_000);
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+  });
+
   test("a cold read with a dead store yields null", async () => {
     const h = harness();
     h.state.respond = async () => {
       throw new Error("store unreachable");
     };
     expect(await h.store.get(URL_QA)).toBeNull();
+  });
+
+  // onWarn is the only reading a running server gives of a store it cannot
+  // reach, because rule 5 makes the failure invisible in what it serves.
+  test("a failed refresh reports through onWarn", async () => {
+    const warnings: string[] = [];
+    const store = createManifestStore({
+      ttlMs: 10_000,
+      timeoutMs: 1_000,
+      now: () => 1_000_000,
+      onWarn: (m) => warnings.push(m),
+      fetchImpl: (async () => {
+        throw new Error("store unreachable");
+      }) as unknown as typeof fetch,
+    });
+
+    expect(await store.get(URL_QA)).toBeNull();
+    expect(warnings).toHaveLength(1);
+  });
+
+  // Rule 3. A store that accepts the connection and then says nothing is the
+  // case a rejecting fetch cannot reach: without the deadline on the request,
+  // the cold read never returns and the visitor waits with it.
+  test("a cold read gives up at the timeout", async () => {
+    const store = createManifestStore({
+      ttlMs: 10_000,
+      timeoutMs: 20,
+      now: () => 1_000_000,
+      onWarn: () => {},
+      // Settles only when the request is aborted. With no deadline on it this
+      // never settles, and the test fails on its own clock rather than passing.
+      fetchImpl: ((_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        })) as unknown as typeof fetch,
+    });
+
+    expect(await store.get(URL_QA)).toBeNull();
   });
 
   // Rule 6. Without this a dead store is hit once per request.
@@ -207,7 +361,20 @@ describe("parseManifest", () => {
   });
 
   test("rejects a missing entry file", () => {
-    expect(() => parseManifest({ ...v1("a"), entry: { css: "x.css" } })).toThrow("entry.js");
+    rejects({ ...v1("a"), entry: { css: "x.css" } }, "entry.js");
+  });
+
+  test("rejects a missing entry stylesheet", () => {
+    rejects({ ...v1("a"), entry: { js: "x.js" } }, "entry.css");
+  });
+
+  // No entry object at all, rather than an entry missing one file. A manifest
+  // this old is still a rollback target, so it has to be REJECTED and not
+  // crashed on.
+  test("rejects a single-bundle manifest with no entry at all", () => {
+    const d = loosen(v1("a"));
+    delete d.entry;
+    rejects(d, "entry.js");
   });
 
   test("rejects a shell manifest with no apps", () => {
@@ -215,26 +382,93 @@ describe("parseManifest", () => {
   });
 
   test("rejects an import that names no file", () => {
-    expect(() => parseManifest({ ...doc("a"), imports: { preact: 42 } })).toThrow("imports.preact");
+    rejects({ ...doc("a"), imports: { preact: 42 } }, "imports.preact");
+  });
+
+  // null and a truthy non-object are the two wrong shapes a JSON document can
+  // hold here, and they catch different failures. null gets past a guard whose
+  // two halves are joined by the wrong operator; a string gets past one that
+  // stopped checking the type, and then parses into an import map of single
+  // letters with nothing else objecting.
+  test("rejects a manifest whose imports is not an object", () => {
+    rejects({ ...doc("a"), imports: null }, "imports");
+    rejects({ ...doc("a"), imports: "preact-cccc.js" }, "imports");
+  });
+
+  test("rejects a manifest whose apps is not an object", () => {
+    rejects({ ...doc("a"), apps: null }, "apps");
+    rejects({ ...doc("a"), apps: 42 }, "apps");
+  });
+
+  test("rejects an app that is not an object", () => {
+    rejects({ ...doc("a"), apps: { alpha: null } }, "apps.alpha");
+    rejects({ ...doc("a"), apps: { alpha: 42 } }, "apps.alpha");
   });
 
   test("rejects an app that names no script", () => {
-    expect(() => parseManifest({ ...doc("a"), apps: { alpha: { css: "x.css" } } })).toThrow(
-      "apps.alpha.js",
-    );
+    rejects({ ...doc("a"), apps: { alpha: { css: "x.css" } } }, "apps.alpha.js");
+  });
+
+  test("rejects an app stylesheet that is not a string", () => {
+    rejects({ ...doc("a"), apps: { alpha: { js: "a.js", css: 42 } } }, "apps.alpha.css");
+  });
+
+  // The stylesheet is the one optional file in schema 2, so both readings have
+  // to hold: a named one survives parsing, and an app without one still parses.
+  test("keeps an app's stylesheet, and accepts an app without one", () => {
+    const kept = parseManifest(doc("a"));
+    if (kept.schema !== 2) throw new Error("unreachable");
+    expect(kept.apps.alpha!.css).toBe("apps/alpha-ffff.css");
+
+    const bare = parseManifest({ ...doc("a"), apps: { alpha: { js: "apps/alpha-eeee.js" } } });
+    if (bare.schema !== 2) throw new Error("unreachable");
+    expect(bare.apps.alpha!.css).toBeUndefined();
   });
 
   test("rejects a missing shell script", () => {
-    expect(() => parseManifest({ ...doc("a"), shell: { css: "x.css" } })).toThrow("shell.js");
+    rejects({ ...doc("a"), shell: { css: "x.css" } }, "shell.js");
+  });
+
+  test("rejects a missing shell stylesheet", () => {
+    rejects({ ...doc("a"), shell: { js: "x.js" } }, "shell.css");
+  });
+
+  test("rejects a shell manifest with no shell at all", () => {
+    const d = loosen(doc("a"));
+    delete d.shell;
+    rejects(d, "shell.js");
   });
 
   test("rejects a non-string assetBase", () => {
-    expect(() => parseManifest({ ...doc("a"), assetBase: 42 })).toThrow("assetBase");
+    rejects({ ...doc("a"), assetBase: 42 }, "assetBase");
+  });
+
+  test("rejects a non-string buildId", () => {
+    rejects({ ...doc("a"), buildId: 42 }, "buildId");
+  });
+
+  test("rejects a missing commit", () => {
+    const d = loosen(doc("a"));
+    delete d.commit;
+    rejects(d, "commit");
+  });
+
+  test("rejects a non-string publishedAt", () => {
+    rejects({ ...doc("a"), publishedAt: 42 }, "publishedAt");
+  });
+
+  // "" is a name no file has, and an empty base resolves every script on the
+  // page against the server's own origin instead of the store.
+  test("rejects an empty string where a name belongs", () => {
+    rejects({ ...doc("a"), assetBase: "" }, "assetBase");
   });
 
   test("rejects a non-object", () => {
-    expect(() => parseManifest(null)).toThrow();
-    expect(() => parseManifest("{}")).toThrow();
+    // Anchored on the whole message. A guard that stops firing still throws,
+    // one line later and from a property read, and a bare toThrow() passes on
+    // that TypeError while the document goes unexamined.
+    expect(() => parseManifest(null)).toThrow(/^manifest is not an object$/);
+    expect(() => parseManifest("{}")).toThrow(/^manifest is not an object$/);
   });
 
   // Schema 3. The units are composed from separate publishes, so the thing to
@@ -259,27 +493,115 @@ describe("parseManifest", () => {
     expect(m.apps.alpha!.css).toBeNull();
   });
 
+  // A named stylesheet has to survive, and the field being ABSENT has to read
+  // the same as the explicit null next door. A unit published before the field
+  // existed carries neither.
+  test("keeps a composed unit's stylesheet, and accepts one with no css field", () => {
+    const kept = parseManifest(composed("s1"));
+    if (kept.schema !== 3) throw new Error("unreachable");
+    expect(kept.apps.alpha!.css).toBe("alpha-bbbb.css");
+
+    const doc3 = composed("s1");
+    delete loosen(doc3.apps.alpha).css;
+    const m = parseManifest(doc3);
+    if (m.schema !== 3) throw new Error("unreachable");
+    expect(m.apps.alpha!.css).toBeNull();
+  });
+
+  test("rejects a composed unit whose stylesheet is not a string", () => {
+    const doc3 = composed("s1");
+    loosen(doc3.apps.alpha).css = 42;
+    rejects(doc3, "apps.alpha.css");
+  });
+
   test("rejects a composition whose shell carries no import map", () => {
     const doc3 = composed("s1");
     delete (doc3.shell as { imports?: unknown }).imports;
     // Without it every sub-app's bare specifiers fail to resolve in the
     // browser and the page renders empty, while the server stays green.
-    expect(() => parseManifest(doc3)).toThrow("shell.imports");
+    rejects(doc3, "shell.imports");
+  });
+
+  // An import map that exists and names nothing resolves exactly as many bare
+  // specifiers as no import map at all.
+  test("rejects a composition whose shell import map is empty", () => {
+    const doc3 = composed("s1");
+    loosen(doc3.shell).imports = {};
+    rejects(doc3, "shell.imports");
   });
 
   test("rejects a composed unit with no base", () => {
     const doc3 = composed("s1");
     delete (doc3.apps.alpha as { assetBase?: unknown }).assetBase;
-    expect(() => parseManifest(doc3)).toThrow("apps.alpha.assetBase");
+    rejects(doc3, "apps.alpha.assetBase");
+  });
+
+  test("rejects a composed unit with no id", () => {
+    const doc3 = composed("s1");
+    delete loosen(doc3.apps.alpha).unitId;
+    rejects(doc3, "apps.alpha.unitId");
+  });
+
+  test("rejects a composed unit with no script", () => {
+    const doc3 = composed("s1");
+    delete loosen(doc3.apps.alpha).js;
+    rejects(doc3, "apps.alpha.js");
+  });
+
+  test("rejects a composed unit that is not an object", () => {
+    rejects({ ...composed("s1"), apps: { alpha: null } }, "apps.alpha");
+    rejects({ ...composed("s1"), apps: { alpha: 42 } }, "apps.alpha");
+  });
+
+  test("rejects a composition whose apps is not an object", () => {
+    rejects({ ...composed("s1"), apps: null }, "apps");
+    rejects({ ...composed("s1"), apps: 42 }, "apps");
+  });
+
+  test("rejects a composed unit whose imports is not an object", () => {
+    const nulled = composed("s1");
+    loosen(nulled.apps.alpha).imports = null;
+    rejects(nulled, "apps.alpha.imports");
+
+    const stringy = composed("s1");
+    loosen(stringy.apps.alpha).imports = "preact-cccc.js";
+    rejects(stringy, "apps.alpha.imports");
+  });
+
+  test("rejects a composed unit import that names no file", () => {
+    const doc3 = composed("s1");
+    loosen(doc3.apps.alpha).imports = { preact: 42 };
+    rejects(doc3, "apps.alpha.imports.preact");
+  });
+
+  test("rejects a composition whose shell is malformed", () => {
+    const doc3 = composed("s1");
+    delete loosen(doc3.shell).assetBase;
+    // Named as the shell, not as an app. The shell is parsed by the same
+    // function the apps are, and a message that mislabels which unit is wrong
+    // sends an operator to the wrong publish.
+    rejects(doc3, "shell.assetBase");
   });
 
   test("rejects a composition naming no apps", () => {
     expect(() => parseManifest({ ...composed("s1"), apps: {} })).toThrow("no apps");
   });
 
+  test("rejects a composition with no timestamp", () => {
+    const d = loosen(composed("s1"));
+    delete d.composedAt;
+    rejects(d, "composedAt");
+  });
+
+  test("rejects a composition with no contract", () => {
+    const d = loosen(composed("s1"));
+    delete d.contract;
+    rejects(d, "contract");
+  });
+
   test("keeps the digests a unit carries", () => {
     const doc3 = composed("s1");
-    (doc3.apps.alpha as Record<string, unknown>).integrity = {
+    loosen(doc3.apps.alpha).integrity = {
       "alpha-aaaa.js": "sha384-one",
       "alpha-bbbb.css": "sha384-two",
     };
@@ -302,7 +624,36 @@ describe("parseManifest", () => {
 
   test("rejects a digest that is not a string", () => {
     const doc3 = composed("s1");
-    (doc3.apps.alpha as Record<string, unknown>).integrity = { "alpha-aaaa.js": 7 };
-    expect(() => parseManifest(doc3)).toThrow("apps.alpha.integrity.alpha-aaaa.js");
+    loosen(doc3.apps.alpha).integrity = { "alpha-aaaa.js": 7 };
+    rejects(doc3, "apps.alpha.integrity.alpha-aaaa.js");
+  });
+
+  test("rejects a composed unit whose integrity is not an object", () => {
+    const nulled = composed("s1");
+    loosen(nulled.apps.alpha).integrity = null;
+    rejects(nulled, "apps.alpha.integrity");
+
+    const stringy = composed("s1");
+    loosen(stringy.apps.alpha).integrity = "sha384-one";
+    rejects(stringy, "apps.alpha.integrity");
+  });
+
+  // Both fields postdate the first compositions, so a unit without them still
+  // has to parse - and a unit carrying them has to keep what it carries.
+  test("keeps a composed unit's commit and marker, and defaults each to empty", () => {
+    const doc3 = composed("s1");
+    loosen(doc3.apps.alpha).marker = "e2e";
+    const m = parseManifest(doc3);
+    if (m.schema !== 3) throw new Error("unreachable");
+    expect(m.apps.alpha!.commit).toBe(unit("alpha", "a1").commit);
+    expect(m.apps.alpha!.marker).toBe("e2e");
+
+    const older = composed("s1");
+    delete loosen(older.apps.alpha).commit;
+    delete loosen(older.apps.alpha).marker;
+    const m2 = parseManifest(older);
+    if (m2.schema !== 3) throw new Error("unreachable");
+    expect(m2.apps.alpha!.commit).toBe("");
+    expect(m2.apps.alpha!.marker).toBe("");
   });
 });

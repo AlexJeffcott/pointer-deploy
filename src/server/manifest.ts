@@ -128,15 +128,17 @@ export function parseManifest(input: unknown): Manifest {
   };
 
   if (m.schema === 1) {
-    const entry = m.entry as Record<string, unknown> | undefined;
+    // An absent entry is an empty one, so each required field reports itself
+    // missing by name rather than the object reporting them all at once.
+    const entry = (m.entry ?? {}) as Record<string, unknown>;
     return {
       ...common,
       schema: 1,
-      entry: { js: str("entry.js", entry?.js), css: str("entry.css", entry?.css) },
+      entry: { js: str("entry.js", entry.js), css: str("entry.css", entry.css) },
     };
   }
 
-  const shell = m.shell as Record<string, unknown> | undefined;
+  const shell = (m.shell ?? {}) as Record<string, unknown>;
   const rawImports = m.imports;
   const rawApps = m.apps;
   if (!rawImports || typeof rawImports !== "object") {
@@ -170,7 +172,7 @@ export function parseManifest(input: unknown): Manifest {
   return {
     ...common,
     schema: 2,
-    shell: { js: str("shell.js", shell?.js), css: str("shell.css", shell?.css) },
+    shell: { js: str("shell.js", shell.js), css: str("shell.css", shell.css) },
     imports,
     apps,
   };
@@ -251,6 +253,8 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
   const timeoutMs = options.timeoutMs ?? Number(Bun.env.MANIFEST_TIMEOUT_MS ?? 3_000);
   const doFetch = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
+  // Stryker disable next-line ArrowFunction: the default sink is console. Which
+  // function logs is not behaviour, and only a spy on console could catch it.
   const warn = options.onWarn ?? ((m: string) => console.warn(m));
 
   const entries = new Map<string, Entry>();
@@ -268,12 +272,19 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
     try {
       const res = await doFetch(url, {
         signal: AbortSignal.timeout(timeoutMs),
+        // Stryker disable next-line ObjectLiteral,StringLiteral: courtesy.
+        // The store serves one representation and negotiates nothing, so no
+        // reading of this system changes when the header does.
         headers: { accept: "application/json" },
       });
+      // Stryker disable next-line StringLiteral: log wording. The status check
+      // itself is held next door; only the sentence is here.
       if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
       e.value = parseManifest(await res.json());
     } catch (err) {
       // e.value is deliberately untouched. Rules 5 and 8.
+      // Stryker disable next-line StringLiteral: log wording. That warn is
+      // called at all is held by "a failed refresh reports through onWarn".
       warn(`[manifest] refresh failed for ${url}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       e.checkedAt = now(); // Rule 6: advances on failure too.
@@ -282,6 +293,13 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
 
   function beginRefresh(url: string, e: Entry): Promise<void> {
     const p = refresh(url, e).finally(() => {
+      // Stryker disable next-line ConditionalExpression: no input reaches it.
+      // This is the only writer of e.inflight, and its only caller runs it when
+      // e.inflight is null, so a second promise cannot exist while this one is
+      // in flight. This callback was also registered before any other
+      // continuation on p, so nothing has run between p settling and here. The
+      // guard states the invariant a second call site would have to keep, and
+      // it cannot be tested because it cannot yet be broken.
       if (e.inflight === p) e.inflight = null;
     });
     e.inflight = p; // Set synchronously, so rule 4 holds within a tick.

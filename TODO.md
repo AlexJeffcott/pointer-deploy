@@ -43,10 +43,12 @@ publish/promote, so they must move too or the project runs two runners.
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 3. Raise the mutation score on `manifest.ts`
+### 3. Raise the mutation score on `origins.ts` and `html.ts`
 
-61.36%. Read the survivors first: some are log strings that no behaviour should
-catch, and those want excluding rather than chasing.
+68.09% and 87.33%. `manifest.ts` is done and settled how: read the README under
+"Two kinds of mutation testing" before starting. A survivor is a real gap, or
+wording no behaviour should catch, or a mutant no input can reach. Only the
+first is chased; the other two are excluded in place with the reason.
 
 ### 4. Second region
 
@@ -165,3 +167,12 @@ not the data.
   Still not held by anything: `publish` upgrading a dirty record when a clean
   tree later produces the same bytes. Staging it needs the harness to dirty
   the tree.
+- `manifest.ts` at 100% mutation score, from 61.86%. 33 more unit tests, and a
+  changed assertion shape: a rejected manifest must throw the PARSER's error,
+  anchored, naming the field an operator has to fix. `toThrow("apps.alpha")`
+  passed on any throw carrying that text, including the TypeError one line
+  further in that a deleted guard produces. Six survivors were excluded rather
+  than chased, each with its reason on the line above it. Two tests were green
+  for the wrong reason: the non-2xx case sent a body that was invalid anyway,
+  so the status check could be deleted and nothing noticed; and every timing
+  test named its own TTL and timeout, so neither default was ever run.
