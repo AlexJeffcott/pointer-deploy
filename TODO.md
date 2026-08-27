@@ -114,12 +114,26 @@ So rule 9 closes a real hole and is NOT the diagnosis. One sample, and
 `fly machine suspend` may not be what `auto_stop_machines = "suspend"` does on
 its own.
 
+**The automatic cycle is a cold restart, not a resume.** `fly logs` through a
+full run shows `machine is in a non-startable state: stopping`, then
+`reboot: Restarting system`, then a fresh `pointer-deploy listening` line. That
+is a new process with an EMPTY cache, and a cold read fetches the current
+pointer - so the automatic half of `auto_stop_machines = "suspend"` cannot
+produce stale serving at all. Only the manual `fly machine suspend` kept the
+process, and that one's clock came back correct.
+
 **What is left**, with the store, the load, the repeated promotes and the resume
 all measured out: a Tigris overwrite the MACHINE's read path sees late, for tens
 of seconds, rarely. That read was sampled once, at a quiet moment, and it was
 1.46 s. Nothing here can force it. The deployed headers settle it on the next
 occurrence - an age under the TTL with the wrong composition is the store's
 answer, an age far above it is the origin.
+
+**Runs since the fixes: 2 of 2 green**, 28 scenarios each, 0 curl retries fired
+and 0 failed refreshes logged. That is not proof. The failure ran at about one
+scenario per run across three runs on 2026-08-27 and once more the same day, and
+two clean runs do not measure a rate. A green run happened before the curl retry
+too.
 
 The next failure says which hop it is without another investigation. Every
 shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
