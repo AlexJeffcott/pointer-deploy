@@ -11,27 +11,40 @@ Working state for `pointer-deploy`. Read this first after a context clear.
 | Fly app | `pointer-deploy`, one machine, region `ams`, org `personal` |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for `verify:live` |
-| Deployed | `qa` and `prod` both at schema 3, commit `7c6eadf` |
+| Deployed | `qa` and `prod` both at schema 3, units built from `7c6eadf` |
+| `main` | `1a371dc`, PR #1 merged 2026-08-27 |
 | Contract | `9e79879`, `contracts/counters-2026-08/` |
 
-All green as of 2026-08-27, after `fly deploy` of the schema 3 server:
+`main` is two commits ahead of what the live units were built from. Neither
+reaches a bundle or the server image: `58dd01e` changes a step file, `5980808`
+changes `scripts/promote.ts`, which runs locally. A clean build at `1a371dc`
+reproduces the five deployed unit ids exactly, so nothing needs republishing and
+no `fly deploy` is due.
+
+Measured at `1a371dc` on 2026-08-27:
 
 | Check | Result |
 | --- | --- |
 | `bun run typecheck` | clean |
 | `bun test src/server` | 53 pass |
 | `bun run verify` | 9 `@local` scenarios |
-| `bun run contract:matrix` | 5 units x 1 contract, 5 cells in 0.75 s |
-| `bun run verify:live` | 25 `@live` scenarios, 5m02s |
-| `bun run verify:browser` | 7 `@browser` scenarios, 24 s |
-| `FALSIFY_LIVE=1 bun run falsify` | 13/13 mutations caught |
+| `bun run contract:matrix` | 5 units x 1 contract, 5 cells in 0.78 s |
+| `bun run verify:live` | 25 `@live` scenarios, 5m58s |
+| `bun run verify:browser` | 7 `@browser` scenarios, 38 s |
 | `bun run e2e` | SUCCESS — 8 steps, 16 checks, in a real browser |
-| `bun run mutate` | Stryker 68.90% — html 90.91, manifest 61.36, origins 68.09 |
+
+Two are stale. Both were last measured at `7c6eadf` and neither has been re-run
+since `scripts/promote.ts` changed:
+
+| Check | Last reading | At |
+| --- | --- | --- |
+| `FALSIFY_LIVE=1 bun run falsify` | 13/13 mutations caught | `7c6eadf` |
+| `bun run mutate` | Stryker 68.90% — html 90.91, manifest 61.36, origins 68.09 | `7c6eadf` |
 
 The Stryker total moved from 70.18% to 68.90% because schema 3 added code to
 `manifest.ts` faster than the new tests killed its mutants: `manifest.ts` fell
 from 64.49 to 61.36 and `origins.ts` from 71.11 to 68.09 (two new host rows).
-`html.ts` rose from 86.67 to 90.91. See open item 4.
+`html.ts` rose from 86.67 to 90.91. See open item 7.
 
 ## Running it
 
@@ -105,8 +118,10 @@ A marker is set only by `BUILD_MARKER` / `BUILD_MARKER_<UNIT>`, which only the
 harnesses set, so the signal is exact. Seen refusing on a marked build with the
 `qa` manifest hash unchanged either side, and seen not firing on `test-qa`.
 
-The residue: a clean `bun run build` immediately before any real promote is
-still the only thing that makes `--from-build` mean what it says.
+Two residues, both open. Nothing automated runs that guard — open item 1. And a
+clean build made at an older commit still promotes, so a clean `bun run build`
+immediately before any real promote is what makes `--from-build` mean what it
+says — open item 3.
 
 ### `bun run e2e` is the one that matters
 
@@ -135,10 +150,56 @@ mutation. The three live mutations that do work break `publish.ts` and
 
 ## Open
 
-Ranked. All additions. Everything below predates the per-unit work above and is
-unaffected by it, except where noted.
+Ranked. Items 1 to 3 came out of promoting the real channels on 2026-08-27.
+Items 4 to 10 predate the per-unit work and are unaffected by it, except where
+noted.
 
-### 1. Port the suite to `playwright-bdd`
+### 1. The `--from-build` guard is checked by hand and by nothing else
+
+`scripts/promote.ts:115` refuses a marked build on a real channel. It was seen
+working three ways — refused on `qa` with the manifest hash unchanged, not
+fired on `test-qa`, clean build still promoted — and every one of those was a
+person typing commands. Nothing in the repo runs them again.
+
+The natural home is `scripts/falsify.ts`, which already mutates `promote.ts`
+and runs locally, so a live mutation works here. The mutation: drop the
+`!channelArg.startsWith("test-")` condition, or the marker check itself, and
+the run must report that a marked build reached `qa`.
+
+That mutation needs a scenario to falsify. There is no `.feature` covering it
+yet, so this is two pieces of work: the scenario first, seen red, then the
+mutation.
+
+### 2. Nothing serves schema 2, so rollback onto it is untested in a browser
+
+Before 2026-08-27 the real `qa` held a schema 2 manifest, and `verify:browser`
+read it on every run. That was the rollback-compatibility check. Both real
+channels are schema 3 now, so it is gone.
+
+What remains is `manifest.test.ts`, which parses schemas 1 and 2 in isolation.
+No browser loads a page built from one. The claim "an older pointer is still a
+working rollback" is currently unverified at the surface where it matters.
+
+The cheap fix: a `@browser` scenario that points a `test-*` channel at a stored
+schema 2 manifest and asserts the page renders. It needs a schema 2 manifest
+kept as a fixture, since `promote` no longer writes one.
+
+### 3. A stale clean build still promotes
+
+The marker guard catches a harness build. It does not catch a clean build made
+at an older commit, or one made from a dirty tree. `bun run promote qa
+--from-build` will happily ship `dist/` from three days ago.
+
+`dist/build.json` already records the contract. Recording the commit and
+whether the tree was dirty, then having `promote --from-build` refuse a build
+whose commit is not `HEAD`, would close it. An override flag is needed, because
+promoting a build from an older commit on purpose is a legitimate rollback.
+
+Judgement: worth doing, and lower than 1 and 2, because the failure it prevents
+is visible — the served page carries the commit — where a harness build's is
+not.
+
+### 4. Port the suite to `playwright-bdd`
 
 AJT's suggestion. The `.feature` files do not change; the step bindings and the
 runner do.
@@ -152,14 +213,14 @@ runner do.
 Do it on a green baseline and check the port by comparing scenario counts and
 results against the numbers in Status above.
 
-### 2. A browser-reachable `prod`
+### 5. A browser-reachable `prod`
 
 Needs a domain pointed at Fly and a certificate. The channel already works; only
 DNS and TLS are missing. The domain substitutes in three places:
 `src/server/origins.ts` (the `DEPLOYED` table), `fly certs add`, and
 `features/support/world.ts` (`LIVE_HOSTS`).
 
-### 3. Subresource Integrity, then a Content-Security-Policy
+### 6. Subresource Integrity, then a Content-Security-Policy
 
 `BuildArtifact.hash` is already in hand in `build.ts`. Bucket CORS is set, which
 SRI on a cross-origin script needs. Roughly three lines for SRI and one response
@@ -170,7 +231,7 @@ can write `manifests/eu/prod.json` can execute JavaScript on the production
 origin. One machine holds that key. Fine for an experiment, not fine once anyone
 else uses it.
 
-### 4. Raise the mutation score on `manifest.ts`
+### 7. Raise the mutation score on `manifest.ts`
 
 61.36%, the lowest of the three and now lower than it was: schema 3 added
 `parseComposition` and its helpers, and the new tests kill proportionally fewer
@@ -178,19 +239,19 @@ of their mutants. Look at the survivors before adding tests — some will be log
 strings and error-message literals that no behaviour should catch, and those
 should be excluded rather than chased.
 
-### 5. Second region
+### 8. Second region
 
 `fly scale count 1 --region iad`. `FLY_TO_REGION` already maps the US regions
 and `origins.test.ts` asserts one. Needs `manifests/us/<channel>.json` published,
 or the US machine answers 503.
 
-### 6. CI
+### 9. CI
 
 Not wired. `verify:live` needs live credentials, and putting a bucket write key
 into repository secrets means putting the production-origin execution key there.
 The right shape is a second Tigris key scoped to non-prod paths first.
 
-### 7. Asset retention
+### 10. Asset retention
 
 Nothing is deleted, so nothing can dangle. A policy is only needed when the
 bucket gets large. If one is added: keep every build for at least 90 days, or a
@@ -248,6 +309,8 @@ Do not rediscover these.
 | `curl` and a browser disagree | Only a browser sees a blocked module script or an edge-cached shell. Check user-facing changes in a browser, never with `curl` alone |
 | Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
 | A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
+| `dist/` treated as the build you just made | `e2e`, `verify:live` and `falsify` all overwrite `dist/build.json`. `--from-build` after any of them promotes a harness build, and every check stays green because the manifest is well-formed and describes the wrong units |
+| A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
 
 ## Conventions
 
