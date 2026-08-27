@@ -129,11 +129,19 @@ of seconds, rarely. That read was sampled once, at a quiet moment, and it was
 occurrence - an age under the TTL with the wrong composition is the store's
 answer, an age far above it is the origin.
 
-**Runs since the fixes: 2 of 2 green**, 28 scenarios each, 0 curl retries fired
-and 0 failed refreshes logged. That is not proof. The failure ran at about one
-scenario per run across three runs on 2026-08-27 and once more the same day, and
-two clean runs do not measure a rate. A green run happened before the curl retry
-too.
+**Runs since the fixes: 7 of 7 green** - 196 scenarios, 0 curl retries fired,
+0 failed refreshes logged. Five of them ran back to back on 2026-08-27 between
+21:20 and 21:49 UTC, 4m35s to 6m33s each, with the propagation budgets used
+running 4304 to 9741 ms of 15000. The machine restarted five times inside that
+window and no run noticed it, which is the cold-restart reading above.
+
+Before the fixes, four runs the same day each failed one or two scenarios. The
+comparison is observational, not controlled: the code changed, the image was
+redeployed, and the machine was exercised constantly instead of being left idle
+between runs. One of the two known failure modes was fixed - the dropped
+connection - and the other was not: 30520 ms of a superseded composition, cause
+unknown. So the reading is that the observed rate has moved, and not that the
+second fault is closed.
 
 The next failure says which hop it is without another investigation. Every
 shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
