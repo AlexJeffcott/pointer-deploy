@@ -12,14 +12,19 @@ Working state for `pointer-deploy`. Read this first after a context clear.
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for `verify:live` |
 | Deployed | `qa` and `prod` both at schema 3, units built from `7c6eadf` |
-| `main` | `1a371dc`, PR #1 merged 2026-08-27 |
+| Last merge | PR #1, merge commit `1a371dc`, 2026-08-27 |
 | Contract | `9e79879`, `contracts/counters-2026-08/` |
 
-`main` is two commits ahead of what the live units were built from. Neither
-reaches a bundle or the server image: `58dd01e` changes a step file, `5980808`
-changes `scripts/promote.ts`, which runs locally. A clean build at `1a371dc`
+`main` is ahead of `7c6eadf`, which the live units were built from. Nothing
+between them reaches a bundle or the server image — `git diff --stat 7c6eadf..main`
+lists `TODO.md`, `features/steps/shared-state.steps.ts` and
+`scripts/promote.ts`, and `promote.ts` runs locally. A clean build at `main`
 reproduces the five deployed unit ids exactly, so nothing needs republishing and
 no `fly deploy` is due.
+
+Do not write a commit count here. It is wrong on the next commit, and the
+question it stands in for — has anything in a bundle or the image moved — is
+answered by that `git diff --stat`.
 
 Measured at `1a371dc` on 2026-08-27:
 
