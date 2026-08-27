@@ -37,6 +37,7 @@ import {
   verifyRegistry,
   type Unit,
 } from "./scripts/contract.ts";
+import { currentSource, type Source } from "./scripts/source.ts";
 
 const OUTDIR = "dist";
 const unitDir = (unit: Unit) => `${OUTDIR}/units/${unit}`;
@@ -286,6 +287,15 @@ export type UnitRecord = {
 export type BuildRecord = {
   schema: 3;
   contract: string;
+  /**
+   * Which source produced these bytes.
+   *
+   * Recorded HERE rather than read again at publish or promote time, because
+   * `dist/` outlives the tree that filled it. Build at one commit, commit more
+   * work, and a script asking git afterwards gets an answer about the tree and
+   * not about the bytes in front of it.
+   */
+  source: Source;
   units: Record<string, UnitRecord>;
 };
 
@@ -317,7 +327,12 @@ for (const app of APPS) {
   };
 }
 
-const record: BuildRecord = { schema: 3, contract: headHash, units };
+// No git means no identified source, so this build is marked as though the tree
+// were dirty. `promote` refuses either way on a real channel, which is the
+// reading that is true: nothing here can say which commit these bytes are.
+const source = currentSource() ?? { commit: "0".repeat(40), dirty: true };
+
+const record: BuildRecord = { schema: 3, contract: headHash, source, units };
 await Bun.write(`${OUTDIR}/build.json`, `${JSON.stringify(record, null, 2)}\n`);
 
 const bytes = shell.outputs.reduce((n, o) => n + o.size, 0);

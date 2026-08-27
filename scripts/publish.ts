@@ -19,6 +19,7 @@ import {
   putObject,
 } from "./store.ts";
 import { UNITS, type Unit } from "./contract.ts";
+import type { Source } from "./source.ts";
 
 type UnitRecord = {
   id: string;
@@ -35,6 +36,7 @@ type UnitRecord = {
 type BuildRecord = {
   schema: 3;
   contract: string;
+  source?: Source;
   units: Record<string, UnitRecord>;
 };
 
@@ -58,14 +60,13 @@ export type UnitManifest = {
   marker: string;
 };
 
-const git = (args: string[]): string | null => {
-  const r = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
-  return r.exitCode === 0 ? new TextDecoder().decode(r.stdout).trim() : null;
-};
-
 const record = (await Bun.file("dist/build.json").json().catch(() => null)) as BuildRecord | null;
 if (!record || record.schema !== 3) {
   console.error("dist/build.json is missing or is not a schema 3 record. Run `bun run build` first.");
+  process.exit(1);
+}
+if (!record.source) {
+  console.error("dist/build.json records no source. Run `bun run build` first.");
   process.exit(1);
 }
 
@@ -79,8 +80,10 @@ for (const name of only) {
 }
 const wanted: readonly Unit[] = only.length ? (only as Unit[]) : UNITS;
 
-const commit = git(["rev-parse", "HEAD"]) ?? "0".repeat(40);
-const dirty = (git(["status", "--porcelain"]) ?? "") !== "";
+// The BUILD's source, not the tree's. Asking git here would label bytes with
+// whatever is checked out at publish time, which is a different question and
+// answers it wrong the moment anything is committed between the two commands.
+const { commit, dirty } = record.source;
 
 const cfg = configFromEnv();
 const published: Record<string, string> = {};

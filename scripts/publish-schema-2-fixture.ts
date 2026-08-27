@@ -38,6 +38,7 @@ import {
   warmAll,
 } from "./store.ts";
 import { APPS, UNITS, type Unit } from "./contract.ts";
+import type { Source } from "./source.ts";
 
 const FIXTURE_PATH = "features/support/fixtures/schema-2.json";
 
@@ -50,7 +51,12 @@ type UnitRecord = {
   marker: string;
 };
 
-type BuildRecord = { schema: 3; contract: string; units: Record<string, UnitRecord> };
+type BuildRecord = {
+  schema: 3;
+  contract: string;
+  source?: Source;
+  units: Record<string, UnitRecord>;
+};
 
 /** A manifest in the shape the server read before each unit carried its own base. */
 export type SchemaTwoManifest = {
@@ -62,11 +68,6 @@ export type SchemaTwoManifest = {
   shell: { js: string; css: string };
   imports: Record<string, string>;
   apps: Record<string, { js: string; css?: string }>;
-};
-
-const git = (args: string[]): string | null => {
-  const r = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
-  return r.exitCode === 0 ? new TextDecoder().decode(r.stdout).trim() : null;
 };
 
 const record = (await Bun.file("dist/build.json").json().catch(() => null)) as BuildRecord | null;
@@ -146,7 +147,7 @@ const manifest: SchemaTwoManifest = existing ?? {
   // Schema 2 had one build id for the whole page, and the served HTML reports
   // it. It is what the scenario reads to know which schema answered.
   buildId: `schema2-${id}`,
-  commit: git(["rev-parse", "HEAD"]) ?? "0".repeat(40),
+  commit: record.source?.commit ?? "0".repeat(40),
   publishedAt: new Date().toISOString(),
   assetBase,
   shell: { js: shell.js, css: shell.css },

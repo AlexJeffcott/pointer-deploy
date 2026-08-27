@@ -24,8 +24,9 @@
 // store, the units, publish, promote, the bundles and the browser are all
 // real; only the process the HTML comes from is local.
 //
-// The deployed machine is not left unchecked: verify:live drives 25 scenarios
-// through it, and the machine fingerprint here is compared before and after.
+// The deployed machine is not left unchecked: verify:live drives every @live
+// scenario through it, and the machine fingerprint here is compared before and
+// after.
 
 import { chromium, type Browser, type Page } from "playwright-core";
 import { APPS, UNITS, type Unit } from "./contract.ts";

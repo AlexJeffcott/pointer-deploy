@@ -141,6 +141,59 @@ const MUTATIONS: Mutation[] = [
     scenario: "An ordinary build is not refused on a real channel",
   },
 
+  // --- the source a build came from ---------------------------------------
+  //
+  // The other half of the same guard, and the half with no tell on it. A build
+  // from an older commit carries no marker, so nothing above catches it, and
+  // every check downstream stays green because the manifest is well-formed.
+  //
+  // @local for the same reason as the three above: these scenarios run the real
+  // script from a temporary repository against an unresolvable store, so no
+  // credentials and no deployed machine are involved.
+
+  {
+    name: "the source refusal is removed",
+    file: "scripts/promote.ts",
+    find: "  if (!channelArg.startsWith(\"test-\")) {",
+    replace: "  if (false) {",
+    scenario: "A build from an older commit is refused on a real channel",
+  },
+  {
+    // A blanket refusal would pass the scenario above and stop the suites, and
+    // the ordinary edit-build-look loop, promoting anything.
+    name: "the source refusal stops exempting the suite's own channels",
+    file: "scripts/promote.ts",
+    find: "  if (!channelArg.startsWith(\"test-\")) {",
+    replace: "  if (true) {",
+    scenario: "The suite's own channels still accept a build from an older commit",
+  },
+  {
+    // And a refusal that ignored what it read would refuse every deploy.
+    name: "the source refusal ignores what it read and refuses every build",
+    file: "scripts/promote.ts",
+    find: "  if (!ofBuild) {",
+    replace: "  if (true) {",
+    scenario: "A build from the commit this tree is at is promoted",
+  },
+  {
+    // The commit alone cannot see this one: a dirty build names the commit the
+    // work started at, and its bytes are nowhere in git.
+    name: "a dirty build passes the source check",
+    file: "scripts/promote.ts",
+    find: "  if (ofBuild.dirty) {",
+    replace: "  if (false) {",
+    scenario: "A build from an uncommitted working tree is refused on a real channel",
+  },
+  {
+    // Deliberately serving an older build is a real operation, so the refusal
+    // has an override. Without it the only way past a stale dist/ is a rebuild.
+    name: "the source check's override is ignored",
+    file: "scripts/promote.ts",
+    find: "    if (refusal !== null && argv.includes(\"--no-source-check\")) {",
+    replace: "    if (false) {",
+    scenario: "An older build is promoted when the operator overrides the check",
+  },
+
   {
     // The merge IS the feature. Without it every promote replaces all five
     // units, and "deploy alpha" silently rolls bravo back to whatever the

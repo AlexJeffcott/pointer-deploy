@@ -24,52 +24,42 @@ bun run promote qa --app alpha=<id>      # one sub-app. Same command rolls it ba
 bun run e2e                              # the one that proves the feature works
 ```
 
-Build clean immediately before any real promote. `e2e`, `verify:live` and
-`falsify` all overwrite `dist/`.
+`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean
+immediately before any real promote. A promote to `qa` or `prod` now refuses a
+build this tree did not make — a harness build, another commit, or an
+uncommitted tree — and `--no-source-check` overrides the last two.
 
 ## Open
 
-### 1. A stale clean build still promotes
-
-The guard catches harness builds, not a clean build from an older commit.
-Record the source commit in `dist/build.json` and refuse a mismatch, with an
-override for deliberate rollback.
-
-Related, and now fixed: a unit first published from a dirty tree used to keep
-`commit` and `dirty` forever, because the id is a content hash and the
-unchanged-check skipped the rewrite. `publish` now upgrades a dirty record when
-a clean tree produces the same bytes. No scenario and no mutation hold that
-rule — staging it needs the harness to dirty the tree.
-
-### 2. Port the suite to `playwright-bdd`
+### 1. Port the suite to `playwright-bdd`
 
 The `.feature` files do not change; the bindings and runner do. Buys traces,
 screenshots on failure, parallelism. Costs ~400 lines across five step files.
 Trap: the non-browser suites spawn a Bun server and shell out to
 publish/promote, so they must move too or the project runs two runners.
 
-### 3. A browser-reachable `prod`
+### 2. A browser-reachable `prod`
 
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 4. Raise the mutation score on `manifest.ts`
+### 3. Raise the mutation score on `manifest.ts`
 
 61.36%. Read the survivors first: some are log strings that no behaviour should
 catch, and those want excluding rather than chasing.
 
-### 5. Second region
+### 4. Second region
 
 `fly scale count 1 --region iad`. Needs `manifests/us/<channel>.json` published
 or the US machine answers 503.
 
-### 6. CI
+### 5. CI
 
 `verify:live` needs live credentials, and a bucket write key is the
 production-origin execution key. Needs a second Tigris key scoped to non-prod
 paths first.
 
-### 7. Asset retention
+### 6. Asset retention
 
 Nothing is deleted, so nothing dangles. If a policy is added, keep every build
 90 days, or a tab opened before a deploy breaks on its next lazy fetch. Exempt
@@ -159,5 +149,19 @@ not the data.
   sub-app's stylesheet. The policy is derived from the manifest, and the import
   map is allowed by the hash of its own bytes rather than `'unsafe-inline'`.
   Five scenarios and seven falsify mutations hold it. 25/25 mutations caught.
-  Not yet on the deployed image: `fly deploy` is what puts the header and the
-  attributes in front of visitors.
+  On the deployed image, so the two scenarios that read the served HTML assert
+  against it as `@live` and not only `@local`.
+- `promote --from-build` refuses a build this working tree did not make. Two
+  readings: the build came from another commit, or from an uncommitted tree.
+  Neither carries a marker, so the harness guard could not see either. `build.ts`
+  records the source beside the build and `publish` copies it onto the unit
+  rather than asking git a second time — asking at publish time answers a
+  question about the tree and not about the bytes, so build, commit, publish
+  used to leave a unit claiming a commit that does not hold its own source.
+  `--no-source-check` overrides the refusal and prints what it let through.
+  A tree that is dirty *now* is deliberately not a refusal: a clean build at
+  HEAD is exactly commit HEAD however much has been edited since. Five
+  scenarios and five `falsify` mutations hold it. 30/30 mutations caught.
+  Still not held by anything: `publish` upgrading a dirty record when a clean
+  tree later produces the same bytes. Staging it needs the harness to dirty
+  the tree.

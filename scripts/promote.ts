@@ -13,6 +13,9 @@
 //   bun run promote qa --app alpha=36226fb9        # roll that one app back
 //   bun run promote qa --shell 43ca0019            # the shell alone
 //   bun run promote qa --from-build                # everything in dist/build.json
+//
+// A real channel takes --from-build only from a build this working tree made:
+// see sourceRefusal below. --no-source-check overrides that, loudly.
 
 import {
   CACHE_POINTER,
@@ -23,6 +26,7 @@ import {
   warmUrls,
 } from "./store.ts";
 import { APPS, UNITS, majorOf, type Unit } from "./contract.ts";
+import { currentSource, describeSource, type Source } from "./source.ts";
 import type { UnitManifest } from "./publish.ts";
 
 // test-prod and test-qa belong to the live acceptance suite. It runs this
@@ -72,7 +76,7 @@ const region = Bun.env.REGION ?? "eu";
 
 const usage = () => {
   console.error("usage: bun run promote <channel> [--shell <id>] [--app <name>=<id>]...");
-  console.error("       bun run promote <channel> --from-build");
+  console.error("       bun run promote <channel> --from-build [--no-source-check]");
   console.error(`       channels: ${CHANNELS.join(", ")}`);
   console.error(`       apps:     ${APPS.join(", ")}`);
 };
@@ -110,7 +114,7 @@ for (let i = 1; i < argv.length; i++) {
       process.exit(1);
     }
     wanted.set(name as Unit, id);
-  } else if (arg === "--from-build" || arg === "--no-warm") {
+  } else if (arg === "--from-build" || arg === "--no-warm" || arg === "--no-source-check") {
     // handled elsewhere
   } else {
     console.error(`unexpected argument ${JSON.stringify(arg)}`);
@@ -119,10 +123,54 @@ for (let i = 1; i < argv.length; i++) {
   }
 }
 
+/**
+ * Why this build must not reach a real channel, or null if it may.
+ *
+ * `dist/` outlives the tree that filled it. Build at one commit, do more work,
+ * and a --from-build days later writes a well-formed manifest naming units
+ * nobody meant to serve - the harness-build accident above, with no marker on
+ * it to catch.
+ *
+ * Two readings refuse a build that has a source to read - it came from
+ * uncommitted work, or from another commit - and the two branches before them
+ * fail closed when there is nothing to read at all.
+ *
+ * The tree being dirty NOW is deliberately not one of them: a clean build at
+ * HEAD is exactly commit HEAD however much has been edited since, and refusing
+ * it would mean stashing to deploy a commit that is already reviewed.
+ *
+ * Both messages begin the same way on purpose. What an operator has to act on
+ * is which source is in dist/, and the two causes want one place to read it.
+ */
+const sourceRefusal = (ofBuild: Source | undefined, ofTree: Source | null): string | null => {
+  if (!ofBuild) {
+    return "dist/build.json records no source, so nothing here can say which commit its units came from.";
+  }
+  if (ofTree === null) {
+    return "the source of this working directory cannot be read, so there is nothing to compare dist/build.json against. Run promote from the repository.";
+  }
+  if (ofBuild.dirty) {
+    // Two dirty trees at one commit are not the same source, so a dirty build
+    // can never match anything - including a tree that is dirty too.
+    return (
+      `dist/build.json was built from a working tree with uncommitted changes at ` +
+      `${ofBuild.commit.slice(0, 8)}, so no commit holds the source of what would be served.`
+    );
+  }
+  if (ofBuild.commit !== ofTree.commit) {
+    return (
+      `dist/build.json was built from ${describeSource(ofBuild)}, ` +
+      `and this tree is at ${describeSource(ofTree)}.`
+    );
+  }
+  return null;
+};
+
 if (fromBuild) {
   const built = (await Bun.file("dist/build.json")
     .json()
     .catch(() => null)) as {
+    source?: Source;
     units?: Record<string, { id: string; marker?: string }>;
   } | null;
   if (!built?.units) {
@@ -148,6 +196,22 @@ if (fromBuild) {
     console.error(`A build carries a marker only when BUILD_MARKER is set, which e2e,`);
     console.error(`verify:live and falsify do. Run \`bun run build\` and promote again.`);
     process.exit(1);
+  }
+
+  // Real channels only, exactly like the marker above. A test-* channel takes
+  // whatever dist/ holds, which is what lets the suites - and the ordinary
+  // edit, build, look loop - work at all.
+  if (!channelArg.startsWith("test-")) {
+    const refusal = sourceRefusal(built.source, currentSource());
+    if (refusal !== null && argv.includes("--no-source-check")) {
+      // Loud, and it names what it let through. An override that went quiet
+      // would be the same accident with one more step in front of it.
+      console.error(`  WARNING --no-source-check: ${refusal}`);
+    } else if (refusal !== null) {
+      console.error(`refusing: ${refusal}`);
+      console.error("Run `bun run build` and promote again, or pass --no-source-check.");
+      process.exit(1);
+    }
   }
 
   // Explicit flags win, so --from-build --app alpha=<older> is a rollback of

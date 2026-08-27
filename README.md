@@ -291,11 +291,11 @@ would make the platform kill machines that were serving visitors correctly.
 
 ```sh
 bun test src/server        # 63 unit tests
-bun run verify             # 14 @local scenarios, stub store, ~5 s
+bun run verify             # 19 @local scenarios, stub store, ~6 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris
 bun run verify:browser     # 12 @browser scenarios in a real Chrome
-bun run falsify            # 25 architectural mutations, each must turn a check red
+bun run falsify            # 30 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the ten that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run mutate             # Stryker over the server logic
@@ -324,10 +324,10 @@ carries `test-qa.localhost` for it, development only. Everything else is real,
 and the machine fingerprint is compared before and after.
 
 `@browser` uses `playwright-core` against the Chrome already on the machine, so
-nothing downloads a second browser. Seven of those nine scenarios cover what
+nothing downloads a second browser. Seven of those twelve scenarios cover what
 nothing else can see: five separately published bundles agreeing about one
-store. The other two cover the schema they would agree about after a long
-rollback — see below.
+store. The other five cover the schema they would agree about after a long
+rollback, and what the page is allowed to load — see below.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
 mutates operators and literals in the pure logic — 69.91% killed. It found a real
@@ -400,12 +400,12 @@ refuses any live target not prefixed `test-`, and the run records what `qa` and
 The second repairs nothing on purpose: a restore hook that fails leaves the
 channel wrong and reports success.
 
-Seven of the nine `@browser` scenarios load `pointer-deploy.fly.dev`, so they
+Seven of the twelve `@browser` scenarios load `pointer-deploy.fly.dev`, so they
 read the real `qa` channel — no browser can be made to send a `Host` header.
 They write nothing. Promote a build to `qa` before running them, or they check
 whatever was last deployed.
 
-The two `@test-channel` scenarios do write, because what they are about is a
+The five `@test-channel` scenarios do write, because what they are about is a
 channel pointing somewhere no promote would put it. They take the same way out
 `e2e` does — `bun src/server/index.ts` locally against the real store, reached
 at `test-qa.localhost` — write `test-qa`, and put the exact bytes back
@@ -442,6 +442,55 @@ changed all five ids and republished all five. The same argument, taken one step
 further than it was the first time. The suite refuses two scenario builds that
 publish to one shell id, because without that guard every promotion scenario
 passes by accident: the channel already serves the id being promoted to it.
+
+## What a real channel will take from `dist/`
+
+`--from-build` is the convenient command and the dangerous one. It promotes
+whatever `dist/build.json` describes, and `dist/` is shared: `e2e`, `verify:live`
+and `falsify` all overwrite it, and it outlives the tree that filled it. Either
+way the manifest written is well-formed and every check downstream stays green,
+because nothing about it is malformed — it simply names units nobody meant to
+serve. That has happened to `prod` once.
+
+Two guards on the same command, and three ways they refuse:
+
+| What is in `dist/` | The tell | On `qa` or `prod` | On a `test-*` channel |
+| --- | --- | --- | --- |
+| A build the harness made | `marker`, set only by `BUILD_MARKER` | refused | promoted — this is what the suites do |
+| A build from another commit | `source.commit` against `HEAD` | refused | promoted |
+| A build from an uncommitted tree | `source.dirty` | refused | promoted |
+
+The second and third have no marker on them at all, which is why the commit had
+to be recorded rather than inferred. `build.ts` writes `source` beside the
+build; `publish.ts` copies it onto the unit rather than asking git again, because
+git at publish time answers a question about the tree and not about the bytes in
+front of it — build, commit, then publish, and the unit claims a commit that does
+not contain its own source.
+
+A dirty build is refused however the tree looks now: two dirty trees at one
+commit are not the same source, so its `commit` names where the work started and
+not what it holds. The tree being dirty **now** is deliberately not a refusal. A
+clean build at `HEAD` is exactly commit `HEAD` however much has been edited
+since, and refusing it would mean stashing to deploy a commit that is already
+reviewed.
+
+Deliberately serving an older build is a real operation, so there is an
+override. `--no-source-check` promotes anyway and prints what it let through:
+
+```sh
+bun run promote qa --from-build --no-source-check
+```
+
+Five scenarios hold this, and five `falsify` mutations hold them — one for the
+refusal, one for each of the two readings, one for the `test-*` exemption, and
+one for the override. They are `@local`, which the conventions reserve for
+failures that cannot be forced on the real store: forcing this one means naming a
+real channel, and if the refusal were ever removed the run itself would deploy to
+visitors. Nothing is stubbed even so. The steps run the real `scripts/promote.ts`
+from a temporary git repository holding a `.gitignore` and the `dist/build.json`
+under test, with the store pointed at `store.invalid` — so "reached the store" and
+"refused for its source" are both positive readings, and removing a guard swaps
+one for the other.
 
 ## The schema a rollback can land on
 
@@ -568,7 +617,7 @@ composition, and can still stop the page working. What they can no longer do is
 run their own code on the origin: see above. The remaining hole is the key
 itself — one machine holds a bucket write key in a gitignored `.env.local`, and
 it is scoped to the whole bucket. A second key scoped to non-prod paths is what
-item 7 in `TODO.md` is waiting for.
+the CI item in `TODO.md` is waiting for.
 
 ## Traps, already paid for
 
@@ -592,6 +641,8 @@ Do not rediscover these.
 | Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
 | A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
 | `dist/` treated as the build you just made | `e2e`, `verify:live` and `falsify` all overwrite `dist/build.json`. `--from-build` after any of them promotes a harness build, and every check stays green because the manifest is well-formed and describes the wrong units |
+| `dist/` treated as the tree you are looking at | It outlives the tree that filled it. A build from an older commit carries no marker, so the harness guard cannot see it, and `--from-build` days later promotes a commit nobody chose. A build records the source it came from, and `promote` compares it |
+| Provenance read at publish time | git then answers a question about the tree, not about the bytes. Build, commit, publish, and the unit claims a commit that does not contain its own source. `publish` copies `source` out of `dist/build.json` |
 | A schema the parser accepts and nothing serves | The unit test is green, the rollback onto it is untested, and the page it would produce has never been rendered. Keep a fixture in the store and point a test channel at it |
 | A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
 | `integrity` on a cross-origin tag with no `crossorigin` | The browser refuses the file rather than checking it. The stylesheet never applies and the page renders unstyled, while every other check stays green |
