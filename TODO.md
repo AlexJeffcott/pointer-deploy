@@ -89,6 +89,66 @@ paths first.
 Nothing is deleted, so nothing dangles. If a policy is added, keep every build
 90 days, or a tab opened before a deploy breaks on its next lazy fetch.
 
+## Open questions
+
+Not scoped, not ranked. Each one is a hole in the model that a demonstration
+would close.
+
+### Contracts against an external API
+
+The contract covers the type surface between the shell and the sub-apps.
+Nothing covers the surface between a sub-app and a service it calls. Add a
+small REST API and drive the values already on the page from it — the user
+name and the counts — so the same hash-set argument can be tried against a
+service the units do not build alongside.
+
+### A version switcher on the page
+
+Every unit deployed to a channel should be selectable from a `select` in the
+shell and in each sub-app, listing the deployed ids. Ids whose contract sets do
+not intersect the current composition are disabled rather than hidden — the
+refusal is already computed in `promote`, so the same rule has to reach the
+browser.
+
+### Who chooses which apps appear, and where
+
+Undecided. The shell currently renders whatever the manifest names. Placement
+and selection have no owner.
+
+### Differing dependency versions
+
+Each app carrying everything it needs is the simple answer, and it breaks for
+singletons — Preact and Signals must be one instance or the page stops agreeing
+with itself. Facades enforcing a stated contract are one candidate. Note that
+vendor majors are currently recorded and warned about, never enforced.
+
+### Sharing the same signal instance
+
+Two apps sharing a value is solved. Two apps sharing the *identity* of a signal
+is not, and it is the harder case.
+
+### Build-time warnings for backwards-incompatible changes
+
+The contract hash already changes when the type surface changes. It does not
+say whether the change was additive. A build that could name the difference
+would warn before a promote refuses.
+
+### A deprecation dynamic
+
+Read as deprecation — say if that is wrong. A way to mark a contract, a unit or
+a field as going away, so consumers see it before it is removed rather than
+after.
+
+### Analytics on which build sets are in use
+
+No reading exists of which compositions visitors are actually running. Needed
+before anything is sunset: without it, removing a deprecated field is a guess.
+
+### Do apps need migrations?
+
+Open. If a sub-app carries persisted state, rolling it back moves the code and
+not the data.
+
 ## Done
 
 - Per-unit deploy and rollback. Five units publish and promote on their own.
