@@ -84,14 +84,25 @@ export type ManifestV3 = {
 // still a working rollback rather than a 503.
 export type Manifest = ManifestV1 | ManifestV2 | ManifestV3;
 
-export type ManifestStore = {
-  get(url: string): Promise<Manifest | null>;
-  /** How old this URL's manifest is, and what its last refresh said. */
+/**
+ * A cache of ONE kind of document, read over public HTTPS.
+ *
+ * Generic because the server reads two: a channel's manifest, and the history
+ * of what that channel has served. Both want every rule in the header above -
+ * a visitor waits for neither, an outage costs neither its last good value -
+ * and a second cache written to the same ten rules is a second place for one of
+ * them to be wrong.
+ */
+export type DocumentStore<T> = {
+  get(url: string): Promise<T | null>;
+  /** How old this URL's document is, and what its last refresh said. */
   stateOf(url: string): ManifestState;
 };
 
-type Entry = {
-  value: Manifest | null;
+export type ManifestStore = DocumentStore<Manifest>;
+
+type Entry<T> = {
+  value: T | null;
   /** When the last attempt finished, success or failure. 0 means never. */
   checkedAt: number;
   /** When the last SUCCESSFUL fetch finished. 0 means never. */
@@ -125,6 +136,8 @@ export type ManifestState = {
 };
 
 export type StoreOptions = {
+  /** What a failed refresh calls this kind of document in the log. */
+  label?: string;
   ttlMs?: number;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -281,7 +294,16 @@ function parseComposition(m: Record<string, unknown>): ManifestV3 {
   };
 }
 
+/** The manifest cache. The document it parses is the only thing special here. */
 export function createManifestStore(options: StoreOptions = {}): ManifestStore {
+  return createDocumentStore(parseManifest, options);
+}
+
+export function createDocumentStore<T>(
+  parse: (input: unknown) => T,
+  options: StoreOptions = {},
+): DocumentStore<T> {
+  const label = options.label ?? "manifest";
   const ttlMs = options.ttlMs ?? Number(Bun.env.MANIFEST_TTL_MS ?? 10_000);
   const timeoutMs = options.timeoutMs ?? Number(Bun.env.MANIFEST_TIMEOUT_MS ?? 3_000);
   const doFetch = options.fetchImpl ?? fetch;
@@ -290,9 +312,9 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
   // function logs is not behaviour, and only a spy on console could catch it.
   const warn = options.onWarn ?? ((m: string) => console.warn(m));
 
-  const entries = new Map<string, Entry>();
+  const entries = new Map<string, Entry<T>>();
 
-  const entryFor = (url: string): Entry => {
+  const entryFor = (url: string): Entry<T> => {
     let e = entries.get(url);
     if (!e) {
       e = { value: null, checkedAt: 0, fetchedAt: 0, lastError: null, inflight: null };
@@ -301,7 +323,7 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
     return e;
   };
 
-  async function refresh(url: string, e: Entry): Promise<void> {
+  async function refresh(url: string, e: Entry<T>): Promise<void> {
     try {
       const res = await doFetch(url, {
         signal: AbortSignal.timeout(timeoutMs),
@@ -313,7 +335,7 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
       // Stryker disable next-line StringLiteral: log wording. The status check
       // itself is held next door; only the sentence is here.
       if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
-      e.value = parseManifest(await res.json());
+      e.value = parse(await res.json());
       e.fetchedAt = now();
       e.lastError = null;
     } catch (err) {
@@ -321,13 +343,13 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
       e.lastError = err instanceof Error ? err.message : String(err);
       // Stryker disable next-line StringLiteral: log wording. That warn is
       // called at all is held by "a failed refresh reports through onWarn".
-      warn(`[manifest] refresh failed for ${url}: ${e.lastError}`);
+      warn(`[${label}] refresh failed for ${url}: ${e.lastError}`);
     } finally {
       e.checkedAt = now(); // Rule 6: advances on failure too.
     }
   }
 
-  function beginRefresh(url: string, e: Entry): Promise<void> {
+  function beginRefresh(url: string, e: Entry<T>): Promise<void> {
     const p = refresh(url, e).finally(() => {
       // Stryker disable next-line ConditionalExpression: no input reaches it.
       // This is the only writer of e.inflight, and its only caller runs it when
@@ -354,7 +376,7 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
       };
     },
 
-    async get(url: string): Promise<Manifest | null> {
+    async get(url: string): Promise<T | null> {
       const e = entryFor(url);
 
       // Covers both "good and fresh" and "failed recently". Rules 1 and 6.

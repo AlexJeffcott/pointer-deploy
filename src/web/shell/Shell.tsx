@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { buildMarker, navigate, route, setColour, setName, user } from "./api.ts";
 import { loadApp, readAppMap, type AppMap } from "./loader.ts";
+import { chooseVersion, readVersions, type VersionOption } from "./versions.ts";
 import styles from "./Shell.module.css";
 
 const VIEWS: Record<string, { title: string; apps: string[]; note: string }> = {
@@ -17,6 +18,7 @@ const VIEWS: Record<string, { title: string; apps: string[]; note: string }> = {
 };
 
 const apps: AppMap = readAppMap();
+const versions = readVersions();
 
 /** Hosts one sub-app. The shell renders no children into this node. */
 function Slot({ name }: { name: string }) {
@@ -51,6 +53,66 @@ function Slot({ name }: { name: string }) {
   // reports it here and nowhere else.
   if (error) return <p class={styles.slotError} data-app-error={name}>{error}</p>;
   return <div ref={host} class={styles.slot} data-app={name} />;
+}
+
+/** How one option reads. The id is the identity; the marker is for a person. */
+function optionLabel(o: VersionOption): string {
+  const name = o.marker ? `${o.unitId} (${o.marker})` : o.unitId;
+  if (o.disabled) return `${name} - no shared contract`;
+  return o.deployed ? `${name} - deployed` : name;
+}
+
+/**
+ * One unit's choices.
+ *
+ * An id that cannot be composed with the rest is DISABLED and not hidden.
+ * Hiding it would say the build was never deployed to this channel, which is
+ * false and is the opposite of what an operator is looking for: the reason a
+ * rollback is refused is exactly what they came to find out.
+ */
+function UnitVersions({ unit, options }: { unit: string; options: VersionOption[] }) {
+  const id = `version-${unit}`;
+  return (
+    <span class={styles.version}>
+      <label for={id}>{unit}</label>
+      <select
+        id={id}
+        data-version-select={unit}
+        value={options.find((o) => o.current)?.unitId}
+        onChange={(e: Event) => {
+          const wanted = (e.currentTarget as HTMLSelectElement).value;
+          const option = options.find((o) => o.unitId === wanted);
+          if (option) chooseVersion(unit, option);
+        }}
+      >
+        {options.map((o) => (
+          <option key={o.unitId} value={o.unitId} disabled={o.disabled && !o.current}>
+            {optionLabel(o)}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
+/**
+ * The switcher, or nothing.
+ *
+ * Nothing is the ordinary case. The server sends no options unless the channel
+ * is named in VERSION_SWITCHER_CHANNELS, so a visitor to a channel without one
+ * sees exactly the page they saw before this existed.
+ */
+function Versions() {
+  const units = Object.keys(versions);
+  if (units.length === 0) return null;
+  return (
+    <div class={styles.versions} data-versions>
+      <span class={styles.versionsLabel}>Serving</span>
+      {units.map((unit) => (
+        <UnitVersions key={unit} unit={unit} options={versions[unit]!} />
+      ))}
+    </div>
+  );
 }
 
 function Tab({ path, label }: { path: string; label: string }) {
@@ -104,6 +166,8 @@ export function Shell() {
         <Tab path="/" label="Counters" />
         <Tab path="/totals" label="Totals" />
       </nav>
+
+      <Versions />
 
       <p class={styles.footnote} style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
         {view.note}

@@ -322,16 +322,74 @@ comparison; the reading is what makes it diagnosable next time.
 
 `scripts/probe-resume-skew.ts` measures both, and suspends the machine to do it.
 
+## Choosing which build the page runs
+
+An operator can run an older unit on a channel without promoting it, and see
+what a rollback would serve before anybody else does.
+
+```
+https://qa.example.com/?alpha=36226fb9
+```
+
+The `select` is in the shell, one per unit. Choosing reloads with the id named
+in the query string; choosing what the channel already serves removes the
+parameter, so a link copied from the page keeps following the channel instead
+of freezing at today's build.
+
+**Where the ids come from.** `promote` writes
+`manifests/<region>/<channel>.history.json` beside the pointer, holding every
+unit that channel has served, newest first, capped at 20 per unit. It is the
+pointer's only writer, so the history has one writer too and cannot race a
+`publish`. The id being served goes to the head, so the cap prunes from the tail
+and can never take what is live. It is written BEFORE the pointer and is never
+allowed to fail a promote: the pointer is the deploy, and an index of what a
+switcher may offer must not hold one hostage.
+
+The whole composed unit travels in it, and its contract set with it. The
+alternative is a fetch per option and a second cache; this way the server needs
+neither, and it can say which options are impossible.
+
+**Two refusals, and the first is the one that matters.**
+
+| Asked for | Answer |
+| --- | --- |
+| An id this channel has never served | 400. Without this the query string is a way to make the origin serve any object in the store |
+| A composition with no contract in every unit's set | 400, and the option was already disabled in the `select` |
+
+An option that cannot be composed is **disabled and not hidden**. "This build
+exists and cannot run beside the others" is the reading an operator came for,
+and hiding it would say the build was never deployed.
+
+**Off unless a channel is named.** `VERSION_SWITCHER_CHANNELS` is empty by
+default and the deployed image does not set it. A switcher on a real channel is
+a tool for whoever is diagnosing a deploy and a way for everybody else to run
+superseded code on the production origin, so which channels accept that is an
+operator's decision. The live suite names its own two channels and never a real
+one.
+
+**What it cost, and what it did not.** The policy and the digests came free:
+both are already derived from the manifest, and each unit carries its own
+`assetBase` and `integrity`, so a composition assembled from a query string
+needs no new code for either. That is schema 3 paying for itself.
+
+What is NOT built is a `select` inside each sub-app. The shell draws all five,
+which makes every unit selectable, but handing the data to a sub-app means
+adding to `api.ts` or `subapp.ts` - and the contract hash is taken over exactly
+those two files. One export there changes the hash, forces every unit to be
+republished, and makes every id already in a channel's history unselectable
+until they are. That is a deliberate change to make on purpose, not a side
+effect of adding a control.
+
 ## Verifying
 
 ```sh
-bun test src/server        # 117 unit tests
+bun test src/server        # 176 unit tests
 bun run verify             # 21 @local scenarios, stub store, ~6 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris
-bun run verify:browser     # 12 @browser scenarios in a real Chrome
-bun run falsify            # 34 architectural mutations, each must turn a check red
-FALSIFY_LIVE=1 bun run falsify   # including the ten that need the real store
+bun run verify:browser     # 13 @browser scenarios in a real Chrome
+bun run falsify            # 38 architectural mutations, each must turn a check red
+FALSIFY_LIVE=1 bun run falsify   # including the thirteen that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run mutate             # Stryker over the server logic
 ```

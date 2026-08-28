@@ -26,6 +26,13 @@ import {
   warmUrls,
 } from "./store.ts";
 import { APPS, UNITS, majorOf, type Unit } from "./contract.ts";
+import {
+  HISTORY_DEPTH,
+  chooseContract,
+  parseHistory,
+  sharedContracts,
+  type ChannelHistory,
+} from "../src/server/composition.ts";
 import { currentSource, describeSource, type Source } from "./source.ts";
 import type { UnitManifest } from "./publish.ts";
 
@@ -292,11 +299,14 @@ for (const unit of UNITS) {
 // This is the check the whole design needs: `tsc` at HEAD proves the HEAD
 // combination, and rolling one unit back is precisely how a combination
 // nothing has ever typechecked comes to be served.
-let shared: string[] = [...(manifests.get("shell")!.contracts ?? [])];
-for (const unit of UNITS) {
-  const set = new Set(manifests.get(unit)!.contracts ?? []);
-  shared = shared.filter((h) => set.has(h));
-}
+// The rule lives in src/server/composition.ts because the server applies it
+// too - a visitor choosing an older unit must be refused the same combination
+// this refuses. The import goes that way and not the other: the runtime image
+// copies src/server and nothing else, so nothing there can reach scripts/.
+const contractsByUnit: Record<string, string[]> = Object.fromEntries(
+  UNITS.map((u) => [u, manifests.get(u)!.contracts ?? []]),
+);
+const shared = sharedContracts(contractsByUnit);
 
 if (shared.length === 0) {
   console.error(`no contract is supported by every unit in this composition. Nothing was changed.`);
@@ -307,7 +317,7 @@ if (shared.length === 0) {
   }
   process.exit(1);
 }
-const contract = shared[shared.length - 1]!;
+const contract = chooseContract(contractsByUnit)!;
 
 // Vendor packages are not in the contract - see scripts/contract.ts - so a
 // mismatch is reported rather than refused. Refusing would force every app to
@@ -388,6 +398,54 @@ if (!argv.includes("--no-warm")) {
     console.error(`  warmed ${warmed}/${urls.length} files of ${moving.join(", ")} in ${ms} ms`);
     for (const f of failed) console.error(`  COLD ${f}`);
   }
+}
+
+// What this channel has served, for the version switcher to offer.
+//
+// Written BEFORE the pointer, and never allowed to stop the promote. The
+// pointer is the deploy and it is the commit point, the same way publish writes
+// unit.json last; an index of what a switcher may offer must not be able to
+// hold a deploy hostage. A failure here is loud and costs the switcher one
+// entry until the next promote.
+const historyKey = `manifests/${region}/${channelArg}.history.json`;
+try {
+  const previousText = await getObjectText(cfg, historyKey);
+  let previous: ChannelHistory | null = null;
+  if (previousText !== null) {
+    try {
+      previous = parseHistory(JSON.parse(previousText));
+    } catch (err) {
+      // Rebuilt from this promote rather than refused. A history nobody can
+      // parse is worth less than one that starts again from what is live.
+      console.error(`  WARNING ${historyKey} could not be read, rebuilding it: ${String(err)}`);
+    }
+  }
+
+  const history: ChannelHistory = {
+    schema: 1,
+    updatedAt: new Date().toISOString(),
+    units: {},
+  };
+  for (const unit of UNITS) {
+    const served = unit === "shell" ? composition.shell : composition.apps[unit]!;
+    const older = (previous?.units[unit] ?? []).filter((e) => e.unit.unitId !== served.unitId);
+    // The id being served goes to the head, so the depth cap prunes from the
+    // tail and can never take what this channel is about to serve.
+    history.units[unit] = [
+      { unit: served, contracts: manifests.get(unit)!.contracts ?? [] },
+      ...older,
+    ].slice(0, HISTORY_DEPTH);
+  }
+
+  await putObject(cfg, historyKey, new TextEncoder().encode(`${JSON.stringify(history, null, 2)}\n`), {
+    contentType: "application/json; charset=utf-8",
+    cacheControl: CACHE_POINTER,
+  });
+} catch (err) {
+  console.error(
+    `  WARNING the version history was not written: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  console.error(`  The deploy is unaffected. The switcher will not offer this build until the next promote.`);
 }
 
 await putObject(cfg, pointer, new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`), {

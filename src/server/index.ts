@@ -5,7 +5,17 @@
 // why this image is rebuilt when the server changes and not when the
 // application changes.
 
-import { createManifestStore, manifestUrl } from "./manifest.ts";
+import {
+  compose,
+  currentIds,
+  historyUrl,
+  optionsFor,
+  parseHistory,
+  refuseComposition,
+  switcherChannels,
+  type ChannelHistory,
+} from "./composition.ts";
+import { createDocumentStore, createManifestStore, manifestUrl } from "./manifest.ts";
 import { hostTable, resolveRegion, resolveTarget } from "./origins.ts";
 import { shellResponse } from "./html.ts";
 
@@ -21,6 +31,13 @@ if (!MANIFEST_BASE) {
 const REGION = resolveRegion(Bun.env.FLY_REGION);
 const TABLE = hostTable(IS_PRODUCTION);
 const manifests = createManifestStore();
+
+/** Empty unless an operator names a channel. See switcherChannels. */
+const SWITCHER_CHANNELS = switcherChannels(Bun.env.VERSION_SWITCHER_CHANNELS);
+
+// The same rules as the manifest, over a different document. A visitor waits
+// for neither, and a store outage costs neither its last good value.
+const histories = createDocumentStore<ChannelHistory>(parseHistory, { label: "history" });
 
 const text = (body: string, status: number) =>
   new Response(body, {
@@ -63,6 +80,43 @@ const server = Bun.serve({
       return text("the application manifest is not available", 503);
     }
 
+    // The version switcher, when this channel has one.
+    //
+    // Everything here fails to the ordinary page. A channel that is not named,
+    // a manifest older than schema 3, a history that is absent or unreadable:
+    // each one leaves `versions` undefined and the visitor gets exactly what
+    // the pointer names, which is what they would have got before this existed.
+    let served = manifest;
+    let versions: Record<string, ReturnType<typeof optionsFor>[string]> | undefined;
+    if (SWITCHER_CHANNELS.has(target.channel) && manifest.schema === 3) {
+      const history = await histories.get(historyUrl(MANIFEST_BASE, target.region, target.channel));
+      if (history) {
+        const wanted = new URL(req.url).searchParams;
+        const ids = currentIds(manifest);
+        // Only keys that name a unit of THIS composition. An unrecognised
+        // parameter is left alone rather than refused: a page carrying somebody
+        // else's tracking parameter must still render.
+        const chosen: Record<string, string> = { ...ids };
+        let overridden = false;
+        for (const unit of Object.keys(ids)) {
+          const asked = wanted.get(unit);
+          if (asked !== null && asked !== ids[unit]) {
+            chosen[unit] = asked;
+            overridden = true;
+          }
+        }
+
+        // Validated only when something was actually asked for. A visitor who
+        // asked for nothing must never be refused, however stale the history.
+        if (overridden) {
+          const refusal = refuseComposition(history, chosen);
+          if (refusal) return text(`that composition cannot be served: ${refusal}`, 400);
+          served = compose(manifest, history, chosen);
+        }
+        versions = optionsFor(history, chosen, ids);
+      }
+    }
+
     // What this page was assembled from, said out loud.
     //
     // A pointer deploy has one failure nobody outside the process can see: the
@@ -73,7 +127,7 @@ const server = Bun.serve({
     // that is one TTL behind from one that has stopped being refreshed, and
     // the refresh line names the store's own error when there is one.
     const state = manifests.stateOf(url);
-    const res = shellResponse(manifest, target);
+    const res = shellResponse(served, target, versions);
     res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));
     res.headers.set("x-manifest-refresh", state.lastError ?? "ok");
     return res;

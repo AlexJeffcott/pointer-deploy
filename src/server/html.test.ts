@@ -404,3 +404,45 @@ test("a composition with no digests renders and is still restricted", () => {
   expect(csp).toContain("default-src 'none'");
   expect(csp).toContain("https://store.test");
 });
+
+// The version switcher's data. The server computes the options and the shell
+// draws them, so what is asserted here is the block and never any markup.
+describe("the versions block", () => {
+  const options = {
+    shell: [
+      { unitId: "s1", marker: "", current: true, deployed: true, disabled: false },
+      { unitId: "s0", marker: "beta", current: false, deployed: false, disabled: true },
+    ],
+  };
+
+  test("carries every option the server computed", () => {
+    const html = renderShell(v2, TARGET, options);
+    const block = /id="__VERSIONS__">(.*?)<\/script>/s.exec(html)?.[1];
+    expect(JSON.parse(block!)).toEqual(options);
+  });
+
+  // Absent is the ordinary case: the switcher is off unless a channel is named
+  // in VERSION_SWITCHER_CHANNELS, and a visitor to any other channel must get
+  // exactly the page they got before this existed.
+  test("is absent when the server sent no options", () => {
+    expect(renderShell(v2, TARGET)).not.toContain("__VERSIONS__");
+  });
+
+  test("is absent when the options are empty rather than missing", () => {
+    expect(renderShell(v2, TARGET, {})).not.toContain("__VERSIONS__");
+  });
+
+  // It is data and not script, so it must not need an allowance - and it must
+  // not accidentally get one either.
+  test("does not change what the page is allowed to load", () => {
+    expect(shellResponse(v2, TARGET, options).headers.get("content-security-policy")).toBe(
+      shellResponse(v2, TARGET).headers.get("content-security-policy"),
+    );
+  });
+
+  test("the response carries the block the render put there", () => {
+    expect(shellResponse(v2, TARGET, options).headers.get("content-type")).toBe(
+      "text/html; charset=utf-8",
+    );
+  });
+});

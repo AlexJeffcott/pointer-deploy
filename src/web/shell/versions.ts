@@ -1,0 +1,57 @@
+// The version switcher's data and its one action.
+//
+// Deliberately NOT exported from api.ts or subapp.ts. Those two files are the
+// contract surface: `scripts/contract.ts` hashes the declarations emitted from
+// them, so one export added there changes the contract hash, forces every unit
+// to be republished, and makes every id already in a channel's history
+// unselectable until they are. A shell-internal module costs none of that.
+//
+// The price is that a sub-app cannot draw its own control yet. The shell draws
+// all of them instead, which makes every unit selectable, and handing the data
+// through to a sub-app is a contract change and its own decision.
+
+/** One choice for one unit. Computed by the server; the shell only draws it. */
+export type VersionOption = {
+  unitId: string;
+  marker: string;
+  /** What this page is showing. */
+  current: boolean;
+  /** What the channel's pointer names. Choosing it clears the override. */
+  deployed: boolean;
+  /** Composing it with the rest would leave no shared contract. */
+  disabled: boolean;
+};
+
+/**
+ * The options the server rendered, or none.
+ *
+ * Absent is the ordinary case: the switcher is off unless the channel is named
+ * in VERSION_SWITCHER_CHANNELS. Absent and unreadable are the same answer, so a
+ * malformed block costs the control and never the page.
+ */
+export function readVersions(): Record<string, VersionOption[]> {
+  const tag = document.getElementById("__VERSIONS__");
+  if (!tag?.textContent) return {};
+  try {
+    return JSON.parse(tag.textContent) as Record<string, VersionOption[]>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Point this page at one unit id, by reloading with it named.
+ *
+ * A query string and a full load, not a client-side swap. The composition
+ * decides the import map, the content policy and every digest on the page, and
+ * all three are written into the document by the server - so a new composition
+ * is a new document. Choosing what the channel already serves REMOVES the
+ * parameter, so a link copied from this page keeps following the channel
+ * instead of freezing at today's build.
+ */
+export function chooseVersion(unit: string, option: VersionOption): void {
+  const url = new URL(window.location.href);
+  if (option.deployed) url.searchParams.delete(unit);
+  else url.searchParams.set(unit, option.unitId);
+  window.location.assign(url.toString());
+}

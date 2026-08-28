@@ -167,79 +167,6 @@ Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
 not reproduce and is not explained. Its assertion now carries publish's whole
 output, which names which of contracts, digests or provenance moved.
 
-### 7. A version switcher on the page
-
-Scoped on 2026-08-28, out of the open questions. The behaviour: every unit a
-channel has served is selectable from a `select` in the shell and in each
-sub-app, and an id whose contract set does not intersect the rest of the chosen
-composition is DISABLED rather than hidden.
-
-Two constraints in the code decide most of the design, and the first is easy to
-miss.
-
-**The image holds `src/server` and nothing else.** The runtime stage of the
-`Dockerfile` copies `src/server` alone, so the server cannot import
-`scripts/contract.ts` or `scripts/store.ts`. Anything the server and a script
-both need has to live under `src/server/` and be imported from there BY the
-script, and never the other way round.
-
-**The machine holds no store credentials.** The README says so and it is
-load-bearing: a compromised machine cannot write the store today. So the server
-cannot sign a `ListObjectsV2`, and the list of ids has to arrive as a public
-document somebody else wrote.
-
-#### The decisions
-
-| Question | Decision |
-| --- | --- |
-| Where the list of ids comes from | `promote` writes `manifests/<region>/<channel>.history.json` beside the pointer, with `CACHE_POINTER`. It is the pointer's only writer, so the history has one writer and no race with `publish` |
-| Which ids it holds | Per unit, the ids that CHANNEL has served, newest first. Not every id ever published: "deployed to a channel" is what the behaviour asks for, and it is the smaller and better-defined set |
-| How a visitor chooses | A query string - `?shell=<id>&alpha=<id>`. Shareable, self-describing, and it leaves no state behind. The shell is already `no-store`, so nothing caches the result |
-| What the server refuses | Any id not in that channel's history, and any chosen composition with no contract in every unit's set. The first refusal is what stops the origin becoming a way to serve arbitrary store objects |
-| Where the contract rule lives | Moves out of `scripts/promote.ts` into `src/server/composition.ts`, which `promote.ts` then imports. That direction is forced by the image constraint above |
-| Who computes `disabled` | The server, from that same module, into a JSON block beside `__APPS__`. One computation, rendered once, and no contract sets shipped to the browser |
-| Which channels carry it | Off unless a channel is named in an env var, empty by default. A switcher on a real channel lets any visitor serve themselves a superseded composition from the production origin, which is a tool for an operator and a hazard for everybody else |
-
-#### What comes free
-
-The policy and the digests are already derived from the manifest
-(`contentSecurityPolicy(m)`, `shellDigests(m)`), and each unit carries its own
-`assetBase` and `integrity`. So a composition assembled from a query string gets
-its own policy and its own digests with no new code. That is the schema 3 design
-paying for itself.
-
-#### What it costs
-
-Roughly 500 lines, and one of the five parts is a refactor of a file at a 100%
-mutation score.
-
-| Part | Rough size |
-| --- | --- |
-| `promote` writes and prunes the history | 60 lines |
-| The contract rule moves to `src/server/composition.ts` | 40 lines moved, plus its tests |
-| The server reads the history, validates an override, composes | 80 lines |
-| The `select` and its option list, rendered and exposed to sub-apps | 140 lines across `html.ts`, the shell and `subapp.ts` |
-| Scenarios, unit tests and falsify mutations | 200 lines |
-
-The history is a second mutable document read on every request that renders a
-switcher, so it needs the TTL, the stale-while-revalidate and the survive-an-
-outage rules the manifest already has. Do that by generalising
-`createManifestStore` over a parser rather than by writing a second cache. That
-file is at 100% and every rule in its header has a test, so the refactor has to
-keep all ten.
-
-A channel with no switcher does no extra store read.
-
-#### Still undecided
-
-- Whether a `select` inside a sub-app changes that sub-app alone or the whole
-  composition. The query string makes either possible; the question is what an
-  operator expects.
-- How deep the history goes, and what evicts. It must never evict what the
-  channel currently serves.
-- Whether an option reads as its id alone, or carries the marker and the commit
-  that `__BUILD__` already has.
-
 ## Open questions
 
 Not scoped, not ranked. Each one is a hole in the model that a demonstration
@@ -293,6 +220,29 @@ not the data.
 
 ## Done
 
+- **A version switcher on the page.** An operator runs an older unit on a
+  channel without promoting it: `?alpha=36226fb9`, a `select` per unit in the
+  shell, and choosing what the channel already serves removes the parameter so a
+  shared link keeps following the channel. `promote` writes
+  `manifests/<region>/<channel>.history.json` beside the pointer it already
+  owns, so the record has one writer and cannot race a `publish`; the served id
+  goes to the head, so the depth cap of 20 prunes from the tail and never takes
+  what is live. It is written BEFORE the pointer and never allowed to fail a
+  promote. The whole composed unit travels in it with its contract set, so the
+  server needs no second fetch and can say which options are impossible. Two
+  refusals: an id the channel never served, which is what stops the query string
+  serving any object in the store, and a composition with no shared contract -
+  the same rule `promote` applies, now in `src/server/composition.ts` because
+  the runtime image copies `src/server` and nothing else. An impossible option
+  is DISABLED and not hidden. Off unless a channel is named in
+  `VERSION_SWITCHER_CHANNELS`, which the deployed image does not set and the
+  live suite sets to its own two channels. The policy and the digests came free.
+  Six scenarios, four falsify mutations, 605 mutants and 0 survivors.
+  Not built, on purpose: a `select` INSIDE each sub-app. That needs an export on
+  `api.ts` or `subapp.ts`, and the contract hash is taken over exactly those two
+  files - so it changes the hash, forces every unit to be republished, and makes
+  every id already in a history unselectable until they are. A change to make
+  deliberately, not a side effect of adding a control.
 - A shell unit with no stylesheet now links no stylesheet. `assetUrls` joined
   the shell's base against `css ?? ""`, which is the unit's own DIRECTORY, so
   the page linked a directory listing as its stylesheet and the browser would

@@ -138,6 +138,31 @@ export function appScriptUrls(html: string): Record<string, string> {
   }
 }
 
+/** One choice the served page offers for one unit. */
+export type ServedOption = {
+  unitId: string;
+  marker: string;
+  current: boolean;
+  deployed: boolean;
+  disabled: boolean;
+};
+
+/**
+ * The version switcher's options, as the page carries them.
+ *
+ * An absent block is the switcher being off for that channel, which is the
+ * default, so this answers with an empty record rather than throwing.
+ */
+export function versionsInShell(html: string): Record<string, ServedOption[]> {
+  const m = /id="__VERSIONS__">(.*?)<\/script>/s.exec(html);
+  if (!m?.[1]) return {};
+  try {
+    return JSON.parse(m[1]) as Record<string, ServedOption[]>;
+  } catch {
+    return {};
+  }
+}
+
 export function assetUrlsInShell(html: string): { js: string | null; css: string | null } {
   return {
     js: /<script type="module" src="([^"]+)"/.exec(html)?.[1] ?? null,
@@ -200,6 +225,11 @@ export class PointerWorld extends World {
       // nothing. This one only stops the server adding to that wait.
       MANIFEST_TTL_MS: "1000",
       MANIFEST_TIMEOUT_MS: "10000",
+      // The suite's own channels, and only ever those. A switcher lets any
+      // visitor serve themselves a composition the operator replaced, so which
+      // channels accept that is configuration - and the harness configures the
+      // two nobody visits.
+      VERSION_SWITCHER_CHANNELS: Object.values(LIVE_CHANNELS).join(","),
     });
     this.localServer = true;
   }
@@ -435,6 +465,57 @@ export class PointerWorld extends World {
     }
     this.pointerBefore = { key, text: before };
     await this.writePointer(cfg, key, `${JSON.stringify(doc, null, 2)}\n`);
+  }
+
+  /** What the channel's history held before a scenario added to it. */
+  private historyBefore: { key: string; text: string } | null = null;
+
+  /** The object key of a channel's history. Never a real channel's. */
+  historyKey(channel: Channel): string {
+    return `manifests/${REGION}/${this.targetChannel(channel)}.history.json`;
+  }
+
+  /**
+   * Put an entry in a channel's history that no promote could have written.
+   *
+   * For the one option a live run cannot otherwise produce: a unit the channel
+   * HAS served that can no longer be composed with the rest. Reaching that by
+   * promoting needs two retained contracts and a shell that moved between them,
+   * and the registry holds one. So the document is written directly, the same
+   * way the schema 2 rollback scenarios write a pointer, and put back after.
+   */
+  async recordInHistory(
+    channel: Channel,
+    unit: Unit,
+    entry: { unitId: string; contracts: string[] },
+  ): Promise<void> {
+    const cfg = configFromEnv();
+    const key = this.historyKey(channel);
+    const before = await getObjectText(cfg, key);
+    if (before === null) {
+      throw new Error(`${key} does not exist. A promote writes it; this scenario only adds to it.`);
+    }
+    this.historyBefore = { key, text: before };
+
+    const doc = JSON.parse(before) as {
+      units: Record<string, Array<{ unit: Record<string, unknown>; contracts: string[] }>>;
+    };
+    const served = doc.units[unit]?.[0];
+    if (!served) throw new Error(`${key} holds no ${unit} entry to copy a shape from`);
+    doc.units[unit] = [
+      served,
+      { unit: { ...served.unit, unitId: entry.unitId }, contracts: entry.contracts },
+      ...doc.units[unit]!.slice(1),
+    ];
+    await this.writePointer(cfg, key, `${JSON.stringify(doc, null, 2)}\n`);
+  }
+
+  /** Put back exactly the history bytes that were there. Loud on failure. */
+  async restoreHistory(): Promise<void> {
+    const saved = this.historyBefore;
+    if (!saved) return;
+    this.historyBefore = null;
+    await this.writePointer(configFromEnv(), saved.key, saved.text);
   }
 
   /**
@@ -785,7 +866,9 @@ Before({ tags: "@browser" }, async function (this: PointerWorld) {
 After(async function (this: PointerWorld) {
   await this.closeBrowser();
   await this.stopLocal();
-  // Last, and after the server that was reading it is gone: a channel left
-  // holding a fixture is a channel pointing somewhere nobody promoted.
+  // Last, and after the server that was reading them is gone: a channel left
+  // holding a fixture is a channel pointing somewhere nobody promoted, and a
+  // history left holding one offers a build that cannot be served.
   await this.restorePointer();
+  await this.restoreHistory();
 });

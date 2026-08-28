@@ -1,6 +1,7 @@
 // Builds the application shell from a manifest. The only templating the
 // server does.
 
+import type { VersionOption } from "./composition.ts";
 import type { ComposedUnit, Manifest } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
@@ -272,7 +273,19 @@ function shellDigests(m: Manifest): { js?: string; css?: string } {
   return { js: at(m.shell.js), css: at(m.shell.css) };
 }
 
-export function renderShell(m: Manifest, target: Target): string {
+/**
+ * Which units a visitor may choose between, if any.
+ *
+ * A JSON block rather than rendered markup: the shell is a Preact application
+ * and owns its own chrome, and the server computing the OPTIONS while the shell
+ * draws them keeps the contract rule in one place. An absent block is the
+ * switcher being off for this channel, which is the default.
+ */
+export function renderShell(
+  m: Manifest,
+  target: Target,
+  versions?: Record<string, VersionOption[]>,
+): string {
   const { js, css } = assetUrls(m);
   const apps = appUrls(m);
   const digest = shellDigests(m);
@@ -284,6 +297,10 @@ export function renderShell(m: Manifest, target: Target): string {
   const appsTag = Object.keys(apps).length
     ? `\n    <script type="application/json" id="__APPS__">${jsonBlock(apps)}</script>`
     : "";
+  const versionsTag =
+    versions && Object.keys(versions).length
+      ? `\n    <script type="application/json" id="__VERSIONS__">${jsonBlock(versions)}</script>`
+      : "";
   // Dropped rather than emptied, the same way the import map and the app list
   // are. A link whose href is the unit's directory makes the browser fetch a
   // listing and parse it as CSS.
@@ -299,15 +316,19 @@ export function renderShell(m: Manifest, target: Target): string {
   </head>
   <body>
     <div id="app"></div>
-    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>${appsTag}
+    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>${appsTag}${versionsTag}
     <script type="module" src="${attr(js)}"${sri(digest.js)}></script>
   </body>
 </html>
 `;
 }
 
-export function shellResponse(m: Manifest, target: Target): Response {
-  return new Response(renderShell(m, target), {
+export function shellResponse(
+  m: Manifest,
+  target: Target,
+  versions?: Record<string, VersionOption[]>,
+): Response {
+  return new Response(renderShell(m, target, versions), {
     headers: {
       "content-type": "text/html; charset=utf-8",
       // Not optional. An edge cache that stores this serves one visitor's

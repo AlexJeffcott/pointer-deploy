@@ -99,8 +99,10 @@ const MUTATIONS: Mutation[] = [
   {
     name: "manifest validation is removed",
     file: "src/server/manifest.ts",
-    find: "      e.value = parseManifest(await res.json());",
-    replace: "      e.value = (await res.json()) as Manifest;",
+    // The cache is generic over its parser now, so the mutation drops the
+    // parser rather than naming one.
+    find: "      e.value = parse(await res.json());",
+    replace: "      e.value = (await res.json()) as T;",
     scenario: "A manifest the server cannot trust does not replace a good one",
   },
   {
@@ -278,6 +280,52 @@ const MUTATIONS: Mutation[] = [
     replace: "        const urls = unitUrls({ ...a, assetBase: m.shell.assetBase });",
     unitTest: "loads each sub-app from its own unit's base",
   },
+  // --- choosing a version --------------------------------------------------
+  //
+  // The switcher lets a visitor compose the page themselves, so two of its
+  // three guards are about what it must REFUSE, and the third is about the
+  // record it offers from.
+
+  {
+    // Without this the query string is a way to make this origin serve any
+    // object in the store, named by whoever crafts the link.
+    name: "any unit id may be asked for, not only ones the channel served",
+    file: "src/server/composition.ts",
+    find: "    if (!known) return `the ${unit} unit ${id} is not one this channel has served`;",
+    replace: "    if (false) return `the ${unit} unit ${id} is not one this channel has served`;",
+    scenario: "An id the channel has never served is refused",
+    live: true,
+  },
+  {
+    // The same rule promote applies, applied where a visitor chooses. Without
+    // it the switcher offers a composition promote would have refused.
+    name: "the switcher offers a composition with no shared contract",
+    file: "src/server/composition.ts",
+    find: "        disabled:\n          chooseContract({ ...chosenContracts, [unit]: e.contracts }) === null,",
+    replace: "        disabled: false,",
+    scenario: "A unit that cannot be composed with the rest is offered and disabled",
+    live: true,
+  },
+  {
+    // A history that kept only what is live would make the switcher a control
+    // with one option, which is not a switcher.
+    name: "a channel's history keeps only what it serves now",
+    file: "scripts/promote.ts",
+    find: "    ].slice(0, HISTORY_DEPTH);",
+    replace: "    ].slice(0, 1);",
+    scenario: "The page offers every unit the channel has served",
+    live: true,
+  },
+  {
+    // The default is the guard. Everything else about the switcher is reachable
+    // only once a channel is named.
+    name: "the switcher is on for every channel by default",
+    file: "src/server/composition.ts",
+    find: '    (value ?? "")',
+    replace: '    (value ?? "qa,prod,test-qa,test-prod")',
+    unitTest: "no configuration names no channel",
+  },
+
   {
     // The defect this fix closed. `ComposedUnit.css` is `string | null`, and
     // joining a base against an empty name gives the unit's own DIRECTORY - so

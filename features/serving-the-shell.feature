@@ -28,6 +28,15 @@ Feature: Serving the application shell from the live manifest
     Then the shell reports the age of the manifest it was rendered from
     And the shell reports that its last refresh worked
 
+  # The default, on the image that is actually running. A unit test holds the
+  # parsing of VERSION_SWITCHER_CHANNELS; this holds the configuration, and the
+  # two are different claims. A switcher here would let any visitor serve
+  # themselves a composition the operator replaced.
+  @live
+  Scenario: The deployed origin offers no version switcher
+    When a visitor loads the qa origin
+    Then the page offers no version switcher
+
   # The negative complement of the first scenario. Without it, a server that
   # quietly kept a copy of dist/ would pass, and the claim is that it has none.
   @live @local

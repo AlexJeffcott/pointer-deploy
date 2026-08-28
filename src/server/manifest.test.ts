@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createManifestStore, manifestUrl, parseManifest, type Manifest } from "./manifest.ts";
+import {
+  createDocumentStore,
+  createManifestStore,
+  manifestUrl,
+  parseManifest,
+  type Manifest,
+} from "./manifest.ts";
 
 /** The id a manifest is known by, whichever schema it is. */
 const idOf = (m: Manifest | null | undefined): string | undefined =>
@@ -332,6 +338,9 @@ describe("failure", () => {
 
     expect(await store.get(URL_QA)).toBeNull();
     expect(warnings).toHaveLength(1);
+    // The default kind. A store told nothing about the document it holds says
+    // manifest, which is what every log line before this option said.
+    expect(warnings[0]).toStartWith("[manifest] ");
   });
 
   // Rule 3. A store that accepts the connection and then says nothing is the
@@ -421,6 +430,24 @@ describe("state", () => {
     await settle();
 
     expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: 11_000, lastError: "the store is gone" });
+  });
+
+  // The cache is generic over the document it parses, and the server runs two:
+  // a channel's manifest and the history of what that channel has served. The
+  // label is what tells the two apart in a log.
+  test("a failed refresh names the kind of document in the log", async () => {
+    const said: string[] = [];
+    const store = createDocumentStore(parseManifest, {
+      label: "history",
+      ttlMs: 10_000,
+      timeoutMs: 1_000,
+      onWarn: (m) => said.push(m),
+      fetchImpl: (async () => {
+        throw new Error("the store is gone");
+      }) as unknown as typeof fetch,
+    });
+    expect(await store.get(URL_QA)).toBeNull();
+    expect(said[0]).toStartWith(`[history] refresh failed for ${URL_QA}: `);
   });
 
   test("a refresh that works again clears the error", async () => {
