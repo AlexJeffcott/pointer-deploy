@@ -74,11 +74,25 @@ Then("every sub-app that lists counters reads {string} as {int}", async function
 // Cucumber matches on arity, so the four names are separate parameters rather
 // than a rest argument.
 Then("the totals view lists the namespaces {word}, {word}, {word} and {word}", async function (this: PointerWorld, a: string, b: string, c: string, d: string) {
-  const wanted = [a, b, c, d];
+  const wanted = [a, b, c, d].sort();
+  // Waits, because a namespace now appears when its sub-app mounts rather than
+  // before its first render: `mount(el)` called register() itself, and a
+  // component registers from a layout effect. The set converges within a frame
+  // and this asserts on where it converges, not on the frame it started in.
+  await this.browserPage.waitForFunction(
+    (want) => {
+      const seen = [...document.querySelectorAll("[data-app='charlie'] [data-ns]")]
+        .map((n) => n.textContent?.trim() ?? "")
+        .sort();
+      return JSON.stringify(seen) === JSON.stringify(want);
+    },
+    wanted,
+    { timeout: 5_000 },
+  );
   const listed = await this.browserPage.$$eval("[data-app='charlie'] [data-ns]", (nodes) =>
     nodes.map((n) => n.textContent?.trim() ?? ""),
   );
-  expect([...listed].sort()).toEqual([...wanted].sort());
+  expect([...listed].sort()).toEqual(wanted);
 });
 
 Then("the bar for {string} is longer than the bar for {string}", async function (this: PointerWorld, bigger: string, smaller: string) {

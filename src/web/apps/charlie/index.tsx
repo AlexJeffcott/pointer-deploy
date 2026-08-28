@@ -2,7 +2,7 @@
 // and are not loaded here, yet their counts are present: the store belongs to
 // the shell, not to whichever bundle happens to be on screen.
 
-import { useEffect, useState } from "preact/hooks";
+import { useLayoutEffect, useState } from "preact/hooks";
 import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
 
@@ -13,7 +13,10 @@ export default function Charlie({ store }: SubAppProps) {
   const rows = store.snapshot();
   const total = rows.reduce((n, [, v]) => n + v, 0);
   const [boom, setBoom] = useState(false);
-  useEffect(() => {
+  // Layout, not plain effect: registration must land BEFORE paint, or a panel
+  // that lists every namespace draws one short for a frame - which is what a
+  // visitor would see and what the totals scenario caught.
+  useLayoutEffect(() => {
     store.register(NS);
   }, [store]);
   if (boom) throw new Error(`${NS} was asked to throw`);

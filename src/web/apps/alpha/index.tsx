@@ -7,7 +7,7 @@
 // by the import map to the shell's copy - which is still what keeps one Preact
 // and one signals runtime on the page.
 
-import { useEffect, useState } from "preact/hooks";
+import { useLayoutEffect, useState } from "preact/hooks";
 import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
 
@@ -16,7 +16,10 @@ const NS = "alpha";
 export default function Alpha({ store }: SubAppProps) {
   const who = store.user();
   const [boom, setBoom] = useState(false);
-  useEffect(() => {
+  // Layout, not plain effect: registration must land BEFORE paint, or a panel
+  // that lists every namespace draws one short for a frame - which is what a
+  // visitor would see and what the totals scenario caught.
+  useLayoutEffect(() => {
     store.register(NS);
   }, [store]);
   // Thrown during render, so the loader's boundary catches it. A throw from

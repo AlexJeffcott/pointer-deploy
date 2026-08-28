@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useLayoutEffect, useState } from "preact/hooks";
 import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
 
@@ -8,7 +8,10 @@ export default function Bravo({ store }: SubAppProps) {
   const who = store.user();
   const mine = store.countOf(NS);
   const [boom, setBoom] = useState(false);
-  useEffect(() => {
+  // Layout, not plain effect: registration must land BEFORE paint, or a panel
+  // that lists every namespace draws one short for a frame - which is what a
+  // visitor would see and what the totals scenario caught.
+  useLayoutEffect(() => {
     store.register(NS);
   }, [store]);
   if (boom) throw new Error(`${NS} was asked to throw`);
