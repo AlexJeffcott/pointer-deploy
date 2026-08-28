@@ -144,6 +144,8 @@ export type ServedOption = {
   marker: string;
   current: boolean;
   live: boolean;
+  /** The old name of `live`, kept for shells that still read it. */
+  deployed: boolean;
   disabled: boolean;
 };
 

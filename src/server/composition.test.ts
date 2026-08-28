@@ -286,6 +286,17 @@ describe("optionsFor", () => {
     expect(optionsFor(bare, { shell: "s1" }, { shell: "s1" }).shell?.[0]?.marker).toBe("");
   });
 
+  // Retained for a shell published before the rename. That shell reads
+  // `deployed`, it is still in qa's history, and the switcher offers it - so
+  // dropping the field makes a rollback target quietly do the wrong thing.
+  test("carries the old name of live, with the same value", () => {
+    for (const o of optionsFor(history, { ...served, shell: "s0" }, served).shell ?? []) {
+      expect(`${o.unitId} deployed=${o.deployed}`).toBe(`${o.unitId} deployed=${o.live}`);
+    }
+    expect(optionsFor(history, served, served).shell?.[0]?.deployed).toBe(true);
+    expect(optionsFor(history, served, served).shell?.[1]?.deployed).toBe(false);
+  });
+
   test("carries the marker a build was labelled with", () => {
     const marked: ChannelHistory = {
       ...history,

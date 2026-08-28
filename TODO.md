@@ -169,54 +169,62 @@ output, which names which of contracts, digests or provenance moved.
 
 ## Open questions
 
-Not scoped, not ranked. Each one is a hole in the model that a demonstration
-would close.
+Not scoped, not ranked. Each one is a hole in the model that a demonstration would close.
+
+### What covers the surface between the server and the shell
+
+The contract hash is taken over `api.ts` and `subapp.ts`, which is the surface
+between the shell and its sub-apps. The server has its own surface with the
+shell - `__BUILD__`, `__APPS__` and `__VERSIONS__`, written by one and parsed by
+the other - and nothing covers it.
+
+Demonstrated on 2026-08-28, not hypothetically: renaming `deployed` to `live` in
+`__VERSIONS__` broke shell `606c1c3c`, which the switcher offers. It read
+`deployed`, got undefined, and pinned the query parameter where it should have
+cleared it. The page rendered and the composition worked. `promote` could not
+have refused it, because the server is not a unit and no hash covers it.
+
+The field is retained and the rule is written down - these blocks are
+append-only - but a rule in a comment is what the contract exists to replace. A
+hash over the block shapes, checked against what each shell unit parses, would
+be the same argument applied one layer out. The hard part is that the shell's
+parsing is not a type surface a compiler can emit: it reads JSON out of the DOM.
 
 ### Contracts against an external API
 
-The contract covers the type surface between the shell and the sub-apps.
-Nothing covers the surface between a sub-app and a service it calls. Add a
-small REST API and drive the values already on the page from it — the user
-name and the counts — so the same hash-set argument can be tried against a
-service the units do not build alongside.
+The contract covers the type surface between the shell and the sub-apps. Nothing covers the surface between a sub-app and a service it calls. Add a small REST API and drive the values already on the page from it — the user name and the counts — so the same hash-set argument can be tried against a service the units do not build alongside.
 
 ### Who chooses which apps appear, and where
 
-Undecided. The shell currently renders whatever the manifest names. Placement
-and selection have no owner.
+Undecided. The shell currently renders whatever the manifest names. Placement and selection have no owner.
 
 ### Differing dependency versions
 
-Each app carrying everything it needs is the simple answer, and it breaks for
-singletons — Preact and Signals must be one instance or the page stops agreeing
-with itself. Facades enforcing a stated contract are one candidate. Note that
-vendor majors are currently recorded and warned about, never enforced.
+Each app carrying everything it needs is the simple answer, and it breaks for singletons — Preact and Signals must be one instance or the page stops agreeing with itself. Facades enforcing a stated contract are one candidate. Note that vendor majors are currently recorded and warned about, never enforced.
 
 ### Sharing the same signal instance
 
-Two apps sharing a value is solved. Two apps sharing the *identity* of a signal
-is not, and it is the harder case.
+Two apps sharing a value is solved. Two apps sharing the *identity* of a signal is not, and it is the harder case.
 
 ### Build-time warnings for backwards-incompatible changes
 
-The contract hash already changes when the type surface changes. It does not
-say whether the change was additive. A build that could name the difference
-would warn before a promote refuses.
+The contract hash already changes when the type surface changes. It does not say whether the change was additive. A build that could name the difference would warn before a promote refuses.
 
 ### A deprecation dynamic
 
-A way to mark a contract, a unit or a field as going away, so consumers see it
-before it is removed rather than after.
+A way to mark a contract, a unit or a field as going away, so consumers see it before it is removed rather than after.
 
 ### Analytics on which build sets are in use
 
-No reading exists of which compositions visitors are actually running. Needed
-before anything is sunset: without it, removing a deprecated field is a guess.
+No reading exists of which compositions visitors are actually running. Needed before anything is sunset: without it, removing a deprecated field is a guess.
 
 ### Do apps need migrations?
 
-Open. If a sub-app carries persisted state, rolling it back moves the code and
-not the data.
+Open. If a sub-app carries persisted state, rolling it back moves the code and not the data.
+
+### add a 'throw error' button per app and shell
+
+errors in shells and apps should not proliferate unnecessarily but should be caught. there should be a reload option in that case which reloads the errored context only.
 
 ## Done
 

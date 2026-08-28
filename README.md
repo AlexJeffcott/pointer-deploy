@@ -377,6 +377,21 @@ page; a cold history is not, because without it the page is exactly the one that
 was served before the switcher existed. The first request after a server starts
 has no switcher and the next one does.
 
+**The blocks are a surface the contract does not cover, and renaming a field in
+one proved it.** `__BUILD__`, `__APPS__` and `__VERSIONS__` are written by the
+server and parsed by the shell. The contract hash covers `api.ts` and
+`subapp.ts` - the surface between the shell and its SUB-APPS - and nothing
+covers this one. Renaming `deployed` to `live` in `__VERSIONS__` broke shell
+`606c1c3c`, which the switcher itself offers: it went on reading `deployed`, got
+undefined, and pinned the query parameter where it should have cleared it. The
+page rendered, the composition worked, and the control quietly did the wrong
+thing. `promote` could not have refused it, because the server is not a unit.
+
+The rule that follows, and the field is retained under it: **these blocks are
+append-only.** A field may be added, and a field may stop being read. A field
+may never be renamed or removed while a shell that reads it is still in a
+channel's history.
+
 **One dead end, and it is inherent.** The control lives in the shell, so
 choosing a shell published before the switcher existed serves a page with no
 control. The server still renders the options block - the older bundle simply

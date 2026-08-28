@@ -180,6 +180,22 @@ export type VersionOption = {
    */
   live: boolean;
   /**
+   * The same value as `live`, for a shell published before it was renamed.
+   *
+   * Retained on 2026-08-28, and this is the lesson it carries: these JSON
+   * blocks are a surface between the SERVER and the shell, and the contract
+   * covers only the surface between the shell and its sub-apps. Renaming a
+   * field here broke shell `606c1c3c` - which the switcher itself offers -
+   * silently: it went on reading `deployed`, got undefined, and pinned the
+   * query parameter where it should have cleared it. Nothing refused that,
+   * because the server is not a unit and no hash covers it.
+   *
+   * So this block is append-only. A field may be added and a field may stop
+   * being read, and a field may never be renamed or removed while a shell that
+   * reads it is still in a channel's history.
+   */
+  deployed: boolean;
+  /**
    * True when choosing it would make a composition no contract covers.
    *
    * Disabled rather than absent, because "this build exists and cannot be run
@@ -211,6 +227,7 @@ export function optionsFor(
         marker: e.unit.marker ?? "",
         current: chosen[unit] === e.unit.unitId,
         live: live[unit] === e.unit.unitId,
+        deployed: live[unit] === e.unit.unitId,
         disabled:
           chooseContract({ ...chosenContracts, [unit]: e.contracts }) === null,
       })),
