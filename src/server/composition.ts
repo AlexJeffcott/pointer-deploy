@@ -168,20 +168,24 @@ export type VersionOption = {
   marker: string;
   current: boolean;
   /**
-   * True when this is what the channel's own pointer names.
+   * True when this is what the channel's pointer names RIGHT NOW.
+   *
+   * Not "deployed": every id in this list has been deployed to this channel,
+   * which is exactly what put it here. Only one of them is live.
    *
    * Distinct from `current`, which is what the visitor is looking at. The shell
-   * needs both: choosing the deployed id must CLEAR the override rather than
-   * pin it, or a link shared from this page would freeze at today's build and
-   * stop following the channel.
+   * needs both: choosing the live id must CLEAR the override rather than pin
+   * it, or a link shared from this page would freeze at today's build and stop
+   * following the channel.
    */
-  deployed: boolean;
+  live: boolean;
   /**
    * True when choosing it would make a composition no contract covers.
    *
    * Disabled rather than absent, because "this build exists and cannot be run
    * beside the others" is the reading an operator wants. Hiding it would say
-   * the build was never deployed.
+   * the build was never deployed here, which is false of everything in this
+   * list.
    */
   disabled: boolean;
 };
@@ -195,7 +199,7 @@ export type VersionOption = {
 export function optionsFor(
   history: ChannelHistory,
   chosen: Record<string, string>,
-  deployed: Record<string, string>,
+  live: Record<string, string>,
 ): Record<string, VersionOption[]> {
   const chosenContracts = contractsChosen(history, chosen);
 
@@ -206,7 +210,7 @@ export function optionsFor(
         unitId: e.unit.unitId,
         marker: e.unit.marker ?? "",
         current: chosen[unit] === e.unit.unitId,
-        deployed: deployed[unit] === e.unit.unitId,
+        live: live[unit] === e.unit.unitId,
         disabled:
           chooseContract({ ...chosenContracts, [unit]: e.contracts }) === null,
       })),

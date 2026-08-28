@@ -59,7 +59,7 @@ function Slot({ name }: { name: string }) {
 function optionLabel(o: VersionOption): string {
   const name = o.marker ? `${o.unitId} (${o.marker})` : o.unitId;
   if (o.disabled) return `${name} - no shared contract`;
-  return o.deployed ? `${name} - deployed` : name;
+  return o.live ? `${name} - live` : name;
 }
 
 /**
@@ -67,8 +67,8 @@ function optionLabel(o: VersionOption): string {
  *
  * An id that cannot be composed with the rest is DISABLED and not hidden.
  * Hiding it would say the build was never deployed to this channel, which is
- * false and is the opposite of what an operator is looking for: the reason a
- * rollback is refused is exactly what they came to find out.
+ * false of every id in the list, and the opposite of what an operator is
+ * looking for: the reason a rollback is refused is what they came to find out.
  */
 function UnitVersions({ unit, options }: { unit: string; options: VersionOption[] }) {
   const id = `version-${unit}`;

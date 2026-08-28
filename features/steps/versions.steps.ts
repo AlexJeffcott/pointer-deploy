@@ -79,10 +79,10 @@ Then("the page offers both {string} units", function (this: PointerWorld, app: s
 
 Then("the option the channel serves is the one the page is showing", function (this: PointerWorld) {
   for (const [unit, options] of Object.entries(versionsInShell(this.lastBody))) {
-    const deployed = options.find((o) => o.deployed);
+    const live = options.find((o) => o.live);
     const current = options.find((o) => o.current);
-    expect(`${unit} deployed=${deployed?.unitId} current=${current?.unitId}`).toBe(
-      `${unit} deployed=${deployed?.unitId} current=${deployed?.unitId}`,
+    expect(`${unit} live=${live?.unitId} current=${current?.unitId}`).toBe(
+      `${unit} live=${live?.unitId} current=${live?.unitId}`,
     );
   }
 });

@@ -236,19 +236,19 @@ describe("parseHistory", () => {
 });
 
 describe("optionsFor", () => {
-  test("marks what the page shows and what the channel serves", () => {
+  test("marks what the page shows and what the channel serves now", () => {
     const options = optionsFor(history, served, served);
-    expect(options.shell?.map((o) => [o.unitId, o.current, o.deployed])).toEqual([
+    expect(options.shell?.map((o) => [o.unitId, o.current, o.live])).toEqual([
       ["s1", true, true],
       ["s0", false, false],
     ]);
   });
 
   // The two differ the moment a visitor chooses something, and the shell needs
-  // both: choosing the deployed id clears the override rather than pinning it.
-  test("current and deployed separate once a choice is made", () => {
+  // both: choosing the live id clears the override rather than pinning it.
+  test("current and live separate once a choice is made", () => {
     const options = optionsFor(history, { ...served, shell: "s0" }, served);
-    expect(options.shell?.map((o) => [o.unitId, o.current, o.deployed])).toEqual([
+    expect(options.shell?.map((o) => [o.unitId, o.current, o.live])).toEqual([
       ["s1", false, true],
       ["s0", true, false],
     ]);

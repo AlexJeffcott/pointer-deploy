@@ -143,7 +143,7 @@ export type ServedOption = {
   unitId: string;
   marker: string;
   current: boolean;
-  deployed: boolean;
+  live: boolean;
   disabled: boolean;
 };
 

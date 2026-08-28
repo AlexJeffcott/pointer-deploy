@@ -336,6 +336,11 @@ in the query string; choosing what the channel already serves removes the
 parameter, so a link copied from the page keeps following the channel instead
 of freezing at today's build.
 
+One option is marked **live**, and the word is load-bearing. Every id in the
+list has been deployed to that channel - being deployed is exactly what put it
+there - so "deployed" would be true of all of them and would mark nothing. Only
+one is what the pointer names now.
+
 **Where the ids come from.** `promote` writes
 `manifests/<region>/<channel>.history.json` beside the pointer, holding every
 unit that channel has served, newest first, capped at 20 per unit. It is the

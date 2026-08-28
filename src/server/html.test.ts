@@ -410,8 +410,8 @@ test("a composition with no digests renders and is still restricted", () => {
 describe("the versions block", () => {
   const options = {
     shell: [
-      { unitId: "s1", marker: "", current: true, deployed: true, disabled: false },
-      { unitId: "s0", marker: "beta", current: false, deployed: false, disabled: true },
+      { unitId: "s1", marker: "", current: true, live: true, disabled: false },
+      { unitId: "s0", marker: "beta", current: false, live: false, disabled: true },
     ],
   };
 

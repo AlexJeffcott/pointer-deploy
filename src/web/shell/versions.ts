@@ -16,8 +16,11 @@ export type VersionOption = {
   marker: string;
   /** What this page is showing. */
   current: boolean;
-  /** What the channel's pointer names. Choosing it clears the override. */
-  deployed: boolean;
+  /**
+   * What the channel's pointer names RIGHT NOW. Choosing it clears the
+   * override. Not "deployed": every id here has been deployed to this channel.
+   */
+  live: boolean;
   /** Composing it with the rest would leave no shared contract. */
   disabled: boolean;
 };
@@ -51,7 +54,7 @@ export function readVersions(): Record<string, VersionOption[]> {
  */
 export function chooseVersion(unit: string, option: VersionOption): void {
   const url = new URL(window.location.href);
-  if (option.deployed) url.searchParams.delete(unit);
+  if (option.live) url.searchParams.delete(unit);
   else url.searchParams.set(unit, option.unitId);
   window.location.assign(url.toString());
 }
