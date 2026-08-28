@@ -469,6 +469,39 @@ const MUTATIONS: Mutation[] = [
     replace: "  return {};",
     scenario: "A shell names the digest of every file it tells the browser to fetch",
   },
+
+  // --- containing what a sub-app throws -------------------------------------
+  //
+  // These two mutate a CLIENT bundle, which is why their scenarios build and
+  // promote from this tree in their Background. A browser reading a
+  // composition this run did not build would load the unmutated bundle and
+  // stay green for the wrong reason.
+
+  {
+    // The name is the whole mechanism: Preact walks up looking for a component
+    // that HAS componentDidCatch. Rename it and the class is no longer a
+    // boundary, so a sub-app's throw carries on to the frame and takes the
+    // page. Nothing else changes - the method still exists and still compiles.
+    name: "the loader's boundary stops being a boundary",
+    file: "src/web/shell/AsyncAppLoader.tsx",
+    find: "  componentDidCatch(error: unknown): void {",
+    replace: "  componentDidNotCatch(error: unknown): void {",
+    scenario: "A sub-app that throws costs one panel and no more",
+    live: true,
+    browser: true,
+  },
+  {
+    // Remounting without clearing the error leaves the panel in the state it
+    // failed in. The control would still be there and would still do
+    // something, which is the version of this bug nobody would notice.
+    name: "mounting again does not clear the error",
+    file: "src/web/shell/AsyncAppLoader.tsx",
+    find: "    this.setState({ error: null, attempt: this.state.attempt + 1 });",
+    replace: "    this.setState({ attempt: this.state.attempt + 1 });",
+    scenario: "A panel that threw can be mounted again",
+    live: true,
+    browser: true,
+  },
 ];
 
 const CUKE = ["bun", "node_modules/@cucumber/cucumber/bin/cucumber.js"];
