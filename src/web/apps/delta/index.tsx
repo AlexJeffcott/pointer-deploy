@@ -1,24 +1,39 @@
-import { render } from "preact";
-import { countOf, increment, register, snapshot, user } from "@pointer/shell";
+import { useEffect, useState } from "preact/hooks";
+import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
 
 const NS = "delta";
 
-function Delta() {
-  const who = user.value;
-  const rows = snapshot.value;
+export default function Delta({ store }: SubAppProps) {
+  const who = store.user();
+  const rows = store.snapshot();
   const total = rows.reduce((n, [, v]) => n + v, 0);
   const peak = Math.max(1, ...rows.map(([, v]) => v));
+  const [boom, setBoom] = useState(false);
+  useEffect(() => {
+    store.register(NS);
+  }, [store]);
+  if (boom) throw new Error(`${NS} was asked to throw`);
 
   return (
     <section class={styles.panel} style={{ borderTopColor: who.colour }} data-unit-marker={__UNIT_MARKER__}>
       <p class={styles.name}>{NS}</p>
       <p class={styles.count} style={{ color: who.colour }}>
-        {countOf(NS)}
+        {store.countOf(NS)}
       </p>
-      <button type="button" class={styles.button} onClick={() => increment(NS)}>
-        +1
-      </button>
+      <div class={styles.row}>
+        <button type="button" class={styles.button} onClick={() => store.increment(NS)}>
+          +1
+        </button>
+        <button
+          type="button"
+          class={styles.button}
+          data-throw={NS}
+          onClick={() => setBoom(true)}
+        >
+          Throw
+        </button>
+      </div>
 
       <p class={styles.heading}>Share of every count</p>
       <div class={styles.bars}>
@@ -45,10 +60,4 @@ function Delta() {
       </p>
     </section>
   );
-}
-
-export function mount(el: HTMLElement): () => void {
-  register(NS);
-  render(<Delta />, el);
-  return () => render(null, el);
 }

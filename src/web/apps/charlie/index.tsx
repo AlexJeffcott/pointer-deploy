@@ -2,24 +2,41 @@
 // and are not loaded here, yet their counts are present: the store belongs to
 // the shell, not to whichever bundle happens to be on screen.
 
-import { render } from "preact";
-import { countOf, increment, register, snapshot, user } from "@pointer/shell";
+import { useEffect, useState } from "preact/hooks";
+import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
 
 const NS = "charlie";
 
-function Charlie() {
-  const who = user.value;
-  const total = snapshot.value.reduce((n, [, v]) => n + v, 0);
+export default function Charlie({ store }: SubAppProps) {
+  const who = store.user();
+  const rows = store.snapshot();
+  const total = rows.reduce((n, [, v]) => n + v, 0);
+  const [boom, setBoom] = useState(false);
+  useEffect(() => {
+    store.register(NS);
+  }, [store]);
+  if (boom) throw new Error(`${NS} was asked to throw`);
+
   return (
     <section class={styles.panel} style={{ borderTopColor: who.colour }} data-unit-marker={__UNIT_MARKER__}>
       <p class={styles.name}>{NS}</p>
       <p class={styles.count} style={{ color: who.colour }}>
-        {countOf(NS)}
+        {store.countOf(NS)}
       </p>
-      <button type="button" class={styles.button} onClick={() => increment(NS)}>
-        +1
-      </button>
+      <div class={styles.row}>
+        <button type="button" class={styles.button} onClick={() => store.increment(NS)}>
+          +1
+        </button>
+        <button
+          type="button"
+          class={styles.button}
+          data-throw={NS}
+          onClick={() => setBoom(true)}
+        >
+          Throw
+        </button>
+      </div>
 
       <p class={styles.heading}>Every namespace</p>
       <table class={styles.table}>
@@ -30,7 +47,7 @@ function Charlie() {
           </tr>
         </thead>
         <tbody>
-          {snapshot.value.map(([ns, n]) => (
+          {rows.map(([ns, n]) => (
             <tr key={ns} class={ns === NS ? styles.mine : undefined}>
               <td data-ns={ns}>{ns}</td>
               <td data-count-for={ns}>{n}</td>
@@ -51,10 +68,4 @@ function Charlie() {
       <p class={styles.who}>Read by {who.name}.</p>
     </section>
   );
-}
-
-export function mount(el: HTMLElement): () => void {
-  register(NS);
-  render(<Charlie />, el);
-  return () => render(null, el);
 }

@@ -236,7 +236,12 @@ for (const app of APPS) {
         `A sub-app may only import the shared specifiers: ${SHARED.join(", ")}.`,
     );
   }
-  for (const required of ["preact", "@pointer/shell"]) {
+  // Any app that renders JSX imports this, so an app that does NOT is one that
+  // bundled its own Preact - which gives it a second signals runtime and a
+  // store the rest of the page cannot see. It is no longer "preact" itself:
+  // a sub-app takes the store from a prop and calls no Preact value directly,
+  // so the JSX runtime is the import every one of them still has.
+  for (const required of ["preact/jsx-runtime"]) {
     if (!specifiers.has(required)) {
       throw new Error(
         `${app} does not import ${required} as a bare specifier, so it has bundled ` +

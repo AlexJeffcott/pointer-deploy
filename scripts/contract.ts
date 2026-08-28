@@ -30,13 +30,21 @@ export const UNITS = ["shell", "alpha", "bravo", "charlie", "delta"] as const;
 export type Unit = (typeof UNITS)[number];
 export const APPS = UNITS.filter((u) => u !== "shell") as Exclude<Unit, "shell">[];
 
-/** Bare specifiers the shell owns and every sub-app borrows. */
+/**
+ * Bare specifiers the shell owns and every sub-app borrows.
+ *
+ * "@pointer/shell" is deliberately NOT here any more. A sub-app receives the
+ * store as a prop, so its only use for that module at runtime would be to call
+ * createStore() and render against a store nobody else can see - silently, and
+ * with every count it showed being its own. Leaving the specifier out makes
+ * that a build failure rather than a bug nobody can observe. The type is still
+ * imported, and a type-only import never reaches the bundle.
+ */
 export const SHARED = [
   "preact",
   "preact/hooks",
   "preact/jsx-runtime",
   "@preact/signals",
-  "@pointer/shell",
 ] as const;
 
 /** The two files the contract is emitted from, and the name each is reached by. */

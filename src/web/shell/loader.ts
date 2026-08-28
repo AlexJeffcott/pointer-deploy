@@ -4,13 +4,15 @@
 // so the browser never fetches the manifest itself. Each bundle is imported
 // once and cached: switching views twice must not fetch twice.
 
-import type { SubApp } from "./subapp.ts";
+// From the CONTRACT specifier and not from "./subapp.ts". That relative import
+// was the whole of §16: no file in the shell resolved "@pointer/subapp", so the
+// matrix re-pointed a specifier the shell never used and the sub-app half of
+// the contract was checked from one side only.
+import type { SubApp } from "@pointer/subapp";
 
 export type AppAssets = { js: string; css?: string; cssIntegrity?: string };
 export type AppMap = Record<string, AppAssets>;
 
-// Re-exported so the shell's own imports are unchanged. The type itself lives
-// in subapp.ts because it is half the contract sub-apps are compiled against.
 export type { SubApp };
 
 export function readAppMap(): AppMap {
@@ -47,6 +49,13 @@ function addStylesheet(href: string, integrity?: string): Promise<void> {
 
 const loading = new Map<string, Promise<SubApp>>();
 
+/**
+ * The sub-app's component, cached by name.
+ *
+ * A sub-app default-exports a component. The check is that it exported a
+ * function at all: a Preact component is either a function or a class, and a
+ * class is a function too.
+ */
 export function loadApp(name: string, assets: AppAssets): Promise<SubApp> {
   let pending = loading.get(name);
   if (pending) return pending;
@@ -56,13 +65,26 @@ export function loadApp(name: string, assets: AppAssets): Promise<SubApp> {
     if (assets.css) await addStylesheet(assets.css, assets.cssIntegrity);
     // A variable specifier, so the bundler leaves this as a real runtime
     // import of a file it has never seen.
-    const mod = (await import(assets.js)) as Partial<SubApp>;
-    if (typeof mod.mount !== "function") {
-      throw new Error(`${name} does not export mount()`);
+    const mod = (await import(assets.js)) as { default?: unknown };
+    if (typeof mod.default !== "function") {
+      throw new Error(`${name} has no default export, so it is not a sub-app`);
     }
-    return mod as SubApp;
+    return mod.default as SubApp;
   })();
 
   loading.set(name, pending);
   return pending;
+}
+
+/**
+ * Drop a failed import so the next mount tries again.
+ *
+ * Only useful when the import itself REJECTED - a network failure or a digest
+ * the browser refused. A module that loaded and then threw while rendering is
+ * already evaluated, and the browser will not evaluate a module URL twice, so
+ * forgetting it changes nothing. The error control says "mount again" rather
+ * than "reload" for exactly that reason.
+ */
+export function forget(name: string): void {
+  loading.delete(name);
 }

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "preact/hooks";
-import { buildMarker, navigate, route, setColour, setName, user } from "./api.ts";
-import { loadApp, readAppMap, type AppMap } from "./loader.ts";
+import { useState } from "preact/hooks";
+import type { ShellStore } from "./api.ts";
+import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
+import { readAppMap, type AppMap } from "./loader.ts";
+import { navigate, route } from "./router.ts";
 import { chooseVersion, readVersions, type VersionOption } from "./versions.ts";
 import styles from "./Shell.module.css";
 
@@ -19,41 +21,6 @@ const VIEWS: Record<string, { title: string; apps: string[]; note: string }> = {
 
 const apps: AppMap = readAppMap();
 const versions = readVersions();
-
-/** Hosts one sub-app. The shell renders no children into this node. */
-function Slot({ name }: { name: string }) {
-  const host = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const assets = apps[name];
-    if (!assets) {
-      setError(`The manifest names no bundle for "${name}".`);
-      return;
-    }
-
-    let unmount: (() => void) | undefined;
-    let cancelled = false;
-
-    loadApp(name, assets)
-      .then((app) => {
-        if (cancelled || !host.current) return;
-        unmount = app.mount(host.current);
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-
-    return () => {
-      cancelled = true;
-      unmount?.();
-    };
-  }, [name]);
-
-  // Named, because a refusal is a state a visitor and a scenario both have to
-  // be able to see. A browser that rejects a bundle whose digest does not match
-  // reports it here and nowhere else.
-  if (error) return <p class={styles.slotError} data-app-error={name}>{error}</p>;
-  return <div ref={host} class={styles.slot} data-app={name} />;
-}
 
 /** How one option reads. The id is the identity; the marker is for a person. */
 function optionLabel(o: VersionOption): string {
@@ -133,8 +100,15 @@ function Tab({ path, label }: { path: string; label: string }) {
   );
 }
 
-export function Shell() {
+export function Shell({ store }: { store: ShellStore }) {
   const view = VIEWS[route.value] ?? VIEWS["/"]!;
+  const who = store.user();
+  // Throws during THIS render, not from the handler, so the boundary in
+  // index.tsx is what catches it. A throw inside an event handler never reaches
+  // a boundary at all, and a control that proved the wrong thing would be worse
+  // than none.
+  const [boom, setBoom] = useState(false);
+  if (boom) throw new Error("the shell was asked to throw");
 
   return (
     // The shell is a unit like any other, so its marker has to reach the DOM
@@ -149,16 +123,19 @@ export function Shell() {
           <input
             id="who"
             type="text"
-            value={user.value.name}
-            onInput={(e: Event) => setName((e.currentTarget as HTMLInputElement).value)}
+            value={who.name}
+            onInput={(e: Event) => store.setName((e.currentTarget as HTMLInputElement).value)}
           />
           <label for="colour">Colour</label>
           <input
             id="colour"
             type="color"
-            value={user.value.colour}
-            onInput={(e: Event) => setColour((e.currentTarget as HTMLInputElement).value)}
+            value={who.colour}
+            onInput={(e: Event) => store.setColour((e.currentTarget as HTMLInputElement).value)}
           />
+          <button type="button" data-throw="shell" onClick={() => setBoom(true)}>
+            Throw
+          </button>
         </div>
       </header>
 
@@ -175,15 +152,18 @@ export function Shell() {
 
       <div class={styles.pair}>
         {view.apps.map((name) => (
-          <Slot key={name} name={name} />
+          <AsyncAppLoader key={name} name={name} assets={apps[name]} store={store} />
         ))}
       </div>
 
       <p class={styles.footnote}>
-        The frame owns the name, the colour and every counter. Each panel above is
-        a separate bundle fetched from the object store when its view first
-        appears, sharing one Preact instance through the import map.
-        {buildMarker ? <> Build label: <code data-build-marker={buildMarker}>{buildMarker}</code>.</> : null}
+        The frame owns the name, the colour and every counter, and hands each panel
+        the store as a prop. Each panel above is a separate bundle fetched from the
+        object store when its view first appears, rendered inside this tree so one
+        boundary can catch what it throws.
+        {__BUILD_MARKER__ ? (
+          <> Build label: <code data-build-marker={__BUILD_MARKER__}>{__BUILD_MARKER__}</code>.</>
+        ) : null}
       </p>
     </div>
   );

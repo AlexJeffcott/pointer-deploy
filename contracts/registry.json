@@ -5,9 +5,15 @@
       "hash": "9e79879",
       "firstSeenCommit": "86c322fee05c61df573be9db4a9d3ee55edad194",
       "firstSeenAt": "2026-08-27T09:33:03.263Z"
+    },
+    {
+      "name": "injected-store-2026-08",
+      "hash": "e0160a6",
+      "firstSeenCommit": "6bc192b85b536043bbd1e152b70774b1e8d17813",
+      "firstSeenAt": "2026-08-28T11:28:04.046Z"
     }
   ],
   "retained": [
-    "9e79879"
+    "e0160a6"
   ]
 }
