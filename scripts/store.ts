@@ -70,18 +70,36 @@ async function hmac(key: Uint8Array, data: string): Promise<Uint8Array> {
 const encodeKey = (key: string) =>
   key.split("/").map(encodeURIComponent).join("/");
 
+/**
+ * RFC 3986, which is what SigV4 canonicalises a query with.
+ *
+ * encodeURIComponent leaves !'()* alone and AWS does not, so a prefix
+ * containing one would sign differently from what is sent.
+ */
+const rfc3986 = (s: string) =>
+  encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+
 async function signedRequest(
   cfg: StoreConfig,
-  method: "PUT" | "GET" | "HEAD",
+  method: "PUT" | "GET" | "HEAD" | "DELETE",
   key: string,
   body: Uint8Array,
   extraHeaders: Record<string, string> = {},
   /** A sub-resource such as "cors". Signed as `name=` with an empty value. */
   subresource?: string,
+  /** A full query, for LIST. Sorted and encoded here, never by the caller. */
+  query?: Record<string, string>,
 ): Promise<Request> {
   const host = `${cfg.bucket}.${new URL(cfg.endpoint).host}`;
   const path = `/${encodeKey(key)}`;
-  const canonicalQuery = subresource ? `${subresource}=` : "";
+  const canonicalQuery = query
+    ? Object.keys(query)
+        .sort()
+        .map((k) => `${rfc3986(k)}=${rfc3986(query[k]!)}`)
+        .join("&")
+    : subresource
+      ? `${subresource}=`
+      : "";
   const payloadHash = sha256(body);
 
   const now = new Date();
@@ -131,8 +149,8 @@ async function signedRequest(
   // `host` is set by fetch itself and must not be passed through.
   delete (headers as Record<string, string | undefined>).host;
 
-  const query = subresource ? `?${subresource}` : "";
-  return new Request(`https://${host}${path}${query}`, {
+  const search = canonicalQuery ? `?${canonicalQuery}` : "";
+  return new Request(`https://${host}${path}${search}`, {
     method,
     headers,
     body: method === "PUT" ? (body as unknown as BodyInit) : undefined,
@@ -195,6 +213,49 @@ export async function objectExists(cfg: StoreConfig, key: string): Promise<boole
   if (res.status === 404) return false;
   if (!res.ok) throw new Error(`HEAD ${key} responded ${res.status}`);
   return true;
+}
+
+/**
+ * Every key under a prefix, following the continuation tokens.
+ *
+ * Needed by anything that has to know what is THERE rather than what it just
+ * wrote: a sweep of superseded units, and the retention policy the TODO's §5
+ * describes. The response is XML, and the two fields taken from it are the
+ * only two this project needs.
+ */
+export async function listObjects(cfg: StoreConfig, prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const query: Record<string, string> = { "list-type": "2", prefix, "max-keys": "1000" };
+    if (token) query["continuation-token"] = token;
+    const req = await signedRequest(cfg, "GET", "", new Uint8Array(), {}, undefined, query);
+    const res = await fetch(req);
+    if (!res.ok) {
+      throw new Error(`LIST ${prefix} responded ${res.status}: ${(await res.text()).slice(0, 400)}`);
+    }
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Key>([^<]*)<\/Key>/g)) {
+      keys.push(m[1]!.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+    }
+    const next = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml);
+    token = /<IsTruncated>true<\/IsTruncated>/.test(xml) && next ? next[1] : undefined;
+  } while (token);
+  return keys;
+}
+
+/**
+ * Removes one object.
+ *
+ * S3 answers 204 for a key that was never there, so this cannot report whether
+ * anything was deleted. A caller that needs to know must list first.
+ */
+export async function deleteObject(cfg: StoreConfig, key: string): Promise<void> {
+  const req = await signedRequest(cfg, "DELETE", key, new Uint8Array());
+  const res = await fetch(req);
+  if (!res.ok) {
+    throw new Error(`DELETE ${key} responded ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  }
 }
 
 export async function getObjectText(cfg: StoreConfig, key: string): Promise<string | null> {

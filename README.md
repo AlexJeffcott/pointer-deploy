@@ -56,11 +56,33 @@ re-rendering it. So exactly one thing is shared, and the manifest carries it:
 | Joining them up | The manifest's `imports` becomes the page's import map |
 
 `build.ts` refuses a sub-app that imports anything the import map does not name,
-or that stopped importing `preact` and `@pointer/shell` by name. Either means it
-bundled its own copy.
+or that stopped importing `preact/jsx-runtime` by name. Either means it bundled
+its own copy. `@pointer/shell` is no longer in the allowed set at all: a sub-app
+receives the store as a prop, so a runtime import of that module could only be a
+call to `createStore()`, which would render the sub-app against a store nobody
+else on the page can see.
 
 That this matters was measured, not assumed. Bundling Preact into each app turned
 4 of the 6 browser scenarios red when it was tried.
+
+### A sub-app is a component, and is handed the store
+
+A sub-app default-exports a Preact component taking one prop. It does not export
+`mount(el)` and it does not import the store. Both of those were changed for
+reasons that were measured rather than argued:
+
+| | |
+| --- | --- |
+| `mount(el)` called `render()` into a host node, giving each sub-app its own Preact root | An error boundary in the shell caught NOTHING a sub-app threw on a later render - the error reached `window.onerror`. Rendered as a child of the shell's tree, the same boundary catches it |
+| A separate root also has no parent context | Preact context travels down the vnode tree, so a Provider in the shell reached nothing inside a sub-app |
+| The store was a module-level export | A module-level singleton cannot be substituted. `createStore()` makes one, the shell provides it through context, and a test passes its own |
+
+The contract carries no signal types. Every accessor on `ShellStore` reads a
+signal's `.value` inside itself, which subscribes whichever component is
+rendering, so `@preact/signals` stays out of the hashed surface entirely.
+`ComponentType`, in `subapp.ts`, is the one vendor type the contract references -
+and it is REFERENCED rather than inlined, so the hash does not yet cover what
+Preact means by it. That hole is named in the TODO under §9.
 
 ### What happens on a request
 
@@ -254,11 +276,12 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/server/manifest.ts` | Cached fetch: 10 s TTL, stale-while-revalidate, single-flight |
 | `src/server/html.ts` | The shell template |
 | `src/server/index.ts` | Three routes and nothing else |
-| `src/web/shell/` | The frame: the store (`api.ts`), routing, and the loader that fetches a sub-app |
+| `src/web/shell/` | The frame: the store factory (`api.ts`), routing, the context, and `AsyncAppLoader` |
+| `src/web/shell/AsyncAppLoader.tsx` | Fetches one sub-app and renders it INSIDE this tree, with the boundary that can therefore catch what it throws |
 | `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others |
-| `src/web/shell/subapp.ts` | `SubApp`, alone in its own file because it is half the contract |
+| `src/web/shell/subapp.ts` | `SubApp` and `SubAppProps`, the half of the contract a sub-app satisfies |
 | `src/web/shell/contract.ts` | The shell's conformance, in one file the matrix can compile |
-| `src/web/apps/<name>/contract.ts` | That app's conformance to `SubApp` |
+| `src/web/apps/<name>/contract.ts` | That app's default export, checked against `SubApp` |
 | `src/web/vendor/` | One re-export per shared specifier. These are what the import map points at |
 | `contracts/<name>/` | One retained contract: `shell.d.ts`, `subapp.d.ts`, and the hash of the two |
 | `build.ts` | Five `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |

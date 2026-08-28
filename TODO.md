@@ -31,6 +31,24 @@ uncommitted tree — and `--no-source-check` overrides the last two.
 
 ## Open
 
+Numbers are stable identifiers - other sections point at them - so a gap means
+that item moved to Done, not that anything was renumbered.
+
+### 19. Nothing proves the shared store from this tree
+
+`features/shared-state.feature` carries `@browser` and NOT `@test-channel`, so
+`originFor("qa")` returns the live address and the scenarios read the DEPLOYED
+composition. That makes them a check on the deploy, which is worth having, and
+it means no scenario proves the shared store from the working tree: a change to
+`createStore` is caught only after it is published and promoted.
+
+Found on 2026-08-28 by misreading those scenarios as proof of a change that was
+not deployed yet. They passed, against the old build.
+
+The fix is a second, `@test-channel` copy of the two scenarios that matter - a
+count raised in one sub-app read by another, and the name reaching every panel -
+not moving the existing ones, which would trade a deploy check for a code check.
+
 ### 1. Port the suite to `playwright-bdd`
 
 The `.feature` files do not change; the bindings and runner do. Buys traces,
@@ -60,6 +78,13 @@ Nothing is deleted, so nothing dangles. If a policy is added, keep every build
 90 days, or a tab opened before a deploy breaks on its next lazy fetch. Exempt
 `legacy/schema-2/`: the rollback scenarios point a channel at what is there,
 and a retention sweep would delete the fixture rather than expire it.
+
+`scripts/sweep-superseded.ts` (`bun run sweep`) is half of this already: it
+lists what no channel can serve, refuses to run if anything under `legacy/`
+reaches the delete set, and changes nothing without `--delete`. What it does NOT
+have is a policy - it removes what is superseded now, with no 90-day floor, so a
+tab opened before the last promote would break on its next lazy fetch. Add the
+floor before it runs on a schedule.
 
 ### 6. `verify:live` fails intermittently in a full run
 
@@ -166,34 +191,6 @@ quotes both beside what the store holds:
 Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
 not reproduce and is not explained. Its assertion now carries publish's whole
 output, which names which of contracts, digests or provenance moved.
-
-### 7. A `throw error` button per app and the shell
-
-Depends on §18. Measured on 2026-08-28: with the current design the shell
-CANNOT catch a sub-app's render error, so the obvious version of this task does
-not work.
-
-Two cases, run in a real Chrome through `playwright-core`:
-
-| Case | Shape | Result |
-| --- | --- | --- |
-| A | a second `render()` into a host node, which is what `mount(el)` does | the shell's boundary did NOT catch. The error reached `window.onerror` |
-| B | the sub-app rendered as a CHILD of the shell's tree | the boundary caught it |
-
-`Slot` already catches a `loadApp` REJECTION, and that is a different thing: a
-throw during the first synchronous `mount` call propagates out of the promise.
-A throw on a LATER render happens inside the sub-app's own root, in Preact's
-rerender queue, and the shell's tree never sees it. A boundary per `Slot` would
-have looked correct and caught almost nothing.
-
-So the work is: a throw button in each sub-app and in the shell's masthead, and
-a boundary in `AsyncAppLoader` - which only exists after §18. Reloading one
-sub-app is then resetting that boundary's state; the module stays evaluated, so
-nothing is re-fetched and nothing can be. Say that on the control.
-
-Proof: `features/recovering-from-an-error.feature`, `@browser`. Two falsify
-mutations: without the boundary the page goes blank, and without the reset the
-panel stays in its error state.
 
 ### 8. A build-time reading of whether a contract change is additive
 
@@ -460,33 +457,6 @@ Accepted and not fixed: `counters` is one signal holding a map, so there is no
 anything taking a signal. `api.ts` gives the reason - the key set has to be
 reactive too.
 
-### 16. The shell is never compiled against the contract's sub-app half
-
-A defect, measured on 2026-08-28, not a design question.
-
-`loader.ts:7` imports `SubApp` from `./subapp.ts` - a relative path. No file in
-`src/web/shell` imports `@pointer/subapp`, so the `paths` entry the matrix
-re-points for the shell's cell resolves nothing. `subapp.d.ts` is checked from
-the sub-app side only, by `src/web/apps/*/contract.ts`.
-
-What that allows: add a required member to `SubApp`, have `Shell.tsx` read it,
-and both the shell and alpha still compile against `9e79879`. The intersection
-stays non-empty, `promote` allows the composition, and every published sub-app
-lacking the member breaks at runtime. Measured with exactly that edit; both
-cells passed.
-
-The fix is one import direction. `filesFor("shell")` in `scripts/contract.ts`
-lists `shell/contract.ts` and `index.tsx`; the shell needs a conformance file
-for the OTHER half - what it CONSUMES - so `loader.ts` takes its `SubApp` from
-`@pointer/subapp` and the cell has something to re-point.
-
-Then row 4 above must flip to refused. That is the falsify mutation, and it is
-already written: add `name: string` to `SubApp`, read it in `Slot`, and the
-promote must refuse against a channel holding older sub-apps.
-
-Related but not the same: §8 reads whether a change is additive. This one is
-about whether the check runs at all.
-
 ### 17. Load an unrendered app's files in the background
 
 `Slot` calls `loadApp` from a `useEffect`, so a sub-app's bundle and stylesheet
@@ -516,88 +486,6 @@ mount, and a preload only warms the HTTP cache.
 Proof: a `@browser` scenario that navigates to `/totals` and asserts NO network
 request is issued for charlie's bundle. Falsify by dropping the preload tags -
 that scenario must go red, and the tag-presence one with it.
-
-### 18. Sub-apps become components, and the store is injected
-
-Decided on 2026-08-28, with NO backwards compatibility. Every published unit is
-deleted and everything is republished at a new contract. There is one user of
-this system and forward correctness beats a migration path.
-
-**Why.** `mount(el: HTMLElement)` makes each sub-app its own Preact root. Three
-things follow, and the first is measured in §7: the shell cannot catch a
-sub-app's render error, a Provider in the shell reaches no sub-app because
-Preact context propagates through the vnode tree, and the shared store can only
-be reached by module import - so it is a singleton nothing can substitute.
-
-**The shape.**
-
-```ts
-// subapp.ts
-import type { ComponentType } from "preact";
-export type SubAppProps = { store: ShellStore };
-export type SubApp = ComponentType<SubAppProps>;
-```
-
-`ShellStore` is declared in `api.ts` and imported across, so the hash covers
-both halves and the reference between them is internal. §15 stands: shared state
-is still declared by the shell. Only how a sub-app REACHES it changes.
-
-**The store exposes functions, not signal types.** `countOf(ns)` reads
-`counters.value` internally, and that subscribes whichever component is
-rendering - so reactivity survives without `Signal<T>` appearing in the
-contract. That keeps `@preact/signals` out of the hashed surface entirely.
-`ComponentType` is the one vendor type left, and §9 is how it gets pinned:
-Preact's own `.d.ts` copied into the contract directory, so the hash covers what
-it references instead of resolving it from `node_modules` at HEAD. Measured on
-2026-08-28: the emitted `subapp.d.ts` REFERENCES `ComponentType` and does not
-inline it, so without pinning the hash claims a coverage it does not have.
-
-**`AsyncAppLoader`** replaces `Slot`. It does the dynamic import, holds the
-error boundary, and provides the store context. `mount`'s `() => void` return
-disappears - a component unmounts when it leaves the tree.
-
-Trap: "provide the context only if it is not already there" is detectable,
-because `useContext` returns the default when no Provider is above it, with
-`null` as the default. But an app loaded inside another app that already
-provided a DIFFERENT store reads "already there" and silently inherits the wrong
-one. The rule must be that the loader provides only when it is outermost, or
-the context is keyed.
-
-**`SHARED` shrinks.** A sub-app takes the store from props, so it needs no
-runtime import of `@pointer/shell` - a type-only import is erased and never
-reaches the bundle. It needs no `@preact/signals` either: one tree means the
-shell's instance is the only one. `build.ts:239` requires `preact` AND
-`@pointer/shell` as bare specifiers today; that second requirement has to go, or
-every sub-app fails to build.
-
-**Order, and it is destructive.** Nothing here is reversible once the store is
-swept:
-
-1. mint the new contract; UNretain `9e79879` in `contracts/registry.json`,
-   keeping its directory - it is the record of what was;
-2. build, publish and promote every unit on `test-qa`, and run the suite;
-3. promote `qa` and `prod`;
-4. rewrite each `manifests/<region>/<channel>.history.json` to hold only the new
-   ids - if this is left, the switcher offers options whose assets are gone;
-5. only then sweep `assets/` of the old unit directories.
-
-**`legacy/schema-2/2d429c02/` is exempt and must survive.** The rollback
-scenarios point a channel at it. It is published by
-`scripts/publish-schema-2-fixture.ts` directly and never through `promote`, so
-the contract change does not reach it, and the old shell inside it loads its own
-apps by its own `mount`. Verify that those scenarios still pass rather than
-assume it.
-
-**What breaks and has to move with it:** every `src/web/apps/*/index.tsx` and
-its `contract.ts`; `loader.ts`; `Shell.tsx`; `subapp.ts`; `api.ts`; `SHARED` and
-`build.ts:239`; and the `falsify` mutations whose `find` strings name lines in
-those files - 39 mutations, and several will not match after the refactor.
-
-Unchanged: the server. `html.ts` still writes `__APPS__`, `__BUILD__` and
-`__VERSIONS__`, so the 100% mutation score on `src/server` should hold.
-
-Related: §16 must be fixed as part of this, or the shell is still never compiled
-against the sub-app half and the new contract is checked from one side only.
 
 ## Open questions
 
@@ -639,6 +527,57 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **Sub-apps are components, and the store is injected.** Was §18. A sub-app
+  default-exports a Preact component taking one prop and no longer exports
+  `mount(el)` or imports the store. Three measurements drove it, none argued:
+  the shell could not catch a sub-app's later render throw - it reached
+  `window.onerror`, and the same boundary caught it once the sub-app was a child
+  of the shell's tree; a Provider in the shell reached nothing inside a separate
+  root, because Preact context travels down the vnode tree; and a module-level
+  store cannot be substituted.
+  No backwards compatibility, by decision. Contract `9e79879` is unretained and
+  every unit is republished at `e0160a6`; the old contract's directory is kept
+  as the record of what was.
+  The surface carries no signal types: every `ShellStore` accessor reads a
+  signal's `.value` inside itself, which subscribes the rendering component, so
+  `@preact/signals` never enters the hash. `ComponentType` is the one vendor
+  type left and it is REFERENCED, not inlined - §9 is where that gets pinned.
+  `SHARED` drops `@pointer/shell`, because a runtime import of it could only be
+  a call to `createStore()` and a sub-app rendering against a store nobody else
+  can see is the bug this design removes. `build.ts` requires
+  `preact/jsx-runtime` instead of `preact`.
+  One thing the refactor changed and the suite caught: `mount(el)` called
+  `register(NS)` synchronously before the first render and a component cannot,
+  so a panel listing every namespace drew one short for a frame.
+  `useLayoutEffect` lands it before paint and the assertion waits for the set to
+  converge. Found by a real scenario against a promoted composition, not by
+  reading.
+  21 local, 33 live, 16 browser scenarios and 184 unit tests green; `e2e` green;
+  25 of 38 falsify mutations run and caught, 13 skipped without `FALSIFY_LIVE`.
+  `src/server` is untouched, so its 100% mutation score stands.
+  NOT done: the store sweep. `bun run sweep` reports 2849 objects no channel can
+  serve and `--delete` carries it out.
+- **A `throw` control and a boundary that catches it.** Was §7. One per sub-app
+  and one on the frame, each throwing during render - a throw from a click
+  handler reaches no boundary at all and a control that proved the wrong thing
+  would be worse than none. A sub-app's throw costs one panel and offers "mount
+  again", which resets the boundary and remounts; it does NOT re-fetch, because
+  a browser will not evaluate a module URL twice, and the control says so. The
+  frame's boundary offers a page reload, because the code that would draw
+  anything smaller is the code that threw.
+  Three `@browser @test-channel` scenarios, and the tag matters: their
+  Background builds and promotes from this tree, because the boundary lives in a
+  CLIENT bundle and a browser reading a composition this run did not build would
+  load the unmutated file and stay green for the wrong reason. Two falsify
+  mutations, each verified to turn its scenario red.
+- **The shell is compiled against the sub-app half.** Was §16. `loader.ts` took
+  `SubApp` from a relative path, so no file in `src/web/shell` resolved
+  `@pointer/subapp` and the matrix re-pointed a specifier the shell never used -
+  a required prop could be added, used by the shell, and every published sub-app
+  stayed promotable. Measured: adding `name: string` to `SubApp` and reading it
+  in the shell left both cells passing. `loader.ts` and `shell/contract.ts` now
+  import the specifier, and `contract.ts` asserts the props the shell passes.
 
 - **A version switcher on the page.** An operator runs an older unit on a
   channel without promoting it: `?alpha=36226fb9`, a `select` per unit in the
