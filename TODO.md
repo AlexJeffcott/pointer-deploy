@@ -241,6 +241,11 @@ not the data.
   cold manifest is worth waiting for and a cold history is not. The policy and
   the digests came free. Six scenarios, four falsify mutations, 608 mutants and
   0 survivors.
+  One dead end, inherent: the control lives in the shell, so choosing a shell
+  published before the switcher serves a page with no control. The options block
+  is still in the HTML; the older bundle does not read it. The way back is to
+  remove the query parameter, and nothing on the server can fix it - the code
+  that draws the control is in the unit being rolled back.
   Not built, on purpose: a `select` INSIDE each sub-app. That needs an export on
   `api.ts` or `subapp.ts`, and the contract hash is taken over exactly those two
   files - so it changes the hash, forces every unit to be republished, and makes

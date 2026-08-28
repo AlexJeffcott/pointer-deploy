@@ -372,6 +372,13 @@ page; a cold history is not, because without it the page is exactly the one that
 was served before the switcher existed. The first request after a server starts
 has no switcher and the next one does.
 
+**One dead end, and it is inherent.** The control lives in the shell, so
+choosing a shell published before the switcher existed serves a page with no
+control. The server still renders the options block - the older bundle simply
+does not read it. The way back is to remove the query parameter. Nothing can fix
+this from the server side: the code that draws the control is in the unit being
+rolled back.
+
 **What it cost, and what it did not.** The policy and the digests came free:
 both are already derived from the manifest, and each unit carries its own
 `assetBase` and `integrity`, so a composition assembled from a query string
