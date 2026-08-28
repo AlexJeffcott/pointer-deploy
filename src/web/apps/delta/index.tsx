@@ -32,6 +32,11 @@ function Delta() {
               />
             </span>
             <span data-count-for={ns}>{n}</span>
+            {/* Outside data-count-for, which is read as a bare number, and
+                after the track, whose child span is the bar being measured. */}
+            <span class={styles.share} data-share-for={ns}>
+              {total > 0 ? `${Math.round((n / total) * 100)}%` : "-"}
+            </span>
           </div>
         ))}
       </div>

@@ -10,6 +10,7 @@ const NS = "charlie";
 
 function Charlie() {
   const who = user.value;
+  const total = snapshot.value.reduce((n, [, v]) => n + v, 0);
   return (
     <section class={styles.panel} style={{ borderTopColor: who.colour }} data-unit-marker={__UNIT_MARKER__}>
       <p class={styles.name}>{NS}</p>
@@ -36,6 +37,16 @@ function Charlie() {
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          {/* No data-ns here on purpose: the totals view asserts on the set of
+              namespaces it lists, and a total is not one of them. */}
+          <tr>
+            <td>total</td>
+            <td data-total={total} style={{ textAlign: "right" }}>
+              {total}
+            </td>
+          </tr>
+        </tfoot>
       </table>
       <p class={styles.who}>Read by {who.name}.</p>
     </section>
