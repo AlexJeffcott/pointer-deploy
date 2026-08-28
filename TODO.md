@@ -34,6 +34,42 @@ uncommitted tree — and `--no-source-check` overrides the last two.
 Numbers are stable identifiers - other sections point at them - so a gap means
 that item moved to Done, not that anything was renumbered.
 
+### 20. The live switcher check cannot discriminate on this channel
+
+`scripts/e2e-version-switcher.ts` fails one check for all four sub-apps against
+`qa`, and the failure is honest rather than a defect:
+
+```
+FAIL the chosen unit is a different bundle from the deployed one -
+     saw the same page, so nothing here can say which unit ran
+```
+
+Measured on 2026-08-28. `qa`'s history holds exactly two generations of each
+sub-app, at commits `b2c8154` and `2c08a50`, and they differ by SIX BYTES: the
+`register(NS)` call moving from `useEffect` to `useLayoutEffect`. Both
+generations already carry the visible markers a previous session added for this
+very purpose - bravo's `-1`, charlie's total row, delta's share - because those
+landed in `962b63f`, before both. So the two units render identically and the
+script says so rather than claiming a proof it does not have.
+
+Everything else in the script passes, including the check that actually
+establishes which unit ran: the page fetches the sub-app from the CHOSEN unit's
+own directory. Nothing about the switcher is broken.
+
+The item is what to do about a check whose discriminator depends on the
+channel's history rather than on the code. Three options and the third is the
+recommendation:
+
+- compare the fetched BYTES rather than the rendered text. Reliable, and it
+  stops proving that the running code differs - only that the file did;
+- keep it and accept that it fails whenever two adjacent generations look the
+  same. That is most of the time, and a check that is usually red is a check
+  people stop reading;
+- have the script SAY it cannot discriminate and not call it a failure, the way
+  a skipped falsify mutation is reported rather than counted as passing. The
+  reading "these two units are indistinguishable from the page" is true and
+  worth printing; it is not a fault.
+
 ### 2. A browser-reachable `prod`
 
 Needs a domain and a certificate. The domain substitutes in three places:
