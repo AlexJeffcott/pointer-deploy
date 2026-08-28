@@ -178,6 +178,21 @@ connection - and the other was not: 30520 ms of a superseded composition, cause
 unknown. So the reading is that the observed rate has moved, and not that the
 second fault is closed.
 
+**One more occurrence, on 2026-08-28, and its diagnostic was lost.** The run
+straight after the store sweep failed one scenario: the shell served `52ebe495`
+where the scenario had just published `e34bccf3`. Both `test-qa` and `test-prod`
+served `e34bccf3` minutes later with an age of 107 ms and 382 ms, so it arrived
+late rather than never. The `x-manifest-age` at the MOMENT of the failure - the
+one reading the table below exists to give - was not captured, because the run
+was put in the background and only its tail was kept. Run `verify:live` with the
+whole output kept, or the next occurrence costs another run.
+
+Run times around it, with the sweep in the middle: 5m46s before, 13m46s for the
+failing run, 9m05s for a green re-run of 33 of 33 with propagation at 8585 and
+5674 ms of 15000. The failing run was 2.4x the one before it and came
+immediately after 2849 deletes. Whether the deletes slowed the store is
+UNMEASURED - one green re-run does not settle it either way.
+
 The next failure says which hop it is without another investigation. Every
 shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
 quotes both beside what the store holds:
