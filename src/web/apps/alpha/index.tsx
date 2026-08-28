@@ -26,6 +26,9 @@ function Alpha() {
         <button type="button" class={styles.button} onClick={() => increment(NS, 5)}>
           +5
         </button>
+        <button type="button" class={styles.button} onClick={() => increment(NS, 10)}>
+          +10
+        </button>
       </div>
       <p class={styles.who}>Counting for {who.name}.</p>
     </section>
