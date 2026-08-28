@@ -21,6 +21,14 @@ function Bravo() {
           type="button"
           class={styles.button}
           disabled={mine === 0}
+          onClick={() => increment(NS, -1)}
+        >
+          -1
+        </button>
+        <button
+          type="button"
+          class={styles.button}
+          disabled={mine === 0}
           onClick={() => {
             counters.value = { ...counters.value, [NS]: 0 };
           }}
