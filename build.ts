@@ -38,6 +38,7 @@ import {
   type Unit,
 } from "./scripts/contract.ts";
 import { currentSource, type Source } from "./scripts/source.ts";
+import { placementProblems } from "./src/web/shell/views.ts";
 
 const OUTDIR = "dist";
 const unitDir = (unit: Unit) => `${OUTDIR}/units/${unit}`;
@@ -90,6 +91,26 @@ if (unsupported.length) {
 }
 
 const versions = await sharedVersions();
+
+// --- 0b. placement ---------------------------------------------------------
+
+// The shell owns placement, and the manifest names bundles and chooses nothing
+// (TODO §14). Those two facts only agree while somebody keeps them agreeing, so
+// this compares the units about to be emitted against the views that place
+// them. It runs HERE, on the bytes being published, because the pair that has
+// to agree is the published shell and the published manifest - a check in the
+// suite would compare two copies in one working tree and prove less than it
+// looks.
+//
+// Not covered: the route. Moving charlie from "/totals" to "/" leaves both sets
+// identical, so only a scenario catches that.
+const misplaced = placementProblems(APPS);
+if (misplaced.length) {
+  console.error("the shell's views and the units this build emits do not agree:");
+  for (const p of misplaced) console.error(`  ${p}`);
+  console.error("Fix src/web/shell/views.ts or scripts/contract.ts, whichever is wrong.");
+  process.exit(1);
+}
 
 // --- markers ---------------------------------------------------------------
 

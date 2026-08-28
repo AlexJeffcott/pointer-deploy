@@ -185,7 +185,10 @@ describe("a composition of independently published units", () => {
   test("a shell unit with no stylesheet links no stylesheet at all", () => {
     const bare: Manifest = { ...v3, shell: { ...v3.shell, css: null } };
     const page = renderShell(bare, TARGET);
-    expect(page).not.toContain("<link");
+    // Narrowed when preloading arrived: the page carries `<link>` tags now, and
+    // what this is about is that none of them is a STYLESHEET, and that none
+    // names the unit's own directory.
+    expect(page).not.toContain('rel="stylesheet"');
     expect(page).not.toContain(`"${SHELL_BASE}"`);
     // The two negatives above pass on a page that rendered nothing, and on one
     // that put anything at all where the tag was. The head is asserted as the
@@ -444,5 +447,159 @@ describe("the versions block", () => {
     expect(shellResponse(v2, TARGET, options).headers.get("content-type")).toBe(
       "text/html; charset=utf-8",
     );
+  });
+});
+
+// Warming a sub-app's files before the visitor asks for one (TODO §17).
+//
+// The mechanism has to warm the HTTP cache and must not EVALUATE anything: a
+// background import() would run a sub-app the visitor never opens, and when a
+// module's top-level code runs is a behaviour a sub-app can notice.
+describe("preloading the apps a navigation would need", () => {
+  const SHELL_BASE = "https://store.test/units/shell/s1/";
+  const ALPHA_BASE = "https://store.test/units/alpha/a9/";
+  const BRAVO_BASE = "https://store.test/units/bravo/b7/";
+
+  const D = {
+    shellJs: "sha384-shellentry",
+    alphaJs: "sha384-alphaentry",
+    alphaCss: "sha384-alphastyle",
+    bravoJs: "sha384-bravoentry",
+  };
+
+  const composed: ManifestV3 = {
+    schema: 3,
+    composedAt: "2026-08-28T10:00:00.000Z",
+    contract: "e0160a6",
+    shell: {
+      unitId: "s1",
+      commit: "c".repeat(40),
+      assetBase: SHELL_BASE,
+      js: "index-a.js",
+      css: "index-b.css",
+      imports: { preact: "preact-c.js" },
+      integrity: { "index-a.js": D.shellJs },
+      marker: "",
+    },
+    apps: {
+      alpha: {
+        unitId: "a9",
+        commit: "a".repeat(40),
+        assetBase: ALPHA_BASE,
+        js: "alpha-e.js",
+        css: "alpha-f.css",
+        integrity: { "alpha-e.js": D.alphaJs, "alpha-f.css": D.alphaCss },
+        marker: "",
+      },
+      // Published before digests were recorded, and before it emitted a
+      // stylesheet. Both absences have to be survivable: a unit old enough to
+      // roll back to is a unit that predates whatever was added last.
+      bravo: {
+        unitId: "b7",
+        commit: "b".repeat(40),
+        assetBase: BRAVO_BASE,
+        js: "bravo-g.js",
+        css: null,
+        integrity: { "bravo-g.js": D.bravoJs },
+        marker: "",
+      },
+    },
+  };
+
+  const html = renderShell(composed, TARGET);
+
+  test("names every sub-app's script as a module preload", () => {
+    expect(html).toContain(`<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js"`);
+    expect(html).toContain(`<link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js"`);
+  });
+
+  // Not import(). The distinction is the whole reason for the mechanism.
+  test("evaluates nothing: no second module script appears", () => {
+    expect(html.match(/<script type="module"/g)).toHaveLength(1);
+  });
+
+  // A preloaded response is reusable by the real import only when the two
+  // agree. A digest that differed, or a missing CORS mode, would cost a second
+  // fetch of every file - which is this whole change paying nothing back.
+  test("a preload carries the digest the import map declares for that URL", () => {
+    const declared = moduleIntegrity(composed);
+    expect(declared[`${ALPHA_BASE}alpha-e.js`]).toBe(D.alphaJs);
+    expect(html).toContain(
+      `<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js" ` +
+        `integrity="${D.alphaJs}" crossorigin="anonymous" />`,
+    );
+  });
+
+  // A module script is always fetched in CORS mode, so a preload of one that
+  // was not would be a different request and the browser would fetch twice.
+  test("a preload without a digest still states its CORS mode", () => {
+    const noDigests: ManifestV3 = {
+      ...composed,
+      apps: { bravo: { ...composed.apps.bravo!, integrity: {} } },
+    };
+    expect(renderShell(noDigests, TARGET)).toContain(
+      `<link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js" crossorigin="anonymous" />`,
+    );
+  });
+
+  test("a sub-app's stylesheet is preloaded as a stylesheet, with its digest", () => {
+    expect(html).toContain(
+      `<link rel="preload" as="style" href="${ALPHA_BASE}alpha-f.css" ` +
+        `integrity="${D.alphaCss}" crossorigin="anonymous" />`,
+    );
+  });
+
+  // loader.ts sets crossOrigin only when it has a digest to check, so a preload
+  // that always set it would not match the request the loader goes on to make.
+  test("a stylesheet with no digest is preloaded the way the loader will ask for it", () => {
+    const unsigned: ManifestV3 = {
+      ...composed,
+      apps: { alpha: { ...composed.apps.alpha!, integrity: {} } },
+    };
+    expect(renderShell(unsigned, TARGET)).toContain(
+      `<link rel="preload" as="style" href="${ALPHA_BASE}alpha-f.css" />`,
+    );
+  });
+
+  test("a unit that published no stylesheet is preloaded as a script alone", () => {
+    expect(html).not.toContain(`as="style" href="${BRAVO_BASE}`);
+  });
+
+  // The composition, not the channel's manifest. renderShell is handed what is
+  // being SERVED - the version switcher may have overridden a unit - so the
+  // preloads follow the override or they warm a file this page will not fetch.
+  test("preloads the composition being served, not another one", () => {
+    const overridden: ManifestV3 = {
+      ...composed,
+      apps: {
+        ...composed.apps,
+        alpha: { ...composed.apps.alpha!, unitId: "a1", assetBase: "https://store.test/units/alpha/a1/" },
+      },
+    };
+    const served = renderShell(overridden, TARGET);
+    expect(served).toContain(`<link rel="modulepreload" href="https://store.test/units/alpha/a1/alpha-e.js"`);
+    expect(served).not.toContain(`<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js"`);
+  });
+
+  // The shell is what the page cannot render without. A preload discovered
+  // before it would put four sub-apps ahead of the frame in the queue.
+  test("comes after the shell's own entry script", () => {
+    expect(html.indexOf('type="module"')).toBeLessThan(html.indexOf("modulepreload"));
+  });
+
+  // A modulepreload is checked against script-src and a style preload against
+  // style-src, and both directives are already derived from the same origins
+  // these URLs come from. Asserted rather than assumed: a policy that refused
+  // them would cost the fetch and report nothing the server can see.
+  test("needs no change to what the page is allowed to load", () => {
+    const csp = policyOf(composed);
+    expect(directiveOf(csp, "script-src")).toContain("https://store.test");
+    expect(directiveOf(csp, "style-src")).toContain("https://store.test");
+  });
+
+  // Schema 1 names no sub-apps at all, so there is nothing to warm and the
+  // page must not carry an empty hint.
+  test("a manifest with no sub-apps preloads nothing", () => {
+    expect(renderShell(v1, TARGET)).not.toContain("modulepreload");
   });
 });

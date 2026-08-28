@@ -277,6 +277,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/server/html.ts` | The shell template |
 | `src/server/index.ts` | Three routes and nothing else |
 | `src/web/shell/` | The frame: the store factory (`api.ts`), routing, the context, and `AsyncAppLoader` |
+| `src/web/shell/views.ts` | Which sub-apps appear on which route. The shell owns placement; `build.ts` checks it against the units it emits |
 | `src/web/shell/AsyncAppLoader.tsx` | Fetches one sub-app and renders it INSIDE this tree, with the boundary that can therefore catch what it throws |
 | `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others |
 | `src/web/shell/subapp.ts` | `SubApp` and `SubAppProps`, the half of the contract a sub-app satisfies |
@@ -294,10 +295,91 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 25 ways; each break must turn one check red |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 44 ways; each break must turn one check red |
+| `scripts/measure-preload.ts` | What warming a sub-app's files buys, in a real Chrome, with a control |
+| `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve |
 | `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
 | `TODO.md` | Open items and what is done. Read it first after a context clear |
+
+## Who decides where a sub-app appears
+
+The shell. That was already true and had never been written down, which is how
+the layout came to be written down twice — once in `Shell.tsx` and once in the
+step definitions, with nothing tying the copies together.
+
+`scripts/contract.ts` names the units, `build.ts` emits what that names, and
+`src/web/shell/views.ts` decides which of them appear, on which route, in what
+order. **The manifest names bundles and chooses nothing.** Two consequences
+follow and both are accepted as the price of that answer: a layout change is a
+shell publish and a promote, so alpha cannot be moved from `/` to `/totals` by
+pointing a channel somewhere else; and rolling the shell back rolls the layout
+back with it, because they are one unit.
+
+`views.ts` is imported by the shell, by `build.ts` and by the step definitions,
+so it holds no CSS, no JSX and nothing only a browser provides. `build.ts`
+refuses a build where the two disagree:
+
+```
+the shell's views and the units this build emits do not agree:
+  charlie is built and published, and no view places it, so nothing ever fetches it
+```
+
+Both directions, and only one of them ever reported itself. An app a view places
+that nothing builds is caught at runtime by `AsyncAppLoader`, which says the
+manifest names no bundle for it. An app the build emits that no view places is
+published, promoted, paid for and fetched **never**, and nothing anywhere says
+so.
+
+The check runs in `build.ts` rather than in the suite on purpose: the pair that
+has to agree is the published shell and the published manifest, and a check in
+the suite compares two copies in one working tree. Importing `VIEWS` into the
+step definitions removes that drift; it does not tie the harness to the
+*deployed* shell, which may place apps differently, and that is a smaller claim
+than it looks.
+
+Not covered, and asserted so nobody mistakes it for coverage: the **route**.
+Moving charlie from `/totals` to `/` leaves both sets identical.
+
+## Warming a sub-app's files before its view is opened
+
+A sub-app's bundle is fetched when its view first appears, so moving from `/` to
+`/totals` used to wait on a network fetch that could have happened while the
+visitor was reading the first view. The shell now emits a hint per file:
+`<link rel="modulepreload">` per app script, `<link rel="preload" as="style">`
+per stylesheet, from `appUrls(served)` and `moduleIntegrity(served)`.
+
+**From `served`, and never from the channel's manifest.** A page composed by the
+version switcher is serving an overridden unit, and preloading the channel's
+copy would warm a file that page will not fetch.
+
+**A hint and never a background `import()`.** An import EVALUATES the module, so
+a sub-app the visitor never opens would have its top-level code run — and when
+that runs is a behaviour a sub-app can notice. A preload fills the HTTP cache
+and does nothing else.
+
+Four things had to be checked and none of them assumed. `bun run measure:preload`
+is the check: it runs the server from this tree against the real store, drives a
+real Chrome, and then repeats itself with the tags removed as a control.
+
+| | Reading |
+| --- | --- |
+| The policy | No refusal. `script-src` and `style-src` are already derived from the origins the manifest names, so neither hint needs a policy change |
+| The digest | Each off-screen bundle and stylesheet is fetched **once** across the navigation. The import reuses the preloaded response rather than fetching a second time |
+| The composition | The URLs follow the override, held by a unit test that composes one and asserts the preload moved with it |
+| The cost | Four modulepreload and four style preload tags per load. Over doing nothing, that is the other view's two bundles and two stylesheets for a visitor who never navigates |
+
+`loader.ts` needed no change: `addStylesheet` and the `loading` map still run at
+mount, and a preload only warms the cache.
+
+**A scenario was written for this, measured, and deleted.** "Opening a view
+costs no further request for its bundles" is green with the preload tags and
+green without them: the control shows the count after the navigation is 1 either
+way, because with no preload the import does the one fetch itself. It
+discriminated nothing. The question needs a control, and a control is a thing a
+script can have and a scenario cannot — so it lives in `measure-preload.ts`.
+What stayed in the suite is the reading the control does move: the bundles for a
+view nobody has opened have been fetched, and no sub-app on that view has run.
 
 ## Two failure rules, on purpose
 
@@ -430,25 +512,44 @@ needs no new code for either. That is schema 3 paying for itself.
 What is NOT built is a `select` inside each sub-app. The shell draws all five,
 which makes every unit selectable, but handing the data to a sub-app means
 adding to `api.ts` or `subapp.ts` - and the contract hash is taken over exactly
-those two files. One export there changes the hash, forces every unit to be
-republished, and makes every id already in a channel's history unselectable
-until they are. That is a deliberate change to make on purpose, not a side
-effect of adding a control.
+those two files. One export there mints a new contract, and every unit has to be
+rebuilt before it can claim the new one.
+
+What that does **not** do was measured on 2026-08-28, against the claim this
+paragraph used to make. An additive export does not force a republish and does
+not make any id already in a channel's history unselectable: the shell goes on
+compiling against the retained contract, each published unit keeps the set it
+was built with, and the intersection stays non-empty.
+
+| Change to `api.ts` | shell x the old contract | alpha x the old contract | Promote |
+| --- | --- | --- | --- |
+| baseline | pass | pass | allowed |
+| one export ADDED | pass | pass | allowed |
+| one export REMOVED | fail | pass | refused, correctly |
+
+So the deliberate change to make on purpose is a REMOVAL or a narrowing. An
+addition is a mint and nothing else.
 
 ## Verifying
 
 ```sh
-bun test src/server        # 180 unit tests
+bun test                   # 201 unit tests: src/server, src/web, features/support
 bun run verify             # 21 @local scenarios, stub store, ~6 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
-bun run verify:live        # @live scenarios against Fly and Tigris
-bun run verify:browser     # 13 @browser scenarios in a real Chrome
-bun run falsify            # 38 architectural mutations, each must turn a check red
-FALSIFY_LIVE=1 bun run falsify   # including the thirteen that need the real store
+bun run verify:live        # 33 @live scenarios against Fly and Tigris
+bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~2 min
+bun run falsify            # 44 architectural mutations, each must turn a check red
+FALSIFY_LIVE=1 bun run falsify   # including the eighteen that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
+bun run measure:preload    # what warming a sub-app's files buys, with a control
 bun run scripts/e2e-version-switcher.ts   # drive the switcher on the LIVE site
 bun run mutate             # Stryker over the server logic
 ```
+
+`bun test` covers three homes and the third is newer than the others.
+`src/server` is the server's pure logic, `features/support` is the harness's
+own, and `src/web` is where build-time code goes: `views.ts` decides which
+sub-apps the build must emit, and a script has no test home otherwise.
 
 An `@live` scenario about **server** behaviour cannot be falsified by a source
 edit, because it runs against the deployed image. Two mutations that break
@@ -473,10 +574,21 @@ carries `test-qa.localhost` for it, development only. Everything else is real,
 and the machine fingerprint is compared before and after.
 
 `@browser` uses `playwright-core` against the Chrome already on the machine, so
-nothing downloads a second browser. Seven of those twelve scenarios cover what
+nothing downloads a second browser. Nine of those eighteen scenarios cover what
 nothing else can see: five separately published bundles agreeing about one
-store. The other five cover the schema they would agree about after a long
-rollback, and what the page is allowed to load — see below.
+store. The rest cover the schema they would agree about after a long rollback,
+what the page is allowed to load, what a panel that throws costs, and which
+files are warmed before a view is opened — see below.
+
+**Which composition a @browser scenario reads is the whole difference between
+two that look the same.** Without `@test-channel` it loads the live address and
+reads what is DEPLOYED, which is a check on the deploy and cannot be falsified
+by an edit here. With `@test-channel` its Background builds and promotes from
+this tree, so the browser loads the bundles this edit produced.
+`shared-state.feature` carries the same two scenarios under both, as two Rules,
+because each answers a question the other cannot. Measured, not argued: making
+`user()` read `peek()` — the store still holds the name and subscribes nobody —
+reddens the @test-channel copies and leaves the deployed copies green.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
 mutates operators and literals in the pure logic — 417 mutants, 0 survivors,
@@ -589,12 +701,12 @@ refuses any live target not prefixed `test-`, and the run records what `qa` and
 The second repairs nothing on purpose: a restore hook that fails leaves the
 channel wrong and reports success.
 
-Seven of the twelve `@browser` scenarios load `pointer-deploy.fly.dev`, so they
+Five of the eighteen `@browser` scenarios load `pointer-deploy.fly.dev`, so they
 read the real `qa` channel — no browser can be made to send a `Host` header.
 They write nothing. Promote a build to `qa` before running them, or they check
 whatever was last deployed.
 
-The five `@test-channel` scenarios do write, because what they are about is a
+The thirteen `@test-channel` scenarios do write, because what they are about is a
 channel pointing somewhere no promote would put it. They take the same way out
 `e2e` does — `bun src/server/index.ts` locally against the real store, reached
 at `test-qa.localhost` — write `test-qa`, and put the exact bytes back
@@ -797,7 +909,7 @@ far impossible, which is the operation the whole design exists for.
 | --- | --- |
 | A browser-reachable `prod` URL | Needs a domain pointed at Fly and a certificate. The channel itself works; see above |
 | Second region | `fly scale count 1 --region iad`. The region is already in the manifest path |
-| Asset retention | Nothing is deleted, so nothing can dangle |
+| Asset retention | `bun run sweep` lists what no channel can serve and deletes it with `--delete`; it has no 90-day floor yet, so it must not run on a schedule |
 | Contract pruning | `contracts/registry.json` retains by hand. Pruning is a decision, never automatic |
 | Concurrent promotes | `promote` is a read-modify-write with no compare-and-set, so two at once can lose one. One operator. Tigris conditional writes are unchecked; an `If-Match` on the ETag would close it |
 
@@ -829,6 +941,9 @@ Do not rediscover these.
 | `curl` and a browser disagree | Only a browser sees a blocked module script or an edge-cached shell. Check user-facing changes in a browser, never with `curl` alone |
 | Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
 | A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
+| A check with no control | "The bundle was fetched once after the navigation" is true whether or not the page preloaded it, because with no preload the import does the one fetch itself. A reading that does not move when the mechanism is removed measures nothing. Where a scenario cannot carry a control, a script must |
+| A `@browser` scenario read as proof of an edit | Without `@test-channel` it loads the deployed composition, so it goes on passing against the last build that was promoted. Measured: a mutation that reddens the `@test-channel` copy leaves the deployed copy green |
+| Two copies of the layout | `Shell.tsx` placed the apps and the step definitions listed them again. Nothing tied the copies together, so the harness held its own idea of what it was checking. One exported table, and a build-time check against the units |
 | `dist/` treated as the build you just made | `e2e`, `verify:live` and `falsify` all overwrite `dist/build.json`. `--from-build` after any of them promotes a harness build, and every check stays green because the manifest is well-formed and describes the wrong units |
 | `dist/` treated as the tree you are looking at | It outlives the tree that filled it. A build from an older commit carries no marker, so the harness guard cannot see it, and `--from-build` days later promotes a commit nobody chose. A build records the source it came from, and `promote` compares it |
 | Provenance read at publish time | git then answers a question about the tree, not about the bytes. Build, commit, publish, and the unit claims a commit that does not contain its own source. `publish` copies `source` out of `dist/build.json` |

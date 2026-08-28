@@ -274,6 +274,63 @@ function shellDigests(m: Manifest): { js?: string; css?: string } {
 }
 
 /**
+ * Which sub-apps are worth warming before a visitor asks for one.
+ *
+ * Every app in the composition, and the list is HERE rather than inline so it
+ * is one deliberate decision with one reason beside it (TODO §17).
+ *
+ * The reason it is every app: the server cannot know the layout. The shell owns
+ * placement - `src/web/shell/views.ts` - and the runtime image copies
+ * `src/server` and nothing else, so nothing here can tell which two apps the
+ * route being served will draw and which two a navigation would need.
+ *
+ * What that costs, said plainly: on this page four apps, of which the two on
+ * the current view were going to be fetched anyway. So the extra is the other
+ * view's two bundles and two stylesheets, for a visitor who never navigates.
+ * That trade holds at four apps and does not hold at forty - an application
+ * with many views would have to carry the placement in the manifest and preload
+ * per route, which is a schema change and a different piece of work.
+ */
+export function preloadTargets(m: Manifest): Record<string, AppAssets> {
+  return appUrls(m);
+}
+
+/**
+ * Warm a sub-app's files without running them.
+ *
+ * `modulepreload` and `preload as=style`, never a background `import()`: an
+ * import EVALUATES the module, so a sub-app the visitor never opens would have
+ * its top-level code run, and that is a behaviour a sub-app can notice. These
+ * two fill the HTTP cache and nothing else.
+ *
+ * Three things have to line up or the browser fetches twice instead of once,
+ * which would make this cost bandwidth and buy nothing:
+ *
+ *   - a module script is always fetched in CORS mode, so a modulepreload of one
+ *     must be too. `crossorigin` is stated rather than left to the default;
+ *   - the digest must be the same digest the import map declares for that URL,
+ *     or the preloaded response is not reusable by the import;
+ *   - a stylesheet's preload must match how `loader.ts` will really request it,
+ *     which is with `crossorigin` only when the unit published a digest.
+ */
+function preloadLinks(m: Manifest): string {
+  const digests = moduleIntegrity(m);
+  const tags: string[] = [];
+  for (const app of Object.values(preloadTargets(m))) {
+    tags.push(
+      `<link rel="modulepreload" href="${attr(app.js)}"` +
+        `${sri(digests[app.js])}${digests[app.js] ? "" : ' crossorigin="anonymous"'} />`,
+    );
+    if (app.css) {
+      tags.push(
+        `<link rel="preload" as="style" href="${attr(app.css)}"${sri(app.cssIntegrity)} />`,
+      );
+    }
+  }
+  return tags.map((t) => `\n    ${t}`).join("");
+}
+
+/**
  * Which units a visitor may choose between, if any.
  *
  * A JSON block rather than rendered markup: the shell is a Preact application
@@ -317,7 +374,7 @@ export function renderShell(
   <body>
     <div id="app"></div>
     <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>${appsTag}${versionsTag}
-    <script type="module" src="${attr(js)}"${sri(digest.js)}></script>
+    <script type="module" src="${attr(js)}"${sri(digest.js)}></script>${preloadLinks(m)}
   </body>
 </html>
 `;

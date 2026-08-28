@@ -2,13 +2,21 @@
 //
 // Deliberately NOT exported from api.ts or subapp.ts. Those two files are the
 // contract surface: `scripts/contract.ts` hashes the declarations emitted from
-// them, so one export added there changes the contract hash, forces every unit
-// to be republished, and makes every id already in a channel's history
-// unselectable until they are. A shell-internal module costs none of that.
+// them, so one export added there mints a new contract and every unit has to be
+// rebuilt before it can claim the new one. A shell-internal module costs none
+// of that.
 //
-// The price is that a sub-app cannot draw its own control yet. The shell draws
-// all of them instead, which makes every unit selectable, and handing the data
-// through to a sub-app is a contract change and its own decision.
+// What it does NOT cost was measured on 2026-08-28, and it is less than this
+// comment used to claim. An ADDITIVE export does not force a republish and does
+// not make any id already in a channel's history unselectable: the shell goes
+// on compiling against the retained contract, every published unit keeps the
+// set it was built with, and the intersection stays non-empty. REMOVING or
+// narrowing an export is what costs that, and it is a different change. See the
+// TODO, section 15, for the table the measurement produced.
+//
+// The price that is real: a sub-app cannot draw its own control yet. The shell
+// draws all of them instead, which makes every unit selectable, and handing the
+// data through to a sub-app is a contract change and its own decision.
 
 /** One choice for one unit. Computed by the server; the shell only draws it. */
 export type VersionOption = {

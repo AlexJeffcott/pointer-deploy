@@ -502,6 +502,78 @@ const MUTATIONS: Mutation[] = [
     live: true,
     browser: true,
   },
+
+  // --- the shared store, from THIS tree -------------------------------------
+  //
+  // Section 19. The shared-state scenarios under the first Rule read the
+  // DEPLOYED composition, so neither mutation below reaches them: they would
+  // stay green against the last build that was promoted, which is exactly the
+  // hole the second Rule was written to close. Both name a scenario from that
+  // Rule, whose Background builds and promotes from here.
+
+  {
+    // A write that never reaches the map the other panels read. alpha's own
+    // count still moves, the totals view still lists every namespace, and the
+    // panel that did not create the counter reads zero - which is the failure
+    // this whole design exists to prevent, and the one that looks like a
+    // working page.
+    name: "a sub-app's write does not reach the shared map",
+    file: "src/web/shell/api.ts",
+    find:
+      "  const snapshot = computed<Counts>(() =>\n" +
+      "    Object.entries(counters.value).sort(([a], [b]) => a.localeCompare(b)),\n" +
+      "  );",
+    replace:
+      "  const snapshot = computed<Counts>(() =>\n" +
+      "    Object.keys(counters.value).sort().map((k) => [k, 0] as const),\n" +
+      "  );",
+    scenario: "A count raised in one sub-app is read by another, from this tree",
+    live: true,
+    browser: true,
+  },
+  {
+    // The claim api.ts makes about itself: an accessor reads `.value` INSIDE
+    // itself, and that is what subscribes whichever component is rendering.
+    // `peek` reads the same data and subscribes nobody, so every panel shows
+    // the name it first rendered with and nothing on the page is wrong-looking.
+    name: "an accessor reads the store without subscribing to it",
+    file: "src/web/shell/api.ts",
+    find: "    user: () => user.value,",
+    replace: "    user: () => user.peek(),",
+    scenario: "The name the frame holds reaches every sub-app, from this tree",
+    live: true,
+    browser: true,
+  },
+
+  // --- warming a sub-app's files -------------------------------------------
+
+  {
+    // Section 17. Without the tags the bundles for a view nobody has opened are
+    // not fetched at all, and the page is exactly the one that was served
+    // before preloading - which is why only a scenario that looks at the
+    // network can tell the two apart.
+    name: "the page warms none of the files a navigation will need",
+    file: "src/server/html.ts",
+    find: "</script>${preloadLinks(m)}",
+    replace: "</script>",
+    scenario: "The bundles for a view nobody has opened are warmed, not run",
+    live: true,
+    browser: true,
+  },
+
+  // --- placement -----------------------------------------------------------
+
+  {
+    // Section 14, and the direction nothing else reports. An app the build
+    // emits that no view places is published, promoted, paid for and fetched
+    // never. A unit test, not a scenario: what it breaks is a refusal at build
+    // time, and a build that does not happen renders no page.
+    name: "the placement check stops looking for an unplaced unit",
+    file: "src/web/shell/views.ts",
+    find: "    if (!placed.includes(app)) {",
+    replace: "    if (false) {",
+    unitTest: "reports a built app that no view places",
+  },
 ];
 
 const CUKE = ["bun", "node_modules/@cucumber/cucumber/bin/cucumber.js"];
@@ -523,7 +595,7 @@ async function runScenario(m: Mutation): Promise<boolean> {
 }
 
 async function runUnitTest(name: string): Promise<boolean> {
-  const proc = Bun.spawn(["bun", "test", "src/server", "-t", name], {
+  const proc = Bun.spawn(["bun", "test", "src/server", "src/web", "-t", name], {
     stdout: "pipe",
     stderr: "pipe",
   });

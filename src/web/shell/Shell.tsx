@@ -4,20 +4,8 @@ import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
 import { navigate, route } from "./router.ts";
 import { chooseVersion, readVersions, type VersionOption } from "./versions.ts";
+import { DEFAULT_ROUTE, VIEWS } from "./views.ts";
 import styles from "./Shell.module.css";
-
-const VIEWS: Record<string, { title: string; apps: string[]; note: string }> = {
-  "/": {
-    title: "Counters",
-    apps: ["alpha", "bravo"],
-    note: "Two sub-apps, each its own bundle. Both write to the shell's store.",
-  },
-  "/totals": {
-    title: "Totals",
-    apps: ["charlie", "delta"],
-    note: "Two more bundles. Neither created a counter on this page, and both read the ones that did.",
-  },
-};
 
 const apps: AppMap = readAppMap();
 const versions = readVersions();
@@ -101,7 +89,7 @@ function Tab({ path, label }: { path: string; label: string }) {
 }
 
 export function Shell({ store }: { store: ShellStore }) {
-  const view = VIEWS[route.value] ?? VIEWS["/"]!;
+  const view = VIEWS[route.value] ?? VIEWS[DEFAULT_ROUTE]!;
   const who = store.user();
   // Throws during THIS render, not from the handler, so the boundary in
   // index.tsx is what catches it. A throw inside an event handler never reaches
@@ -139,9 +127,12 @@ export function Shell({ store }: { store: ShellStore }) {
         </div>
       </header>
 
+      {/* Drawn from the same table that places the apps, so a view added there
+          gets a tab without a second edit here. */}
       <nav class={styles.nav}>
-        <Tab path="/" label="Counters" />
-        <Tab path="/totals" label="Totals" />
+        {Object.entries(VIEWS).map(([path, v]) => (
+          <Tab key={path} path={path} label={v.title} />
+        ))}
       </nav>
 
       <Versions />

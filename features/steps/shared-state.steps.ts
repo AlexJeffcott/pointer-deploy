@@ -5,15 +5,33 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { expect } from "bun:test";
 import { PointerWorld } from "../support/world.ts";
+import { VIEWS } from "../../src/web/shell/views.ts";
 
-const VIEWS: Record<string, { path: string; apps: string[] }> = {
-  counters: { path: "/", apps: ["alpha", "bravo"] },
-  totals: { path: "/totals", apps: ["charlie", "delta"] },
-};
+/**
+ * The view a scenario names, from the shell's own table.
+ *
+ * This was a second copy of the layout - the paths and the app lists, written
+ * out again - with nothing tying it to `src/web/shell/views.ts`. TODO §14.
+ *
+ * The trap, because it is smaller than it looks: importing the table from the
+ * working tree does NOT tie the harness to the DEPLOYED shell. A @browser
+ * scenario without @test-channel reads a PUBLISHED shell, which may place apps
+ * differently from the tree this import came from. What it removes is the drift
+ * between two copies in one tree. The published pair is covered at build time,
+ * by `placementProblems` in build.ts, which runs on the bytes being published.
+ */
+const BY_NAME = new Map(
+  Object.entries(VIEWS).map(([path, v]) => [v.title.toLowerCase(), { path, apps: [...v.apps] }]),
+);
 
 const view = (name: string) => {
-  const v = VIEWS[name];
-  if (!v) throw new Error(`no view called ${JSON.stringify(name)}`);
+  const v = BY_NAME.get(name);
+  if (!v) {
+    throw new Error(
+      `no view called ${JSON.stringify(name)}. The shell places ` +
+        `${[...BY_NAME.keys()].join(", ")}.`,
+    );
+  }
   return v;
 };
 
@@ -151,16 +169,29 @@ const fetchesOf = (requests: string[], app: string) =>
     return file.startsWith(`${app}-`);
   });
 
-Then("no bundle for the {word} view has been fetched", function (this: PointerWorld, name: string) {
-  for (const app of view(name).apps) {
-    expect(fetchesOf(this.requests, app)).toEqual([]);
-  }
-});
-
 Then("the bundles for the {word} view have been fetched", function (this: PointerWorld, name: string) {
   for (const app of view(name).apps) {
     const hits = fetchesOf(this.requests, app).filter((u) => u.endsWith(".js"));
     expect(hits.length).toBeGreaterThan(0);
+  }
+});
+
+/**
+ * Warmed and not evaluated.
+ *
+ * The half of the old "fetched only when a view first needs it" that survived
+ * preloading. Which of the two halves matters is the one a sub-app can notice:
+ * a bundle in the cache changes nothing it can observe, and a bundle that has
+ * been EVALUATED has had its top-level code run. A background import() would
+ * have warmed the cache and run the module; a modulepreload does not.
+ */
+Then("no sub-app on the {word} view has run", async function (this: PointerWorld, name: string) {
+  for (const app of view(name).apps) {
+    const rendered = await this.browserPage.$$eval(
+      `[data-app="${app}"] section`,
+      (nodes) => nodes.length,
+    );
+    expect(rendered).toBe(0);
   }
 });
 

@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "contract:mint": "bun run scripts/contract-mint.ts",
     "contract:matrix": "bun run scripts/contract-matrix.ts",
-    "test": "bun test src/server features/support",
+    "test": "bun test src/server src/web features/support",
     "publish": "bun run scripts/publish.ts",
     "promote": "bun run scripts/promote.ts",
     "verify": "HARNESS=local bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @local",
@@ -22,7 +22,8 @@
     "fixture:schema-2": "bun run scripts/publish-schema-2-fixture.ts",
     "mutate": "stryker run",
     "verify:browser": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @browser",
-    "sweep": "bun run scripts/sweep-superseded.ts"
+    "sweep": "bun run scripts/sweep-superseded.ts",
+    "measure:preload": "bun run scripts/measure-preload.ts"
   },
   "dependencies": {
     "preact": "^10.27.2",

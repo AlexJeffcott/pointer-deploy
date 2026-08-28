@@ -11,7 +11,7 @@ The README carries the design, the traps and the conventions.
 | Fly app | `pointer-deploy`, one machine, region `ams` |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
-| Contract | `9e79879` |
+| Contract | `e0160a6` |
 | Schema 2 fixture | `legacy/schema-2/2d429c02/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Secrets | `.env.local`, gitignored |
 
@@ -33,21 +33,6 @@ uncommitted tree — and `--no-source-check` overrides the last two.
 
 Numbers are stable identifiers - other sections point at them - so a gap means
 that item moved to Done, not that anything was renumbered.
-
-### 19. Nothing proves the shared store from this tree
-
-`features/shared-state.feature` carries `@browser` and NOT `@test-channel`, so
-`originFor("qa")` returns the live address and the scenarios read the DEPLOYED
-composition. That makes them a check on the deploy, which is worth having, and
-it means no scenario proves the shared store from the working tree: a change to
-`createStore` is caught only after it is published and promoted.
-
-Found on 2026-08-28 by misreading those scenarios as proof of a change that was
-not deployed yet. They passed, against the old build.
-
-The fix is a second, `@test-channel` copy of the two scenarios that matter - a
-count raised in one sub-app read by another, and the name reaching every panel -
-not moving the existing ones, which would trade a deploy check for a code check.
 
 ### 1. Port the suite to `playwright-bdd`
 
@@ -192,6 +177,44 @@ failing run, 9m05s for a green re-run of 33 of 33 with propagation at 8585 and
 5674 ms of 15000. The failing run was 2.4x the one before it and came
 immediately after 2849 deletes. Whether the deletes slowed the store is
 UNMEASURED - one green re-run does not settle it either way.
+
+**The reading was captured on 2026-08-28, and it is row 2.** A full
+`verify:live` failed one scenario - "Visitors return to the previous build when
+it is promoted back", 33 scenarios, 1 failed, 7m37s - with the whole output
+kept this time:
+
+```
+the qa origin still served "27a65b5c" after 25255 ms; expected "b36d61ba".
+the store's pointer names ... shell=b36d61ba, composed 26 s ago.
+the origin rendered from a manifest 27464 ms old, last refresh ok
+```
+
+An age of 27464 ms against `MANIFEST_TTL_MS = 10000`, with `lastError` null. So
+this is NOT the store answering with the old document, which is what had been
+assumed: `x-manifest-age` is measured from `fetchedAt`, which only a SUCCESSFUL
+refresh advances, so a store that kept serving the superseded pointer would
+have shown a small age and a fresh `fetchedAt`. And it is not a failing refresh,
+because a failure sets `lastError` and that is what the header would say.
+
+What is left is the row the table names: for 27 s, no refresh COMPLETED at all -
+neither succeeding nor failing - on an entry whose TTL is 10 s.
+
+That is a mechanism this code can be read against rather than guessed at.
+`refresh` fetches under `AbortSignal.timeout(timeoutMs)`, and
+`MANIFEST_TIMEOUT_MS` is NOT set in `fly.toml`, so the deployed timeout is the
+3000 ms default. A refresh should therefore settle within about 3 s, one way or
+the other, and `beginRefresh`'s `finally` should clear `e.inflight`. An entry
+that goes 27 s without a completed refresh means that promise did not settle,
+so `e.inflight` stayed non-null and every later request took the
+stale-while-revalidate path and returned at once - silently, and with `ok`
+beside it, because nothing failed.
+
+The next experiment, and it needs no live failure: make `doFetch` hang past its
+own abort in a unit test and assert the entry still expires. If `e.inflight`
+survives an abort that never rejects, that is the fault and it is fixable here.
+A second reading worth having on the origin: whether a refresh is in flight, and
+since when. `x-manifest-age` cannot say it - `checkedAt` and `fetchedAt` are
+different clocks and the header only carries one.
 
 The next failure says which hop it is without another investigation. Every
 shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
@@ -382,130 +405,11 @@ templating only. A second Fly app, or a second route here.
 The largest of these. §8 and §12 come first — one gives the additive reading
 this needs per API version, the other says when a version can go.
 
-### 14. One `VIEWS`, checked against the manifest
-
-Decided on 2026-08-28: the shell owns placement. That was already true and had
-never been written down. `scripts/contract.ts:29` names the units, `build.ts`
-emits what that names, and `Shell.tsx:7` decides which of them appear, on which
-route, in what order. The manifest names bundles and chooses nothing.
-
-Three things follow. The first two are the price of the answer and are accepted:
-
-- a layout change is a shell publish and a promote, so alpha cannot move from
-  `/` to `/totals` by pointer;
-- rolling the shell back rolls the layout back with it, because they are one
-  unit;
-- the layout is written down twice - `Shell.tsx:7` and
-  `features/steps/shared-state.steps.ts:9` - with nothing tying the copies
-  together. That is the harness holding its own copy of what it checks.
-
-Work: export `VIEWS` from the shell, have the step definitions import it, and
-check at build that every app the manifest names is placed by some view and
-every placed app is in the manifest. An app the manifest names and no view
-places is fetched never and nothing reports it; the opposite case is already
-reported, by `Slot`.
-
-What the check does NOT cover: the ROUTE. Moving charlie from `/totals` to `/`
-leaves the set identical, so only a scenario catches it.
-
-Trap: the harness importing `VIEWS` from the working tree does not remove the
-coupling to the deployed shell - a `@live` scenario runs against a PUBLISHED
-shell that may place apps differently. It removes the drift between two copies
-in one tree, which is a smaller claim than it looks. The build check is what
-covers the published pair, because it runs on the bytes being published.
-
-Same test-home problem as §8: this is build-time code and `bun test` runs
-`src/server` and `features/support`.
-
-### 15. Shared state stays in `api.ts`, and that is written down
-
-Decided on 2026-08-28. A sub-app cannot publish state for another sub-app. The
-shell declares every shared value in `src/web/shell/api.ts`, the contract hash
-covers it, and `build.ts:233` refuses any specifier outside `SHARED` - so
-app-to-app imports are already impossible, with the reason beside the check.
-
-The premise this was decided against was wrong twice, so both corrections
-belong here.
-
-**Signal identity already works.** `user` and `snapshot` are `Signal` objects
-imported from `@pointer/shell`. Every sub-app holds the SAME object, because the
-import map resolves the specifier to one URL. What was missing is a sub-app
-PUBLISHING one, and that is what this decision refuses.
-
-**The price is smaller than the code claims.** Measured on 2026-08-28 by
-compiling the shell and alpha against contract `9e79879` with the surface
-changed:
-
-| Change to `api.ts` | shell x 9e79879 | alpha x 9e79879 | Promote |
-| --- | --- | --- | --- |
-| baseline | pass | pass | allowed |
-| one export ADDED | pass | pass | allowed |
-| one export REMOVED | fail | pass | refused, correctly |
-
-So an additive export does NOT force every unit to be republished and does NOT
-make any id in a history unselectable, as long as the old contract stays
-retained. `shell/contract.ts:15` already says why - "Extra exports are fine" -
-and it holds. `versions.ts:6` and the version-switcher entry under Done both
-overstate it and should be corrected.
-
-Work, now that the answer is chosen:
-
-- correct the two overstatements above;
-- write the rule in `api.ts` itself: shared state is declared here, a sub-app
-  publishes none, and an addition is additive and cheap.
-
-Amended the same day by §18: the store is still DECLARED by the shell, and a
-sub-app now receives it rather than importing it. That answers the one real
-objection to this decision - a module-level singleton cannot be substituted for
-a test - without moving where shared state lives.
-
-What is NOT covered, and is the real hole in "shared state is declared in
-`api.ts`": nothing stops alpha writing `window.__alpha` and bravo reading it, or
-the two agreeing through `localStorage`, a custom event or a `data-` attribute.
-`specifiersIn` reads imports and nothing else. A scan of the emitted bundle for
-`window.`, `localStorage` and `dispatchEvent` would warn and could never prove
-- a computed property access defeats it. Say that when writing it, or the
-warning reads as a guarantee.
-
-Accepted and not fixed: `counters` is one signal holding a map, so there is no
-`Signal<number>` per namespace and an app cannot hand "the alpha counter" to
-anything taking a signal. `api.ts` gives the reason - the key set has to be
-reactive too.
-
-### 17. Load an unrendered app's files in the background
-
-`Slot` calls `loadApp` from a `useEffect`, so a sub-app's bundle and stylesheet
-are fetched when its view first appears. Moving from `/` to `/totals` waits on
-a network fetch of charlie and delta that could have happened while the visitor
-was reading the first view.
-
-The mechanism to prefer is `<link rel="modulepreload">` per app script and
-`<link rel="preload" as="style">` per stylesheet, emitted by `renderShell` from
-data it already has - `appUrls(served)` and `moduleIntegrity(served)`. It warms
-the cache without EXECUTING the module, which a background `import()` would not:
-evaluating a sub-app the visitor never sees changes when its top-level code
-runs, and that is a behaviour a sub-app can notice.
-
-Four things to check, none of them assumed:
-
-| | |
-| --- | --- |
-| The policy | `script-src` already lists every asset origin, derived from `appUrls`. A `modulepreload` should be allowed with no policy change. Verify rather than assume |
-| The digest | `modulepreload` takes `integrity`, and the import map's `integrity` section covers the same URLs. Confirm the browser does not fetch twice |
-| The composition | The URLs must come from `served`, not from the channel's manifest, or an overridden unit preloads the wrong file |
-| The cost | Four apps here. Preloading every app on every load is bandwidth a visitor who never navigates does not use. A deliberate list, not "everything" |
-
-`loader.ts` needs no change: `addStylesheet` and the `loading` map still run at
-mount, and a preload only warms the HTTP cache.
-
-Proof: a `@browser` scenario that navigates to `/totals` and asserts NO network
-request is issued for charlie's bundle. Falsify by dropping the preload tags -
-that scenario must go red, and the tag-presence one with it.
-
 ## Open questions
 
-One left. What was scoped is now §7 to §18 above; §14 and §15 were answered by
-reading what the code already does, and §16 is a defect that reading found.
+One left. What was scoped became §7 to §19 above; §14, §15, §17 and §19 are now
+under Done, §14 and §15 having been answered by reading what the code already
+does, and §16 was a defect that reading found.
 
 ### Do apps need migrations?
 
@@ -543,6 +447,65 @@ state lives.
 
 ## Done
 
+- **The shared store is proved from this tree, not only from the deploy.** Was
+  §19. `features/shared-state.feature` is three Rules now, and which composition
+  a scenario reads is the difference between them: the first reads the DEPLOYED
+  bundles at the live address, the second builds and promotes from the working
+  tree and reads those. Two scenarios copied, never moved - trading a deploy
+  check for a code check would have lost what the first Rule is good at.
+  Two falsify mutations, and the second measurement is the one that matters.
+  `snapshot` returning zero for every namespace, and `user()` reading `peek()`
+  instead of `.value` so nothing subscribes, each redden their @test-channel
+  scenario. Run against the DEPLOYED copies of the same two scenarios, the
+  `peek` mutation left both GREEN - which is section 19's claim, measured
+  rather than argued.
+- **One `VIEWS`, exported, and checked against the units at build time.** Was
+  §14. `src/web/shell/views.ts` holds the table; `Shell.tsx` draws its tabs and
+  its panels from it, and `features/steps/shared-state.steps.ts` imports it
+  instead of keeping a second copy of the paths and the app lists.
+  `placementProblems` runs in `build.ts`, on the bytes being published, and
+  refuses a build where a unit is emitted that no view places, or a view places
+  an app nothing builds. Seen refusing: dropping charlie from `/totals` stops
+  the build and names charlie. Six unit tests, one falsify mutation, and a test
+  home - `bun test` now names `src/web`, which is what §8 needs too.
+  NOT covered, and asserted so it is not mistaken for coverage: the ROUTE. The
+  two sets are equal whichever route each app sits on, so a move from `/totals`
+  to `/` is invisible to this and only a scenario catches it.
+- **Shared state stays in `api.ts`, and the rule is written where it applies.**
+  Was §15. The rule is in `api.ts` itself: shared state is declared there, a
+  sub-app publishes none, and an addition is additive and cheap. The two
+  overstatements are corrected in `versions.ts` and in the switcher entry
+  below, and the same sentence was carried by the README, which is corrected
+  too. What is NOT covered is written beside the rule: nothing stops two
+  sub-apps agreeing through `window`, `localStorage`, an event or a `data-`
+  attribute, `specifiersIn` reads imports and nothing else, and a scan for
+  those could warn and could never prove.
+- **A sub-app's files are warmed before its view is opened.** Was §17.
+  `renderShell` emits `<link rel="modulepreload">` per app script and
+  `<link rel="preload" as="style">` per stylesheet, from `appUrls(served)` and
+  `moduleIntegrity(served)` - the SERVED composition, so an overridden unit
+  warms the file that page will really fetch. Never a background `import()`:
+  that would EVALUATE a sub-app the visitor never opened, and when a module's
+  top-level code runs is a behaviour a sub-app can notice.
+  All four checks measured, none assumed, by `bun run measure:preload` - which
+  runs the server from this tree against the real store, drives a real Chrome,
+  and repeats itself with the tags removed as a control:
+
+  | Check | Reading |
+  | --- | --- |
+  | The policy | No refusal. `script-src` and `style-src` are already derived from the same origins, so a modulepreload and a style preload need no change |
+  | The digest | Each off-screen bundle and stylesheet fetched exactly ONCE across the navigation. The import reuses the preloaded response |
+  | The composition | From `served`, held by a unit test that overrides a unit and asserts the preload follows it |
+  | The cost | 4 modulepreload and 4 style preload tags per load. The extra over doing nothing is the other view's two bundles and two stylesheets |
+
+  One scenario was written, measured, and DELETED before it was trusted:
+  "opening a view costs no further request for its bundles" is green with the
+  preload tags and green without them, because the control shows the count after
+  the navigation is 1 either way. It discriminated nothing. The question it was
+  asking needs a control, so it lives in the script and not in the suite.
+  What survives in the suite is the reading the control does move: the bundles
+  for a view nobody has opened have been fetched, and no sub-app on that view
+  has run. One falsify mutation drops the tags and reddens it.
 - **Sub-apps are components, and the store is injected.** Was §18. A sub-app
   default-exports a Preact component taking one prop and no longer exports
   `mount(el)` or imports the store. Three measurements drove it, none argued:
@@ -571,8 +534,9 @@ state lives.
   21 local, 33 live, 16 browser scenarios and 184 unit tests green; `e2e` green;
   25 of 38 falsify mutations run and caught, 13 skipped without `FALSIFY_LIVE`.
   `src/server` is untouched, so its 100% mutation score stands.
-  NOT done: the store sweep. `bun run sweep` reports 2849 objects no channel can
-  serve and `--delete` carries it out.
+  The store sweep is done: `bun run sweep --delete` removed 2849 objects no
+  channel could serve, on 2026-08-28. It still has no 90-day floor, which is
+  what section 5 is waiting for before it runs on a schedule.
 - **A `throw` control and a boundary that catches it.** Was §7. One per sub-app
   and one on the frame, each throwing during render - a throw from a click
   handler reaches no boundary at all and a control that proved the wrong thing
@@ -626,8 +590,10 @@ state lives.
   that draws the control is in the unit being rolled back.
   Not built, on purpose: a `select` INSIDE each sub-app. That needs an export on
   `api.ts` or `subapp.ts`, and the contract hash is taken over exactly those two
-  files - so it changes the hash, forces every unit to be republished, and makes
-  every id already in a history unselectable until they are. A change to make
+  files - so it mints a new contract, and every unit has to be rebuilt before it
+  can claim the new one. Corrected on 2026-08-28 by section 15's measurement:
+  an ADDITIVE export does not force a republish and does not make any id already
+  in a history unselectable. A removal or a narrowing does. A change to make
   deliberately, not a side effect of adding a control.
 - A shell unit with no stylesheet now links no stylesheet. `assetUrls` joined
   the shell's base against `css ?? ""`, which is the unit's own DIRECTORY, so
