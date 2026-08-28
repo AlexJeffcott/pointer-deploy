@@ -403,6 +403,7 @@ bun run verify:browser     # 13 @browser scenarios in a real Chrome
 bun run falsify            # 38 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the thirteen that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
+bun run scripts/e2e-version-switcher.ts   # drive the switcher on the LIVE site
 bun run mutate             # Stryker over the server logic
 ```
 

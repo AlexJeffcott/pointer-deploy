@@ -241,6 +241,10 @@ not the data.
   cold manifest is worth waiting for and a cold history is not. The policy and
   the digests came free. Six scenarios, four falsify mutations, 608 mutants and
   0 survivors.
+  `scripts/e2e-version-switcher.ts` drives it on the LIVE site in a real
+  browser, which the @browser scenario cannot: that one runs the entry point
+  from this tree and proves the CODE, and this proves the DEPLOY. It reads and
+  never writes, so it is safe against a real channel at any time.
   One dead end, inherent: the control lives in the shell, so choosing a shell
   published before the switcher serves a page with no control. The options block
   is still in the HTML; the older bundle does not read it. The way back is to
