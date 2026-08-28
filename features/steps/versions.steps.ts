@@ -14,7 +14,7 @@ import {
   unitIdsInShell,
   versionsInShell,
 } from "../support/world.ts";
-import type { Unit } from "../../scripts/contract.ts";
+import { UNITS, type Unit } from "../../scripts/contract.ts";
 
 /** The id the incompatible-unit step published, shared with unit.steps.ts. */
 const INCOMPATIBLE = () => `incompat-${Bun.hash(`${process.pid}`).toString(16)}`;
@@ -52,9 +52,14 @@ When("a visitor picks build {string}'s {string} unit from the switcher", async f
   this.lastBody = await page.content();
 });
 
-Then("the page offers no version switcher", function (this: PointerWorld) {
-  const offered = Object.keys(versionsInShell(this.lastBody));
-  expect(offered.length ? `a switcher for ${offered.join(", ")}` : "no switcher").toBe("no switcher");
+Then("the page offers a version switcher for every unit", function (this: PointerWorld) {
+  const offered = versionsInShell(this.lastBody);
+  // Every unit, not merely a block. A switcher that named the shell alone would
+  // satisfy "there is one" and offer nothing an operator came to change.
+  for (const unit of UNITS) {
+    const options = offered[unit] ?? [];
+    expect(options.length ? unit : `${unit} has no options; the page offers ${Object.keys(offered).join(", ") || "nothing"}`).toBe(unit);
+  }
 });
 
 Then("the page offers both {string} units", function (this: PointerWorld, app: string) {

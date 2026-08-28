@@ -360,12 +360,17 @@ An option that cannot be composed is **disabled and not hidden**. "This build
 exists and cannot run beside the others" is the reading an operator came for,
 and hiding it would say the build was never deployed.
 
-**Off unless a channel is named.** `VERSION_SWITCHER_CHANNELS` is empty by
-default and the deployed image does not set it. A switcher on a real channel is
-a tool for whoever is diagnosing a deploy and a way for everybody else to run
-superseded code on the production origin, so which channels accept that is an
-operator's decision. The live suite names its own two channels and never a real
-one.
+**On wherever there is something to choose between.** There is no flag. This
+project exists to show the approach, and what a rollback would serve is a thing
+to look at rather than a thing to be told about. Nothing about it is a way in:
+an id the channel has never served is refused, and the shell is `no-store`, so
+one visitor's choice reaches nobody else.
+
+**It never costs a visitor a wait.** The history is read with `peek` and never
+`get`. A cold manifest is worth waiting for, because without one there is no
+page; a cold history is not, because without it the page is exactly the one that
+was served before the switcher existed. The first request after a server starts
+has no switcher and the next one does.
 
 **What it cost, and what it did not.** The policy and the digests came free:
 both are already derived from the manifest, and each unit carries its own
@@ -383,7 +388,7 @@ effect of adding a control.
 ## Verifying
 
 ```sh
-bun test src/server        # 176 unit tests
+bun test src/server        # 180 unit tests
 bun run verify             # 21 @local scenarios, stub store, ~6 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run verify:live        # @live scenarios against Fly and Tigris

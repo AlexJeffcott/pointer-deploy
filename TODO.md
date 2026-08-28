@@ -234,10 +234,13 @@ not the data.
   serving any object in the store, and a composition with no shared contract -
   the same rule `promote` applies, now in `src/server/composition.ts` because
   the runtime image copies `src/server` and nothing else. An impossible option
-  is DISABLED and not hidden. Off unless a channel is named in
-  `VERSION_SWITCHER_CHANNELS`, which the deployed image does not set and the
-  live suite sets to its own two channels. The policy and the digests came free.
-  Six scenarios, four falsify mutations, 605 mutants and 0 survivors.
+  is DISABLED and not hidden. There is no flag: the project exists to show the
+  approach, and nothing about the switcher is a way in - an id the channel never
+  served is refused, and the shell is `no-store`. The history is read with
+  `peek` and never `get`, so a cold one costs the control and never a wait; a
+  cold manifest is worth waiting for and a cold history is not. The policy and
+  the digests came free. Six scenarios, four falsify mutations, 608 mutants and
+  0 survivors.
   Not built, on purpose: a `select` INSIDE each sub-app. That needs an export on
   `api.ts` or `subapp.ts`, and the contract hash is taken over exactly those two
   files - so it changes the hash, forces every unit to be republished, and makes

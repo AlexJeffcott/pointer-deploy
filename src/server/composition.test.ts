@@ -9,7 +9,6 @@ import {
   parseHistory,
   refuseComposition,
   sharedContracts,
-  switcherChannels,
   type ChannelHistory,
 } from "./composition.ts";
 import type { ComposedUnit, ManifestV3 } from "./manifest.ts";
@@ -384,28 +383,6 @@ describe("compose", () => {
     expect(out.schema).toBe(3);
     expect(out.composedAt).toBe("2026-08-28T00:00:00.000Z");
     expect(out.shell.imports).toEqual({ preact: "preact-a.js" });
-  });
-});
-
-describe("switcherChannels", () => {
-  // The default IS the guard. A switcher nobody asked for on a real channel is
-  // a way for any visitor to run code the operator replaced.
-  test("no configuration names no channel", () => {
-    expect(switcherChannels(undefined).size).toBe(0);
-    expect(switcherChannels("").size).toBe(0);
-  });
-
-  test("names the channels it was given", () => {
-    expect([...switcherChannels("test-qa,test-prod")]).toEqual(["test-qa", "test-prod"]);
-  });
-
-  test("tolerates spaces and empty entries rather than naming a channel called nothing", () => {
-    expect([...switcherChannels(" test-qa , , test-prod ")]).toEqual(["test-qa", "test-prod"]);
-    expect(switcherChannels(",,").size).toBe(0);
-  });
-
-  test("one channel needs no comma", () => {
-    expect([...switcherChannels("qa")]).toEqual(["qa"]);
   });
 });
 

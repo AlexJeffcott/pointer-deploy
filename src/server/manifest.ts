@@ -5,7 +5,9 @@
 //   1. A fresh cached manifest is returned with no network call.
 //   2. A stale cached manifest is returned immediately and refreshed behind
 //      the request. A visitor never waits for the store.
-//   3. Only a cold cache waits, and only up to `timeoutMs`.
+//   3. Only a cold cache waits, and only up to `timeoutMs` - and only through
+//      `get`. `peek` never waits at all, for a document a page is better off
+//      without than delayed for.
 //   4. Single-flight: N concurrent callers for one URL cause one fetch.
 //   5. A failed refresh leaves the last good value in place, so a running
 //      server survives an indefinite store outage.
@@ -95,6 +97,17 @@ export type Manifest = ManifestV1 | ManifestV2 | ManifestV3;
  */
 export type DocumentStore<T> = {
   get(url: string): Promise<T | null>;
+  /**
+   * Whatever is cached, with a refresh started if it is stale. Never waits.
+   *
+   * Rule 3 - a cold cache waits - is right for a manifest, because without one
+   * there is no page to serve. It is wrong for a document the page is better
+   * off WITHOUT than delayed for: a cold read of the version history would make
+   * a visitor wait for the store to render a control, which is exactly what
+   * rule 2 exists to prevent. The first request after a start gets no switcher
+   * and the next one gets it.
+   */
+  peek(url: string): T | null;
   /** How old this URL's document is, and what its last refresh said. */
   stateOf(url: string): ManifestState;
 };
@@ -374,6 +387,15 @@ export function createDocumentStore<T>(
         ageMs: e && e.fetchedAt !== 0 ? now() - e.fetchedAt : null,
         lastError: e ? e.lastError : null,
       };
+    },
+
+    peek(url: string): T | null {
+      const e = entryFor(url);
+      const age = now() - e.checkedAt;
+      // The same staleness test as `get`, rule 9 included, and the same
+      // single-flight. Only the waiting is left out.
+      if ((age < 0 || age >= ttlMs) && !e.inflight) beginRefresh(url, e);
+      return e.value;
     },
 
     async get(url: string): Promise<T | null> {

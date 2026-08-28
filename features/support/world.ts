@@ -225,11 +225,6 @@ export class PointerWorld extends World {
       // nothing. This one only stops the server adding to that wait.
       MANIFEST_TTL_MS: "1000",
       MANIFEST_TIMEOUT_MS: "10000",
-      // The suite's own channels, and only ever those. A switcher lets any
-      // visitor serve themselves a composition the operator replaced, so which
-      // channels accept that is configuration - and the harness configures the
-      // two nobody visits.
-      VERSION_SWITCHER_CHANNELS: Object.values(LIVE_CHANNELS).join(","),
     });
     this.localServer = true;
   }

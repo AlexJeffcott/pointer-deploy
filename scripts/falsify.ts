@@ -307,6 +307,17 @@ const MUTATIONS: Mutation[] = [
     live: true,
   },
   {
+    // The switcher must never cost a visitor a wait. A manifest is worth
+    // waiting for on a cold cache, because without one there is no page; the
+    // history is not, because without it the page is the one that was served
+    // before the switcher existed.
+    name: "a cold version history makes the visitor wait for the store",
+    file: "src/server/index.ts",
+    find: "      const history = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));",
+    replace: "      const history = await histories.get(historyUrl(MANIFEST_BASE, target.region, target.channel));",
+    scenario: "A visitor is never made to wait for the store",
+  },
+  {
     // A history that kept only what is live would make the switcher a control
     // with one option, which is not a switcher.
     name: "a channel's history keeps only what it serves now",
@@ -315,15 +326,6 @@ const MUTATIONS: Mutation[] = [
     replace: "    ].slice(0, 1);",
     scenario: "The page offers every unit the channel has served",
     live: true,
-  },
-  {
-    // The default is the guard. Everything else about the switcher is reachable
-    // only once a channel is named.
-    name: "the switcher is on for every channel by default",
-    file: "src/server/composition.ts",
-    find: '    (value ?? "")',
-    replace: '    (value ?? "qa,prod,test-qa,test-prod")',
-    unitTest: "no configuration names no channel",
   },
 
   {

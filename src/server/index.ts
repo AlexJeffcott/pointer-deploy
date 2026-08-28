@@ -12,7 +12,6 @@ import {
   optionsFor,
   parseHistory,
   refuseComposition,
-  switcherChannels,
   type ChannelHistory,
 } from "./composition.ts";
 import { createDocumentStore, createManifestStore, manifestUrl } from "./manifest.ts";
@@ -31,9 +30,6 @@ if (!MANIFEST_BASE) {
 const REGION = resolveRegion(Bun.env.FLY_REGION);
 const TABLE = hostTable(IS_PRODUCTION);
 const manifests = createManifestStore();
-
-/** Empty unless an operator names a channel. See switcherChannels. */
-const SWITCHER_CHANNELS = switcherChannels(Bun.env.VERSION_SWITCHER_CHANNELS);
 
 // The same rules as the manifest, over a different document. A visitor waits
 // for neither, and a store outage costs neither its last good value.
@@ -80,16 +76,24 @@ const server = Bun.serve({
       return text("the application manifest is not available", 503);
     }
 
-    // The version switcher, when this channel has one.
+    // The version switcher.
     //
-    // Everything here fails to the ordinary page. A channel that is not named,
-    // a manifest older than schema 3, a history that is absent or unreadable:
-    // each one leaves `versions` undefined and the visitor gets exactly what
-    // the pointer names, which is what they would have got before this existed.
+    // On wherever there is something to choose between, which is the point of
+    // the demonstration: what a rollback would serve is a thing to look at, not
+    // a thing to be told about. Nothing here is a way in - an id this channel
+    // has never served is refused below - and the shell is no-store, so one
+    // visitor's choice reaches nobody else.
+    //
+    // Everything here fails to the ordinary page. A manifest older than schema
+    // 3, or a history that is absent or unreadable, leaves `versions` undefined
+    // and the visitor gets exactly what the pointer names.
     let served = manifest;
     let versions: Record<string, ReturnType<typeof optionsFor>[string]> | undefined;
-    if (SWITCHER_CHANNELS.has(target.channel) && manifest.schema === 3) {
-      const history = await histories.get(historyUrl(MANIFEST_BASE, target.region, target.channel));
+    if (manifest.schema === 3) {
+      // peek, never get. A cold history must not make a visitor wait for the
+      // store: without it the page renders exactly as it did before the
+      // switcher existed, and the next request has it.
+      const history = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));
       if (history) {
         const wanted = new URL(req.url).searchParams;
         const ids = currentIds(manifest);

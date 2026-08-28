@@ -46,25 +46,6 @@ export function historyUrl(base: string, region: string, channel: string): strin
   return `${base.replace(/\/$/, "")}/${region}/${channel}.history.json`;
 }
 
-/**
- * The channels a visitor may choose a composition on. Empty unless configured.
- *
- * Here rather than in index.ts because index.ts is outside the mutation set,
- * and this is the guard: a switcher on a real channel lets ANY visitor serve
- * themselves a composition the operator replaced. Useful to whoever is
- * diagnosing a deploy, and a way for everybody else to run superseded code on
- * the production origin. Which channels accept that is an operator's decision,
- * so it is configuration and never a default.
- */
-export function switcherChannels(value: string | undefined): Set<string> {
-  return new Set(
-    (value ?? "")
-      .split(",")
-      .map((c) => c.trim())
-      .filter((c) => c !== ""),
-  );
-}
-
 /** How many ids a channel keeps per unit. The head is never pruned. */
 export const HISTORY_DEPTH = 20;
 

@@ -184,6 +184,81 @@ describe("caching", () => {
     expect(h.state.calls).toBe(2);
   });
 
+  // peek is the read for a document the page is better off WITHOUT than delayed
+  // for. Rule 3 does not apply to it, and every other rule does.
+  test("a cold peek answers with nothing and does not wait", async () => {
+    const h = harness();
+    expect(h.store.peek(URL_QA)).toBeNull();
+    expect(h.state.calls).toBe(1);
+  });
+
+  test("a peek has the value once the fetch it started has landed", async () => {
+    const h = harness();
+    h.store.peek(URL_QA);
+    await settle();
+    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(1);
+  });
+
+  test("a fresh peek makes no network call", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(9_000);
+    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(1);
+  });
+
+  test("a peek exactly at the TTL refreshes", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(10_000);
+    h.store.peek(URL_QA);
+    expect(h.state.calls).toBe(2);
+  });
+
+  test("a stale peek answers with the old value and refreshes behind it", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.state.respond = async () => Response.json(doc("beta"));
+    h.tick(11_000);
+
+    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(2);
+    await settle();
+    expect(idOf(h.store.peek(URL_QA))).toBe("beta");
+    expect(h.state.calls).toBe(2);
+  });
+
+  test("a burst of peeks causes one fetch", async () => {
+    const h = harness();
+    const seen = Array.from({ length: 25 }, () => h.store.peek(URL_QA));
+    expect(seen.every((m) => m === null)).toBe(true);
+    expect(h.state.calls).toBe(1);
+  });
+
+  // Rule 9 again. A peek that trusted a clock which moved backwards would stop
+  // refreshing exactly the way `get` would.
+  test("a peek after the clock moved backwards refreshes", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.tick(-60_000);
+    h.store.peek(URL_QA);
+    expect(h.state.calls).toBe(2);
+  });
+
+  // Rule 5 through the other door: a failed refresh must not empty it.
+  test("a peek keeps the last good value when the refresh fails", async () => {
+    const h = harness();
+    await h.store.get(URL_QA);
+    h.state.respond = async () => {
+      throw new Error("the store is gone");
+    };
+    h.tick(11_000);
+    h.store.peek(URL_QA);
+    await settle();
+    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+  });
+
   test("a burst of cold readers causes one fetch", async () => {
     const h = harness();
     const results = await Promise.all(
