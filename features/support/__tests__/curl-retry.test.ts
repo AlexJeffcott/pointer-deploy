@@ -1,8 +1,10 @@
 // The retry in curlGet, held by a server that drops connections on purpose.
 //
-// Not in features/support itself: cucumber.mjs imports `features/support/*.ts`
-// as support code, and a file calling test() at import time would run inside
-// every cucumber run. One directory down is outside that glob.
+// Not in features/support itself: the runner imports `features/support/*.ts` to
+// find the steps and hooks, and a file calling test() at import time would run
+// inside every scenario run. One directory down is outside that glob - which is
+// why playwright.config.ts says `support/*.ts` and never `support/**`: a
+// Playwright worker importing bun:test is not a thing to find out by accident.
 
 import { expect, test } from "bun:test";
 import { curlGet } from "../http.ts";

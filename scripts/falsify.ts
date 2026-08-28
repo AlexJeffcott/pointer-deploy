@@ -576,21 +576,54 @@ const MUTATIONS: Mutation[] = [
   },
 ];
 
-const CUKE = ["bun", "node_modules/@cucumber/cucumber/bin/cucumber.js"];
+// The runner, named the long way for the reason playwright.config.ts gives:
+// `bun x playwright` runs the workers under Node, and the harness is Bun code.
+const BDDGEN = ["bun", "node_modules/playwright-bdd/dist/cli/index.js", "test"];
+const RUNNER = ["bun", "node_modules/@playwright/test/cli.js", "test"];
+
+/** A scenario title as a regex that matches it and nothing it does not. */
+const exactly = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** How many scenarios each mutation's title matched, for the report. */
+const matched = new Map<string, number>();
+
+async function output(proc: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<string> {
+  const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
+  return out + err;
+}
 
 async function runScenario(m: Mutation): Promise<boolean> {
   const tag = m.browser ? "@browser" : m.live ? "@live" : "@local";
-  const proc = Bun.spawn([...CUKE, "--tags", tag, "--name", m.scenario!], {
-    env: { ...process.env, HARNESS: m.live ? "live" : "local" },
+  const env = { ...process.env, HARNESS: m.live ? "live" : "local" };
+
+  // Generation is filtered by tag and the run is filtered by title, so a
+  // @local mutation never generates a @browser scenario and never starts a
+  // browser to skip it.
+  const gen = Bun.spawn([...BDDGEN, "--tags", tag], { env, stdout: "pipe", stderr: "pipe" });
+  const genOut = await output(gen);
+  if ((await gen.exited) !== 0) throw new Error(`bddgen failed for ${tag}:\n${genOut}`);
+
+  const proc = Bun.spawn([...RUNNER, "--grep", exactly(m.scenario!)], {
+    env,
     stdout: "pipe",
     stderr: "pipe",
   });
-  const out = await new Response(proc.stdout).text();
-  await new Response(proc.stderr).text();
+  const out = await output(proc);
   const code = await proc.exited;
-  if (!/\d+ scenarios? \(/.test(out)) {
-    throw new Error(`--name ${JSON.stringify(m.scenario)} matched no single scenario:\n${out}`);
+
+  // A title that matches NOTHING makes the reading meaningless, and that is the
+  // failure this catches: the mutation would be reported as caught by a
+  // scenario nobody ran. More than one is legitimate - a Scenario Outline is
+  // one name and several examples - so the count is reported rather than
+  // refused, and a mutation is caught only when every match is red.
+  const ran = Number(/Running (\d+) tests? using/.exec(out)?.[1] ?? "0");
+  if (ran === 0) {
+    throw new Error(
+      `--grep ${JSON.stringify(m.scenario)} matched no scenario under ${tag}:\n${out}`,
+    );
   }
+  matched.set(m.name, ran);
   return code === 0;
 }
 
@@ -643,14 +676,16 @@ for (const m of MUTATIONS) {
     console.log(`✗ ${m.name}\n    ${kind} "${target}" stayed green. It proves nothing.`);
     failures++;
   } else {
-    console.log(`✓ ${m.name}\n    caught by ${kind} "${target}"`);
+    const n = matched.get(m.name);
+    const several = n && n > 1 ? ` (${n} examples)` : "";
+    console.log(`✓ ${m.name}\n    caught by ${kind} "${target}"${several}`);
   }
 }
 
 // The suite must be green again now that every mutation is reverted.
-const restored = Bun.spawnSync([...CUKE, "--tags", "@local"], {
-  env: { ...process.env, HARNESS: "local" },
-});
+const localEnv = { ...process.env, HARNESS: "local" };
+Bun.spawnSync([...BDDGEN, "--tags", "@local"], { env: localEnv });
+const restored = Bun.spawnSync([...RUNNER], { env: localEnv });
 if (restored.exitCode !== 0) {
   console.log("✗ the suite is not green after restoring the sources");
   failures++;

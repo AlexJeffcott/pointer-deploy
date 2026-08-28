@@ -5,8 +5,8 @@
 // one. The store, the units, the bundles and the history are real; only the
 // process the HTML comes from is local.
 
-import { Given, Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import {
   type Channel,
   PROPAGATION_WINDOW_MS,

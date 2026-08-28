@@ -1,8 +1,8 @@
 // Steps for the error boundaries. A real browser, because a render that throws
 // is not observable to anything that only fetches HTML.
 
-import { Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import { PointerWorld } from "../support/world.ts";
 
 When("the {string} panel is asked to throw", async function (this: PointerWorld, app: string) {

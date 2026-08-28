@@ -4,8 +4,8 @@
 // World: it is a file that nothing in a run writes, so re-reading it is the
 // cheapest way to keep the steps independent of each other.
 
-import { Given, Then } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import { PROPAGATION_WINDOW_MS, PointerWorld } from "../support/world.ts";
 import { urlsInManifest, warmAll } from "../../scripts/store.ts";
 

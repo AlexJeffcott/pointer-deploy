@@ -1,19 +1,12 @@
-import {
-  After,
-  AfterAll,
-  Before,
-  BeforeAll,
-  setDefaultTimeout,
-  setWorldConstructor,
-  World,
-} from "@cucumber/cucumber";
-import { chromium, type Browser, type Page } from "playwright-core";
+import type { Page } from "@playwright/test";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
 
-setDefaultTimeout(180_000);
+// The hooks are in hooks.ts and the bindings in bdd.ts. This file holds the
+// world and nothing that registers itself with the runner: bdd.ts imports the
+// class to build the fixture, so a hook here would close the cycle.
 
 export { curlGet, run };
 
@@ -51,7 +44,7 @@ const LIVE_CHANNELS: Record<Channel, string> = {
 };
 
 /** The channels the suite must never write. Asserted before and after a run. */
-const REAL_CHANNELS = ["qa", "prod"] as const;
+export const REAL_CHANNELS = ["qa", "prod"] as const;
 
 /**
  * The Host each channel is reached by. Every channel is one app on one
@@ -72,10 +65,33 @@ export type UnitIds = Record<Unit, string>;
 // would add minutes without testing anything the first publish did not.
 const BUILD_IDS = new Map<string, UnitIds>();
 
-/** What a channel's pointer names in the store, or why it could not be read. */
-async function pointerBuildId(channel: string): Promise<string> {
+/**
+ * What a channel's pointer names in the store, or why it could not be read.
+ *
+ * Retries a request that gets no answer at all, the same way the live suite's
+ * own requests do. A store that ANSWERS is a reading - "absent (404)" and
+ * "unreadable" are both true things about the channel. A socket that closes
+ * without answering is not a reading, and this one is the baseline the deploy
+ * tripwire compares against: losing it to one dropped connection leaves the
+ * tripwire with nothing to compare and the run with no guard.
+ */
+export async function pointerBuildId(channel: string): Promise<string> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${channel}.json`;
-  const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+  let res: Response | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3 && res === null; attempt++) {
+    if (attempt > 0) await Bun.sleep(500 * attempt);
+    try {
+      res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (res === null) {
+    throw new Error(
+      `could not read ${url} in 3 attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    );
+  }
   if (!res.ok) return `absent (${res.status})`;
   try {
     const doc = (await res.json()) as {
@@ -172,7 +188,14 @@ export function assetUrlsInShell(html: string): { js: string | null; css: string
   };
 }
 
-export class PointerWorld extends World {
+/**
+ * One scenario's state.
+ *
+ * Constructed by the `world` fixture in bdd.ts, once per scenario, which is
+ * what `setWorldConstructor` used to do. It takes no arguments now: cucumber
+ * passed its own options object and nothing here ever read it.
+ */
+export class PointerWorld {
   mode: Mode = MODE;
   stub: StubStore | null = null;
   server: ReturnType<typeof Bun.spawn> | null = null;
@@ -183,9 +206,9 @@ export class PointerWorld extends World {
   /** Scenario build name ("alpha") to the unit ids the store holds for it. */
   private ids = BUILD_IDS;
 
-  // Browser scenarios. playwright-core drives the Chrome already on the
-  // machine, so nothing downloads a second one.
-  browser: Browser | null = null;
+  // Browser scenarios. The page is the RUNNER's, handed over by the @browser
+  // hook - see usePage. The harness used to launch its own Chrome, and a page
+  // it launched itself is a page no trace, screenshot or video is attached to.
   page: Page | null = null;
   /** Every URL the page has requested, in order. */
   requests: string[] = [];
@@ -235,6 +258,10 @@ export class PointerWorld extends World {
     const proc = Bun.spawn(["bun", "src/server/index.ts"], {
       env: {
         ...process.env,
+        // The port is read out of the first line, so this output is parsed too.
+        // See PLAIN_OUTPUT in http.ts for what colour does to that.
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
         // Development, so the *.localhost names resolve to a channel.
         NODE_ENV: "development",
         PORT: "0",
@@ -740,13 +767,18 @@ export class PointerWorld extends World {
 
   // -- browser ---------------------------------------------------------------
 
-  async openBrowser(): Promise<Page> {
-    this.browser = await chromium.launch({ channel: "chrome", headless: true });
-    const page = await this.browser.newPage();
+  /**
+   * Take the runner's page, and attach what every browser scenario needs.
+   *
+   * Called by the @browser hook before any step runs. Both listeners have to be
+   * installed here rather than in a step: a request is issued and a content
+   * policy refusal is reported before any step could attach one, and the
+   * refusal of a shell's OWN script happens before the page has a script at
+   * all.
+   */
+  async usePage(page: Page): Promise<void> {
+    this.page = page;
     page.on("request", (r) => this.requests.push(r.url()));
-    // Every content policy refusal the page reports, in order. Installed here
-    // rather than in a step because a refusal of the shell's own script happens
-    // before any step could attach a listener.
     await page.addInitScript(() => {
       const seen: string[] = [];
       (globalThis as unknown as { __refusals: string[] }).__refusals = seen;
@@ -754,8 +786,6 @@ export class PointerWorld extends World {
         seen.push(`${e.violatedDirective} ${e.blockedURI}`);
       });
     });
-    this.page = page;
-    return page;
   }
 
   /** Every content policy refusal the page has reported so far. */
@@ -763,12 +793,6 @@ export class PointerWorld extends World {
     return this.browserPage.evaluate(
       () => (globalThis as unknown as { __refusals?: string[] }).__refusals ?? [],
     );
-  }
-
-  async closeBrowser(): Promise<void> {
-    await this.browser?.close();
-    this.browser = null;
-    this.page = null;
   }
 
   get browserPage(): Page {
@@ -801,71 +825,3 @@ export class PointerWorld extends World {
       .join(",");
   }
 }
-
-setWorldConstructor(PointerWorld);
-
-// The suite's own channels are the fix; this is the check on it. A live run
-// that writes qa or prod is a deploy nobody asked for, so the run records what
-// the real channels point at and fails if either moved. It repairs nothing on
-// purpose - a restore that fails leaves the channel wrong and says it did not.
-const realChannelsBefore = new Map<string, string>();
-
-BeforeAll(async function () {
-  if (MODE !== "live") return;
-  for (const channel of REAL_CHANNELS) {
-    realChannelsBefore.set(channel, await pointerBuildId(channel));
-  }
-});
-
-AfterAll(async function () {
-  if (MODE !== "live") return;
-  const moved: string[] = [];
-  for (const channel of REAL_CHANNELS) {
-    const before = realChannelsBefore.get(channel);
-    const after = await pointerBuildId(channel);
-    if (before !== after) moved.push(`  ${channel}: ${before} -> ${after}`);
-  }
-  if (moved.length) {
-    throw new Error(
-      `the live suite moved ${moved.length} real channel(s). That is a deploy:\n` +
-        `${moved.join("\n")}\n` +
-        `Promote the build that should be live, then find what wrote the channel.`,
-    );
-  }
-});
-
-Before({ tags: "@local" }, async function (this: PointerWorld) {
-  if (this.mode !== "local") return;
-  await this.startLocal();
-});
-
-Before({ tags: "@live" }, async function (this: PointerWorld) {
-  if (this.mode !== "live") return;
-  this.machinesBefore = await this.machineFingerprint();
-});
-
-// A scenario that drives one of the suite's OWN channels in a browser. No
-// browser can reach a test-* channel on Fly - Host is forbidden to
-// setExtraHTTPHeaders and Fly routes on SNI - so the documented entry point
-// runs here, against the real store. Registered before the @browser hook so
-// the server is listening by the time a page is opened.
-Before({ tags: "@test-channel" }, async function (this: PointerWorld) {
-  if (this.mode !== "live") {
-    throw new Error("@test-channel needs the real store. Run `bun run verify:browser`.");
-  }
-  await this.startAgainstRealStore();
-});
-
-Before({ tags: "@browser" }, async function (this: PointerWorld) {
-  await this.openBrowser();
-});
-
-After(async function (this: PointerWorld) {
-  await this.closeBrowser();
-  await this.stopLocal();
-  // Last, and after the server that was reading them is gone: a channel left
-  // holding a fixture is a channel pointing somewhere nobody promoted, and a
-  // history left holding one offers a build that cannot be served.
-  await this.restorePointer();
-  await this.restoreHistory();
-});

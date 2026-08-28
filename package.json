@@ -13,15 +13,15 @@
     "test": "bun test src/server src/web features/support",
     "publish": "bun run scripts/publish.ts",
     "promote": "bun run scripts/promote.ts",
-    "verify": "HARNESS=local bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @local",
-    "verify:live": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags '@live and not @needs-domain'",
+    "verify": "HARNESS=local bun node_modules/playwright-bdd/dist/cli/index.js test --tags @local && HARNESS=local bun node_modules/@playwright/test/cli.js test",
+    "verify:live": "HARNESS=live bun node_modules/playwright-bdd/dist/cli/index.js test --tags '@live and not @needs-domain' && HARNESS=live bun node_modules/@playwright/test/cli.js test",
     "verify:all": "bun run verify && bun run verify:live && bun run verify:browser",
     "falsify": "bun run scripts/falsify.ts",
     "e2e": "bun run scripts/e2e-independent-deploy.ts",
     "setup:store": "bun run scripts/setup-store.ts",
     "fixture:schema-2": "bun run scripts/publish-schema-2-fixture.ts",
     "mutate": "stryker run",
-    "verify:browser": "HARNESS=live bun node_modules/@cucumber/cucumber/bin/cucumber.js --tags @browser",
+    "verify:browser": "HARNESS=live bun node_modules/playwright-bdd/dist/cli/index.js test --tags @browser && HARNESS=live bun node_modules/@playwright/test/cli.js test",
     "sweep": "bun run scripts/sweep-superseded.ts",
     "measure:preload": "bun run scripts/measure-preload.ts"
   },
@@ -30,10 +30,11 @@
     "@preact/signals": "^2.0.1"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^11.3.0",
+    "@playwright/test": "^1.62.1",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/typescript-checker": "^10.0.0",
     "@types/bun": "^1.4.0",
+    "playwright-bdd": "^9.2.0",
     "playwright-core": "^1.62.1",
     "typescript": "^5.9.3"
   }

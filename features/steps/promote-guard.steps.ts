@@ -10,8 +10,8 @@
 // `features/support/promote-guard.ts` carries why running the real script is
 // safe here.
 
-import { Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import { REACHED_STORE, runPromote } from "../support/promote-guard.ts";
 import { PointerWorld } from "../support/world.ts";
 

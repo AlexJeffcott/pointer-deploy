@@ -5,8 +5,8 @@
 // it will check. Whether a browser then refuses a file is not observable to
 // anything but a browser, so the rest drive one.
 
-import { Given, Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import { PointerWorld, PROPAGATION_WINDOW_MS } from "../support/world.ts";
 import { configFromEnv, getObjectText } from "../../scripts/store.ts";
 

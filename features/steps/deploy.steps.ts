@@ -2,8 +2,8 @@
 // the real store: a local stand-in for publish and promote could pass while
 // the real path was broken, which is the failure this suite exists to catch.
 
-import { Given, Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import {
   CACHE_IMMUTABLE,
   configFromEnv,

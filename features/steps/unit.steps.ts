@@ -5,8 +5,8 @@
 // stand-in could compose the right answer while the real merge was replacing
 // the whole composition.
 
-import { Given, Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import {
   CACHE_IMMUTABLE,
   configFromEnv,
@@ -140,11 +140,15 @@ Then("each sub-app on the {word} origin is fetched from its own unit's directory
 
 Then("only the {word} unit is uploaded", function (this: PointerWorld, unit: string) {
   expect(this.lastRun?.code).toBe(0);
-  const uploaded = (this.lastRun?.stderr ?? "")
+  const report = this.lastRun?.stderr ?? "";
+  const uploaded = report
     .split("\n")
     .filter((l) => l.includes("uploaded"))
     .map((l) => l.trim().split(/\s+/)[0]);
-  expect(uploaded).toEqual([unit]);
+  // The whole report, because the units this names are the finding. Without it
+  // a failure says only which names it wanted and which it got, and the reason
+  // is a line in an output nobody kept.
+  expect(uploaded, `publish reported:\n${report}`).toEqual([unit]);
 });
 
 // A unit that claims a contract nothing else supports. Written straight into

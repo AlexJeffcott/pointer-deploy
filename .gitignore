@@ -7,3 +7,7 @@ dist/
 reports/
 .contract-emit/
 .contract-matrix/
+.features-gen/
+test-results/
+playwright-report/
+blob-report/

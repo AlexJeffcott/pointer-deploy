@@ -34,13 +34,6 @@ uncommitted tree — and `--no-source-check` overrides the last two.
 Numbers are stable identifiers - other sections point at them - so a gap means
 that item moved to Done, not that anything was renumbered.
 
-### 1. Port the suite to `playwright-bdd`
-
-The `.feature` files do not change; the bindings and runner do. Buys traces,
-screenshots on failure, parallelism. Costs ~400 lines across five step files.
-Trap: the non-browser suites spawn a Bun server and shell out to
-publish/promote, so they must move too or the project runs two runners.
-
 ### 2. A browser-reachable `prod`
 
 Needs a domain and a certificate. The domain substitutes in three places:
@@ -446,6 +439,71 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **The suite runs on Playwright, through `playwright-bdd`.** Was §1. Not one
+  `.feature` file changed: `playwright-bdd` supports a cucumber-style world, so
+  `this` is still the `PointerWorld` and the Gherkin parameters are still the
+  arguments. One runner, not two - the @local and @live scenarios moved with the
+  browser ones, which was the trap the item named.
+
+  **It still runs on Bun, and how the runner is STARTED decides that.** Measured
+  in a scratch project before any of this was written, because the difference is
+  invisible until the harness fails to import itself:
+
+  | Command | The workers run under |
+  | --- | --- |
+  | `bun x playwright test` | Node. No `Bun` global, no `bun:test` |
+  | `bun node_modules/@playwright/test/cli.js test` | Bun, `process.versions.bun` set |
+
+  The second is what the scripts use, the same long form `verify` already used
+  for cucumber's own bin. Had it been the first, the port would not have been
+  ~400 lines of bindings: it would have meant taking `world.ts`, `http.ts`,
+  `stub-store.ts`, `scripts/store.ts` and `scripts/contract.ts` off Bun, and
+  those last two are the files `build`, `publish` and `promote` run.
+
+  **Of the three things this was expected to buy, two arrived.** Traces and
+  screenshots are retained on failure. PARALLELISM is not available and that is
+  not a configuration away: the live scenarios promote to two channels the suite
+  shares and `world.ts` keeps one module-level map of build name to unit ids, so
+  two at once would race on the pointer and the failure would read as
+  propagation. `workers: 1`, with the reason written at the setting. Making
+  @local parallel is possible - each starts its own stub store and server on
+  port 0 - and it is its own piece of work.
+
+  **It found a defect in the deploy tripwire.** Playwright reports a failed
+  `beforeAll` against the first test of its FILE and carries on with the other
+  files. A dropped connection while reading the baseline therefore left the
+  guard with nothing recorded, 15 scenarios ran unguarded, and `AfterAll`
+  compared `undefined` against what the channels served and printed *the live
+  suite moved 2 real channels. That is a deploy* - the most alarming sentence
+  this suite can produce, about a run that deployed nothing. Three changes: a
+  missing baseline is its own message and is not called a move; the baseline is
+  taken by every live scenario's own `Before` rather than once; and
+  `pointerBuildId` retries a request that gets no answer, the way the suite's
+  other live requests already do.
+
+  **It found a second thing, and this one had been true all along.** Playwright
+  sets `FORCE_COLOR` for its workers, Bun colours `console.error` when it sees
+  it, and `run` in `features/support/http.ts` passed `process.env` to every
+  child process the suite spawns - then parsed what came back. So
+  `"  alpha  f4ba63c3  uploaded 3 files"` arrived as
+  `"\u001b[0m\u001b[31m  alpha ..."`, which trims to an escape sequence rather
+  than to a unit name. ONE assertion broke, the one reading the first word by
+  position; every other reader used `includes` and went on passing against
+  output it could no longer parse, which is the worse half of the same fault.
+  A child process whose output the suite reads now gets `FORCE_COLOR=0` and
+  `NO_COLOR=1`, in `run` and in `spawnServer`.
+
+  `falsify` drives the new runner too, and its check got stricter on the way: it
+  used to accept any output carrying a scenario count, and it now refuses a
+  title that matches NO scenario - which would have reported a mutation as
+  caught by a scenario nobody ran. A Scenario Outline matching several examples
+  is legitimate and the count is printed.
+
+  21 @local in 7.9 s, 18 @browser in 1.1 min, 33 @live in 6.3 min, 26 of 44
+  falsify mutations - all green on the new runner. The browser suite is about
+  half what it was: the browser launches once per worker and each scenario gets
+  a page, where the harness used to launch a Chrome per scenario.
 
 - **The shared store is proved from this tree, not only from the deploy.** Was
   §19. `features/shared-state.feature` is three Rules now, and which composition

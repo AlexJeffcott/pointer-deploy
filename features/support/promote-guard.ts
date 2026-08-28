@@ -21,7 +21,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { After } from "@cucumber/cucumber";
+import { After } from "./bdd.ts";
 import { UNITS } from "../../scripts/contract.ts";
 import type { Source } from "../../scripts/source.ts";
 

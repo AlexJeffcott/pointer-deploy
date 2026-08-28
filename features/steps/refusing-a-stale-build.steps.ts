@@ -10,8 +10,8 @@
 // the script and reading whether it reached the store are shared with the other
 // guard feature and live in promote-guard.steps.ts.
 
-import { Given, Then } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import { makeRepo, writeBuild } from "../support/promote-guard.ts";
 import { PointerWorld } from "../support/world.ts";
 

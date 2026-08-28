@@ -6,9 +6,27 @@
 
 export type Run = { code: number; stdout: string; stderr: string };
 
+/**
+ * What a child process is told about colour.
+ *
+ * Everything this harness spawns is a process whose output it then PARSES -
+ * which unit publish uploaded, which port the server bound, what promote
+ * refused. Colour makes that output unparseable at the first character:
+ * `"\u001b[0m\u001b[31m  alpha ... uploaded"` trims to an escape sequence, and
+ * a step reading the first word gets the escape rather than "alpha".
+ *
+ * It matters because the runner decides it. Playwright sets FORCE_COLOR for its
+ * workers, `run` passed process.env straight through, and Bun colours
+ * console.error when it sees it - so moving runners silently changed the shape
+ * of every command output the suite reads. One assertion broke, because it read
+ * by POSITION. The rest read with `includes` and went on passing, which is the
+ * worse half of the same fault.
+ */
+const PLAIN_OUTPUT = { FORCE_COLOR: "0", NO_COLOR: "1" } as const;
+
 export async function run(cmd: string[], env: Record<string, string> = {}): Promise<Run> {
   const proc = Bun.spawn(cmd, {
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...PLAIN_OUTPUT, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });

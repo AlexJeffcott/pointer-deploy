@@ -2,8 +2,8 @@
 // published bundles agreeing about one store - is not observable to anything
 // that only fetches HTML.
 
-import { Given, Then, When } from "@cucumber/cucumber";
-import { expect } from "bun:test";
+import { Given, Then, When } from "../support/bdd.ts";
+import { expect } from "@playwright/test";
 import { PointerWorld } from "../support/world.ts";
 import { VIEWS } from "../../src/web/shell/views.ts";
 

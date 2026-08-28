@@ -291,7 +291,10 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
 | `scripts/promote.ts` | Read the composition, merge what was named, test the intersection, write |
 | `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
-| `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels |
+| `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
+| `features/support/bdd.ts` | The bindings, and the one file that names the runner |
+| `features/support/hooks.ts` | Every hook, in the order they must run |
+| `playwright.config.ts` | The runner: one worker, traces and screenshots on failure |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
@@ -534,10 +537,10 @@ addition is a mint and nothing else.
 
 ```sh
 bun test                   # 201 unit tests: src/server, src/web, features/support
-bun run verify             # 21 @local scenarios, stub store, ~6 s
+bun run verify             # 21 @local scenarios, stub store, ~8 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
-bun run verify:live        # 33 @live scenarios against Fly and Tigris
-bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~2 min
+bun run verify:live        # 33 @live scenarios against Fly and Tigris, ~6 min
+bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
 bun run falsify            # 44 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the eighteen that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
@@ -550,6 +553,58 @@ bun run mutate             # Stryker over the server logic
 `src/server` is the server's pure logic, `features/support` is the harness's
 own, and `src/web` is where build-time code goes: `views.ts` decides which
 sub-apps the build must emit, and a script has no test home otherwise.
+
+### The runner
+
+The `.feature` files are executed by **Playwright**, through `playwright-bdd`,
+which generates one spec per feature. It replaced cucumber-js, and the features
+did not change a line: `playwright-bdd` supports a cucumber-style world, so
+`this` inside a step is still the `PointerWorld` and the Gherkin parameters are
+still the arguments.
+
+What it buys is what a failed browser scenario leaves behind. A trace and a
+screenshot, retained on failure, instead of a line of text — which matters most
+for the scenarios only a browser can check, because those are the ones whose
+failure is hardest to reconstruct afterwards.
+
+**It still runs on Bun, and the two ways of starting it are not the same.**
+Measured, because the difference is invisible until the harness fails to
+import itself:
+
+| Command | The workers run under |
+| --- | --- |
+| `bun x playwright test` | **Node.** No `Bun` global, no `bun:test`, and `features/support/world.ts` cannot load |
+| `bun node_modules/@playwright/test/cli.js test` | **Bun.** `process.versions.bun` is set and the harness loads |
+
+The harness is Bun code — `Bun.spawn`, `Bun.serve`, `Bun.file`, `Bun.CryptoHasher`
+— and it imports `scripts/store.ts` and `scripts/contract.ts`, which are the
+same files `build`, `publish` and `promote` run. So the scripts name the runner
+the long way, exactly as they already named cucumber's own bin.
+
+Two things follow that are worth stating rather than discovering:
+
+- **One worker, on purpose.** The live scenarios publish builds and promote them
+  to two channels the suite shares, and `world.ts` keeps one module-level map of
+  build name to unit ids. Two scenarios at once would race on the pointer and on
+  that map, and the failure would read as propagation rather than as a race.
+  Making `@local` parallel is possible — each of those starts its own stub store
+  and its own server on port 0 — and it is a separate piece of work. So of the
+  three things the port was expected to buy, traces and screenshots arrived and
+  parallelism did not.
+- **Tags are filtered at generation.** `bddgen test --tags @local` emits no
+  `@browser` scenario, so a local run never asks for a `page` and never starts a
+  browser. `playwright-bdd` collects the fixtures a generated FILE needs, so
+  filtering afterwards would have started one anyway.
+
+The port also found a defect in the deploy tripwire, and it is the kind worth
+recording. Playwright reports a failed `beforeAll` against the first test of its
+file and carries on with the other files; a dropped connection while reading the
+baseline therefore left `AfterAll` comparing `undefined` against what the
+channels served, and it printed *the live suite moved 2 real channels. That is
+a deploy* — the most alarming sentence this suite can produce, about a run that
+deployed nothing. A missing baseline is now its own message, the baseline is
+taken by every live scenario's own `Before` rather than once, and
+`pointerBuildId` retries a request that gets no answer.
 
 An `@live` scenario about **server** behaviour cannot be falsified by a source
 edit, because it runs against the deployed image. Two mutations that break
@@ -573,8 +628,10 @@ records, met again from the other side. So the browser half runs
 carries `test-qa.localhost` for it, development only. Everything else is real,
 and the machine fingerprint is compared before and after.
 
-`@browser` uses `playwright-core` against the Chrome already on the machine, so
-nothing downloads a second browser. Nine of those eighteen scenarios cover what
+`@browser` uses the Chrome already on the machine — `channel: "chrome"` — so
+nothing downloads a second browser. The page is the runner's, which is what
+attaches a trace and a screenshot to a failure; the harness used to launch its
+own, and a page it launched itself has neither. Nine of those eighteen scenarios cover what
 nothing else can see: five separately published bundles agreeing about one
 store. The rest cover the schema they would agree about after a long rollback,
 what the page is allowed to load, what a panel that throws costs, and which
@@ -941,6 +998,7 @@ Do not rediscover these.
 | `curl` and a browser disagree | Only a browser sees a blocked module script or an edge-cached shell. Check user-facing changes in a browser, never with `curl` alone |
 | Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
 | A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
+| The runner deciding what a command's output looks like | Playwright sets `FORCE_COLOR` for its workers; Bun colours `console.error` when it sees it; the harness passed `process.env` to every child it spawns and then PARSED what came back. `"  alpha ... uploaded"` became `"\u001b[0m\u001b[31m  alpha ..."`, which trims to an escape sequence. One assertion broke, because it read by position. The rest read with `includes` and kept passing, which is the worse half. A process whose output is parsed is told `FORCE_COLOR=0` and `NO_COLOR=1` |
 | A check with no control | "The bundle was fetched once after the navigation" is true whether or not the page preloaded it, because with no preload the import does the one fetch itself. A reading that does not move when the mechanism is removed measures nothing. Where a scenario cannot carry a control, a script must |
 | A `@browser` scenario read as proof of an edit | Without `@test-channel` it loads the deployed composition, so it goes on passing against the last build that was promoted. Measured: a mutation that reddens the `@test-channel` copy leaves the deployed copy green |
 | Two copies of the layout | `Shell.tsx` placed the apps and the step definitions listed them again. Nothing tied the copies together, so the harness held its own idea of what it was checking. One exported table, and a build-time check against the units |
