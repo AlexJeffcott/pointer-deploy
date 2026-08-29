@@ -16,10 +16,13 @@ const FILE = new URL("./blocks.provides.json", import.meta.url);
  *
  * Empty is a reading and not a failure: a server whose file is missing judges
  * no shell, which is the same answer it gave before any of this existed.
+ *
+ * `file` is the seam a test needs to reach that second reading, and nothing
+ * else passes it. The server calls this with no argument.
  */
-export async function blocksWritten(): Promise<Record<string, string>> {
+export async function blocksWritten(file: URL = FILE): Promise<Record<string, string>> {
   return (
-    ((await Bun.file(FILE)
+    ((await Bun.file(file)
       .json()
       .catch(() => null)) as Record<string, string> | null) ?? {}
   );

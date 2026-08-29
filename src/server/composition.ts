@@ -147,6 +147,11 @@ export function memberRefusal(
   const problems: string[] = [];
   let decided = false;
   for (const [name, surface] of Object.entries(surfaces)) {
+    // Stryker disable next-line ConditionalExpression,StringLiteral: unreachable.
+    // The shell's own surface carries `provides`, never `uses`, so the next
+    // line skips it whether this one does or not. Kept because it names the
+    // party being judged, and a shell that ever recorded `uses` would be
+    // judged against itself without it.
     if (name === "shell") continue;
     if (!surface?.uses || !surface.subapps) continue;
     decided = true;
@@ -217,12 +222,23 @@ export function compositionRefusal(
 ): string | null {
   const shell = surfaces.shell;
   const byMembers: Record<string, UnitSurface | undefined> = { shell };
+  // Stryker disable next-line ArrayDeclaration: unreachable. This list is only
+  // ever intersected with the other units' lists, so a value invented here
+  // shares with nothing and the outcome is the same as the empty set's.
   const byContract: Record<string, string[]> = { shell: contractsByUnit.shell ?? [] };
 
   for (const name of Object.keys(contractsByUnit)) {
+    // Stryker disable next-line ConditionalExpression,StringLiteral: unreachable.
+    // The shell is already in byContract with this same value, so falling into
+    // the branch below would write it again unchanged.
     if (name === "shell") continue;
     if (decidesMembers(shell, surfaces[name])) byMembers[name] = surfaces[name];
-    else byContract[name] = contractsByUnit[name] ?? [];
+    else {
+      // Stryker disable next-line ArrayDeclaration: unreachable. `name` came
+      // from Object.keys of this record, so the lookup cannot miss. The `??` is
+      // here for the index signature and for nothing else.
+      byContract[name] = contractsByUnit[name] ?? [];
+    }
   }
 
   const members = memberRefusal(byMembers);

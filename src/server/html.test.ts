@@ -602,4 +602,25 @@ describe("preloading the apps a navigation would need", () => {
   test("a manifest with no sub-apps preloads nothing", () => {
     expect(renderShell(v1, TARGET)).not.toContain("modulepreload");
   });
+
+  // Every test above reads ONE tag with toContain, and two of the faults here
+  // live between the tags rather than inside one: an extra entry in the list,
+  // and the string that joins them. A toContain cannot see either, and Stryker
+  // proved it - both mutants survived until 2026-08-29. This reads the whole
+  // block, which is everything after the shell's own script to the end of the
+  // body.
+  test("emits these tags, in this order, with nothing between them", () => {
+    const after = html.lastIndexOf("</script>") + "</script>".length;
+    const block = html.slice(after, html.indexOf("</body>"));
+
+    expect(block).toBe(
+      `\n    <link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js" ` +
+        `integrity="${D.alphaJs}" crossorigin="anonymous" />` +
+        `\n    <link rel="preload" as="style" href="${ALPHA_BASE}alpha-f.css" ` +
+        `integrity="${D.alphaCss}" crossorigin="anonymous" />` +
+        `\n    <link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js" ` +
+        `integrity="${D.bravoJs}" crossorigin="anonymous" />` +
+        "\n  ",
+    );
+  });
 });

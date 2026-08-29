@@ -303,29 +303,6 @@ moves with the copied bytes. The three ways:
 declaration, so the vendor gap is now scoped to the members that name a vendor
 type, which is `SubApp` alone.
 
-### 22. Twenty-eight surviving mutants in the newest server code
-
-`bun run mutate` on 2026-08-29: 757 mutants, 729 killed, 28 survived. Two files
-are at 100% and the survivors are all in what the member gate and the blocks
-reading added.
-
-| File | Killed | Survived | Where |
-| --- | --- | --- | --- |
-| `composition.ts` | 251 | 23 | lines 145-234 and 287-402 |
-| `provides.ts` | 0 | 3 | the whole file |
-| `html.ts` | 172 | 2 | lines 288 and 300 |
-
-`provides.ts` is the sharp one. 0 killed of 3 is a file no test reaches at all,
-rather than a file whose tests are weak. It reads
-`src/server/blocks.provides.json`, so a mutant that names the wrong file or
-turns a parse failure into `{}` would make the running server judge every shell
-against an empty set - and the blocks gate would then allow exactly what it was
-built to refuse.
-
-Each of the other 25 has to be read to know which of the README's three kinds it
-is. Only the first kind is chased; the other two are excluded in place, with the
-reason on the line above them.
-
 ### 10. A deprecation dynamic
 
 `ContractRecord` in `scripts/contract.ts` is the one record per contract, so a
@@ -436,6 +413,42 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **The 28 surviving mutants are gone, and 23 of them were real.** Was §22,
+  opened and closed on 2026-08-29. `bun run mutate` now reports 750 of 750
+  killed across all five files: `composition.ts` 267, `manifest.ts` 264,
+  `html.ts` 174, `origins.ts` 42, `provides.ts` 3.
+
+  The reading that opened it was 757 mutants with 28 survivors, all in what the
+  member gate and the blocks reading had just added. The README claimed 0
+  survivors, which had been true at 417 mutants and before that work.
+
+  | Where | Survivors | What they were |
+  | --- | --- | --- |
+  | `provides.ts` | 3 of 3 | no test at all. Two tests |
+  | `composition.ts` | 23 | 18 real gaps, 5 unreachable and excluded in place |
+  | `html.ts` | 2 | the preload block. One test |
+
+  **`provides.ts` was the sharp one.** It is what the RUNNING server judges
+  every shell against, and all three mutants - a wrong file name, an emptied
+  body, `??` turned into `&&` - made it read `{}`. An empty reading refuses
+  nothing, so the blocks gate would have allowed exactly the shell it exists to
+  refuse, and the page would still have rendered. `blocksWritten` now takes the
+  file as an argument so the missing-file reading can be tested at all.
+
+  **What the other gaps were, and they are the transferable part:**
+
+  | The gap | What no test asserted |
+  | --- | --- |
+  | a guard nothing exercised | An app entry with no reading is skipped. Remove the guard and the gate THROWS rather than falling back, which is the rollback path |
+  | which half refused | Both halves of the member gate name the member, so `toContain` on the name passed when the wrong branch fired |
+  | the separator | `join("; ")` between two problems. A `toContain` of one problem cannot see it |
+  | `some` against `every` | No fixture carried a sub-app with two SubApp halves, so needing ALL of them looked the same as needing one |
+  | the preload block | Six tests read one tag each. None could see an extra entry in the list or the string joining them |
+
+  Five were unreachable and are excluded in place with the reason: two guards
+  whose next line does the same skipping, and two `?? []` fallbacks whose key
+  came from `Object.keys` of the same record.
 
 - **The server-to-shell surface has one declaration and a reading, not a
   hash.** Was §11. A hash over the blocks was the item's idea and is not what

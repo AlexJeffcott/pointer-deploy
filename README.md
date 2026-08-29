@@ -950,19 +950,24 @@ test green. **`falsify.ts`** makes the architectural changes Stryker cannot
 generate — removing single-flight, making the health check read the manifest,
 unsharing the store. Neither replaces the other.
 
-Measured on 2026-08-29, `bun run mutate`, 757 mutants, 729 killed:
+Measured on 2026-08-29, `bun run mutate`: 750 mutants, 750 killed, 0 survivors
+across all five files - `composition.ts` 267, `manifest.ts` 264, `html.ts` 174,
+`origins.ts` 42, `provides.ts` 3.
 
-| File | Killed | Survived |
-| --- | --- | --- |
-| `manifest.ts` | 264 | 0 |
-| `origins.ts` | 42 | 0 |
-| `html.ts` | 172 | 2 |
-| `composition.ts` | 251 | 23 |
-| `provides.ts` | 0 | 3 |
+It reached that twice on one day. The first reading, taken while the member gate
+and the blocks reading were new, was 757 mutants with 28 survivors: 23 in
+`composition.ts`, 3 in `provides.ts` - a file with no test at all - and 2 in
+`html.ts`. Five of the 28 were unreachable and are excluded in place; the other
+23 were real gaps and cost 15 tests. What each one found is worth reading:
 
-This section used to claim 0 survivors across all files. That was true of three
-files at 417 mutants, and the member gate and the blocks reading were written
-after it. TODO's §22 carries the 28.
+| The gap | What no test asserted |
+| --- | --- |
+| `provides.ts` had no test | What the running server judges every shell against. All three mutants made it read `{}`, which refuses nothing |
+| a member gate that throws | An app entry with no reading was skipped by a guard nothing exercised, so removing the guard threw instead of falling back |
+| which half refused | Both halves name the member, so `toContain` on the name passed when the wrong branch fired |
+| the separator | `join("; ")` between two problems, invisible to a `toContain` of one |
+| `some` against `every` | No fixture had a sub-app carrying two SubApp halves |
+| a preload block | Six tests read one tag each with `toContain`; none could see an extra entry or the string joining them |
 
 A survivor is one of three things, and only the first is chased:
 

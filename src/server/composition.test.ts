@@ -13,6 +13,7 @@ import {
   parseHistory,
   refuseComposition,
   sharedContracts,
+  surfaceOf,
   type ChannelHistory,
   type UnitSurface,
 } from "./composition.ts";
@@ -278,6 +279,48 @@ describe("the block gate", () => {
     expect(blockRefusal({}, {})).toBeUndefined();
   });
 
+  // Two faults reported as two. The separator is what a reader of the header
+  // has to split on, and a single toContain cannot see it.
+  test("two fields wrong are reported as two", () => {
+    expect(
+      blockRefusal(WRITES, {
+        blocks: { "VersionOption.deployed": "d1", "VersionOption.live": "l2" },
+      }),
+    ).toBe(
+      "that shell reads VersionOption.deployed, which this server does not write; " +
+        "that shell reads VersionOption.live, which this server writes differently",
+    );
+  });
+
+  // The blocks are a surface between the server and the SHELL. A sub-app never
+  // reads them, so judging one would grey out an option a promote allows.
+  test("only the shell is judged on what this server writes", () => {
+    const h: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          {
+            unit: unit("shell", "s1"),
+            contracts: ["c1"],
+            surface: { blocks: { "VersionOption.live": "l1" } },
+          },
+        ],
+        alpha: [
+          {
+            unit: unit("alpha", "a1"),
+            contracts: ["c1"],
+            surface: { blocks: { "VersionOption.deployed": "d1" } },
+          },
+        ],
+      },
+    };
+    const chosen = { shell: "s1", alpha: "a1" };
+    const options = optionsFor(h, chosen, chosen, WRITES);
+    expect(options.shell![0]!.disabled).toBe(false);
+    expect(options.alpha![0]!.disabled).toBe(false);
+  });
+
   test("the switcher greys out a shell this server cannot feed", () => {
     const history: ChannelHistory = {
       schema: 1,
@@ -328,6 +371,35 @@ describe("parseHistory carries the member reading", () => {
       units: { shell: [{ unit: { unitId: "s1" }, contracts: ["c1"] }] },
     });
     expect(parsed.units.shell![0]!.surface).toBeUndefined();
+  });
+
+  // A reading that is not an object is worth nothing and must not be carried
+  // as though it were: every reader indexes into it, and a string would answer
+  // every lookup with undefined - which reads as "records nothing" and allows
+  // what the gate exists to refuse.
+  test("a surface that is not an object is dropped", () => {
+    const parsed = parseHistory({
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: { shell: [{ unit: { unitId: "s1" }, contracts: ["c1"], surface: "nope" }] },
+    });
+    expect(parsed.units.shell![0]!.surface).toBeUndefined();
+  });
+
+  test("surfaceOf reads the id it was asked for", () => {
+    const h: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          { unit: unit("shell", "s2"), contracts: ["c1"], surface: { subapps: ["sub2"] } },
+          { unit: unit("shell", "s1"), contracts: ["c1"], surface: { subapps: ["sub1"] } },
+        ],
+      },
+    };
+    expect(surfaceOf(h, "shell", "s1")).toEqual({ subapps: ["sub1"] });
+    expect(surfaceOf(h, "shell", "s9")).toBeUndefined();
+    expect(surfaceOf(h, "alpha", "a1")).toBeUndefined();
   });
 });
 
@@ -430,6 +502,29 @@ describe("refuseComposition", () => {
 
   test("refuses a unit the history knows nothing about", () => {
     expect(refuseComposition(history, { ...served, charlie: "c1" })).toContain("charlie");
+  });
+
+  // The block gate, through the function `promote` and the switcher both
+  // call. Reaching it any other way tests blockRefusal and not the refusal.
+  test("refuses a chosen shell this server cannot feed, and names the field", () => {
+    const h: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          {
+            unit: unit("shell", "s1"),
+            contracts: ["c1"],
+            surface: { blocks: { "VersionOption.deployed": "d1" } },
+          },
+        ],
+      },
+    };
+    expect(refuseComposition(h, { shell: "s1" }, { "VersionOption.live": "l1" })).toBe(
+      "that shell reads VersionOption.deployed, which this server does not write",
+    );
+    // The same composition, judged by a server that writes what it reads.
+    expect(refuseComposition(h, { shell: "s1" }, { "VersionOption.deployed": "d1" })).toBeNull();
   });
 
   test("refuses a composition with no contract in common", () => {
@@ -538,6 +633,64 @@ describe("the member gate", () => {
     expect(memberRefusal({ shell: shell(FULL) })).toBeUndefined();
     expect(memberRefusal({ shell: {}, alpha: app(ALPHA) })).toBeUndefined();
     expect(memberRefusal({ shell: shell(FULL), alpha: app(ALPHA) })).toBeNull();
+  });
+
+  // Half a reading is not a reading. Without the first check the second half
+  // is read anyway, and `shellHalves.includes` is called on nothing.
+  test("a shell recording only half of its own surface cannot answer", () => {
+    expect(memberRefusal({ shell: { provides: FULL }, alpha: app(ALPHA) })).toBeUndefined();
+    expect(memberRefusal({ shell: { subapps: [HALF] }, alpha: app(ALPHA) })).toBeUndefined();
+  });
+
+  // The rollback case, from the other side: an entry the history carries with
+  // no surface at all, beside one that has it.
+  test("an app with no reading is skipped rather than judged", () => {
+    expect(memberRefusal({ shell: shell(FULL), alpha: undefined })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), alpha: undefined, bravo: app(BRAVO) })).toBeNull();
+  });
+
+  test("an app that records members but not its SubApp half is skipped", () => {
+    expect(memberRefusal({ shell: shell(FULL), alpha: { uses: ALPHA } })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), alpha: { subapps: [HALF] } })).toBeUndefined();
+  });
+
+  // Which half of the gate refused, exactly. Both halves name the member, so a
+  // toContain on the name passes when the wrong branch fires - which is how a
+  // mutation of this line went unnoticed until 2026-08-29.
+  test("a member the shell does not have is named as missing, not as changed", () => {
+    const { "ShellStore.reset": _gone, ...smaller } = FULL;
+    expect(memberRefusal({ shell: shell(smaller), bravo: app(BRAVO) })).toBe(
+      "bravo uses ShellStore.reset, which this shell does not have",
+    );
+  });
+
+  // A unit records the half of EVERY contract it compiles against, so carrying
+  // more than one is ordinary. Sharing one is the fit; needing all of them
+  // would refuse a sub-app that compiles against the shell perfectly well.
+  test("one SubApp half in common is enough", () => {
+    expect(
+      memberRefusal({
+        shell: shell(FULL, ["sub1", "sub2"]),
+        alpha: app(ALPHA, ["sub2", "sub3"]),
+      }),
+    ).toBeNull();
+  });
+
+  test("two problems are reported as two", () => {
+    const { "ShellStore.reset": _gone, ...smaller } = FULL;
+    expect(memberRefusal({ shell: shell(smaller, ["sub2"]), bravo: app(BRAVO) })).toBe(
+      "bravo uses ShellStore.reset, which this shell does not have; " +
+        "bravo was built against a different SubApp type",
+    );
+  });
+
+  // Every app judged on members leaves the shell alone in the contract half,
+  // and a shell that shares nothing with itself is not a refusal. The guard
+  // that makes this pass is the one the comment beside it argues for.
+  test("a shell alone in the contract half is not refused for sharing nothing", () => {
+    expect(
+      compositionRefusal({ shell: [], alpha: ["c1"] }, { shell: shell(FULL), alpha: app(ALPHA) }),
+    ).toBeNull();
   });
 
   test("decidesMembers needs all four fields", () => {
