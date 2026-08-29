@@ -6,17 +6,21 @@
 // application changes.
 
 import {
+  blockRefusal,
   compose,
   currentIds,
   historyUrl,
   optionsFor,
   parseHistory,
   refuseComposition,
+  surfaceOf,
   type ChannelHistory,
+  type UnitSurface,
 } from "./composition.ts";
 import { createDocumentStore, createManifestStore, manifestUrl } from "./manifest.ts";
 import { hostTable, resolveRegion, resolveTarget } from "./origins.ts";
 import { shellResponse } from "./html.ts";
+import { blocksWritten } from "./provides.ts";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const MANIFEST_BASE = Bun.env.MANIFEST_BASE ?? "";
@@ -34,6 +38,10 @@ const manifests = createManifestStore();
 // The same rules as the manifest, over a different document. A visitor waits
 // for neither, and a store outage costs neither its last good value.
 const histories = createDocumentStore<ChannelHistory>(parseHistory, { label: "history" });
+
+// §11. Read once at startup: it is a property of this image and cannot change
+// while it runs.
+const BLOCKS = await blocksWritten();
 
 const text = (body: string, status: number) =>
   new Response(body, {
@@ -89,6 +97,9 @@ const server = Bun.serve({
     // and the visitor gets exactly what the pointer names.
     let served = manifest;
     let versions: Record<string, ReturnType<typeof optionsFor>[string]> | undefined;
+    // §11. What the shell being served says it reads out of this server's
+    // blocks, when the history recorded it.
+    let shellSurface: UnitSurface | undefined;
     if (manifest.schema === 3) {
       // peek, never get. A cold history must not make a visitor wait for the
       // store: without it the page renders exactly as it did before the
@@ -113,11 +124,12 @@ const server = Bun.serve({
         // Validated only when something was actually asked for. A visitor who
         // asked for nothing must never be refused, however stale the history.
         if (overridden) {
-          const refusal = refuseComposition(history, chosen);
+          const refusal = refuseComposition(history, chosen, BLOCKS);
           if (refusal) return text(`that composition cannot be served: ${refusal}`, 400);
           served = compose(manifest, history, chosen);
         }
-        versions = optionsFor(history, chosen, ids);
+        versions = optionsFor(history, chosen, ids, BLOCKS);
+        shellSurface = surfaceOf(history, "shell", chosen.shell ?? ids.shell ?? "");
       }
     }
 
@@ -134,6 +146,13 @@ const server = Bun.serve({
     const res = shellResponse(served, target, versions);
     res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));
     res.headers.set("x-manifest-refresh", state.lastError ?? "ok");
+    // §11. An OVERRIDE this server cannot feed is refused above. The channel's
+    // own pointer is not: refusing it would take the site down over a control
+    // that misbehaves, which is worse than the bug. So it is reported here, in
+    // the same idiom as the two lines above - the reading nobody had when
+    // renaming `deployed` to `live` broke a shell the switcher still offers.
+    const blocks = blockRefusal(BLOCKS, shellSurface);
+    res.headers.set("x-shell-blocks", blocks === undefined ? "unread" : (blocks ?? "ok"));
     return res;
   },
 

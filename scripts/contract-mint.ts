@@ -15,9 +15,13 @@ import { join } from "node:path";
 import {
   CONTRACTS_DIR,
   contractDir,
+  directionFrom,
   emitSurface,
   hashSurface,
   readRegistry,
+  readSurface,
+  renderDirection,
+  retainedContracts,
   verifyRegistry,
   writeRegistry,
   type ContractRecord,
@@ -42,6 +46,10 @@ if (problems.length) {
   for (const p of problems) console.error(`  ${p}`);
   process.exit(1);
 }
+
+// Read before the mint appends to it: the reading below is against what was
+// retained when the change was made.
+const previous = retainedContracts(registry);
 
 const surface = await emitSurface();
 const hash = hashSurface(surface);
@@ -97,5 +105,23 @@ registry.retained.push(hash);
 await writeRegistry(registry);
 
 console.error(`minted ${hash} as ${join(CONTRACTS_DIR, name)}/`);
-console.error(`  run \`bun run contract:matrix\` to see which units compile against it`);
+
+// The direction, §8. The hash says the surface changed and says nothing about
+// which way, so tsc is asked: is anything published against a retained
+// contract still typed correctly against this one?
+//
+// A WARNING and never a refusal. A breaking change is a legitimate thing to
+// mint - the shell split was one - and `promote` refusing a composition with
+// an empty intersection is what stops it reaching a channel.
+if (previous.length) {
+  const readings = await Promise.all(
+    previous.map(async (earlier) =>
+      renderDirection(earlier, await directionFrom(await readSurface(earlier), surface)),
+    ),
+  );
+  console.error("");
+  for (const reading of readings) console.error(reading);
+}
+
+console.error(`\n  run \`bun run contract:matrix\` to see which units compile against it`);
 console.log(hash);

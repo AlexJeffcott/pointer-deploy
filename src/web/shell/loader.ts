@@ -8,10 +8,13 @@
 // was the whole of §16: no file in the shell resolved "@pointer/subapp", so the
 // matrix re-pointed a specifier the shell never used and the sub-app half of
 // the contract was checked from one side only.
+import type { AppAssets, AppMap } from "@pointer/blocks";
 import type { SubApp } from "@pointer/subapp";
 
-export type AppAssets = { js: string; css?: string; cssIntegrity?: string };
-export type AppMap = Record<string, AppAssets>;
+// Declared once, in the file that holds the whole server-to-shell surface. It
+// used to be declared here AND in `html.ts`, with nothing comparing the two -
+// which is how §11's rename got through.
+export type { AppAssets, AppMap } from "@pointer/blocks";
 
 export type { SubApp };
 

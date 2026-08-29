@@ -65,11 +65,26 @@ Feature: Deploying and rolling back one sub-app at a time
   # Rolling one unit back is exactly how a combination nothing has ever
   # typechecked comes to be served, so the refusal is what makes the rollback
   # safe rather than merely possible.
+  #
+  # This one is the FALLBACK rule: neither side carries a member reading, which
+  # is every unit published before §9. Its opposite - a composition that shares
+  # no contract and is served anyway, because every member fits - moves a
+  # channel onto a shell built for it, so it is proved end to end by
+  # `bun run e2e:members` rather than here.
   @live
   Scenario: A composition with no contract in common is refused
     Given a unit published against a contract the shell does not support
     When the operator promotes that unit to the qa channel
     Then the promotion is refused because no contract is shared
+    And the qa channel still serves build "one" for every unit
+
+  # The rule that replaced it. This unit shares the shell's contract, so the
+  # only thing that can refuse it is what it says it needs.
+  @live
+  Scenario: A sub-app needing a member the shell does not have is refused
+    Given a unit published needing a member the shell does not provide
+    When the operator promotes that unit to the qa channel
+    Then the promotion is refused and names the member and the sub-app
     And the qa channel still serves build "one" for every unit
 
   @live

@@ -1,27 +1,12 @@
 // Builds the application shell from a manifest. The only templating the
 // server does.
 
-import type { VersionOption } from "./composition.ts";
+import type { AppAssets, BuildInfo, VersionOption } from "@pointer/blocks";
 import type { ComposedUnit, Manifest } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
-export type BuildInfo = {
-  /**
-   * The shell's unit id under schema 3.
-   *
-   * The page no longer has one build id - it has five - but a single field
-   * naming the frame the visitor is looking at is still the thing to report
-   * first, and every unit id is beside it in `units`.
-   */
-  buildId: string;
-  commit: string;
-  publishedAt: string;
-  channel: string;
-  region: string;
-  /** Schema 3 only. Every unit in the composition, and the contract it ran at. */
-  units?: Record<string, { unitId: string; commit: string; marker: string }>;
-  contract?: string;
-};
+// Re-exported so the shape has one declaration and its readers keep one import.
+export type { AppAssets, BuildInfo } from "@pointer/blocks";
 
 export function buildInfo(m: Manifest, target: Target): BuildInfo {
   if (m.schema === 3) {
@@ -94,21 +79,6 @@ export function assetUrls(m: Manifest): { js: string; css: string | null } {
     css: joinUrl(m.assetBase, entry.css),
   };
 }
-
-/** What the shell's loader is told about one sub-app. */
-export type AppAssets = {
-  js: string;
-  css?: string;
-  /**
-   * The stylesheet's digest, when the unit published one.
-   *
-   * Only the stylesheet: a sub-app's script is imported by URL, and a dynamic
-   * import takes no integrity argument. That one is attached in the import map
-   * instead, which is the only place a module fetched by specifier can carry a
-   * digest at all.
-   */
-  cssIntegrity?: string;
-};
 
 /** Every sub-app's absolute URLs, for the shell to fetch on demand. */
 export function appUrls(m: Manifest): Record<string, AppAssets> {

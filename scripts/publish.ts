@@ -29,6 +29,10 @@ type UnitRecord = {
   files: string[];
   integrity: Record<string, string>;
   contracts: string[];
+  provides?: Record<string, string>;
+  uses?: Record<string, string>;
+  subapps?: string[];
+  blocks?: Record<string, string>;
   shared: Record<string, string>;
   marker: string;
 };
@@ -56,6 +60,24 @@ export type UnitManifest = {
   /** File name to SRI digest. Absent on a unit published before digests. */
   integrity?: Record<string, string>;
   contracts: string[];
+  /**
+   * The shell: every removable member of its surface, member path to digest.
+   *
+   * Absent on a unit published before the member reading existed, and `promote`
+   * falls back to the contract sets when either side of a pair lacks it.
+   */
+  provides?: Record<string, string>;
+  /** A sub-app: the members it uses, member path to digest. Absent, as above. */
+  uses?: Record<string, string>;
+  /** The `subapp.d.ts` halves this unit compiles against. Absent, as above. */
+  subapps?: string[];
+  /**
+   * The shell: which fields of the server's JSON blocks it reads, §11.
+   *
+   * Compared by the running SERVER and not by `promote`, because the party on
+   * the other side is a deployed image rather than a published unit.
+   */
+  blocks?: Record<string, string>;
   shared: Record<string, string>;
   marker: string;
 };
@@ -128,6 +150,10 @@ for (const unit of wanted) {
     files: built.files,
     integrity: built.integrity,
     contracts: built.contracts,
+    ...(built.provides ? { provides: built.provides } : {}),
+    ...(built.uses ? { uses: built.uses } : {}),
+    ...(built.subapps ? { subapps: built.subapps } : {}),
+    ...(built.blocks ? { blocks: built.blocks } : {}),
     shared: built.shared,
     marker: built.marker,
   };
@@ -140,6 +166,12 @@ for (const unit of wanted) {
     //   contracts  the shell may since have dropped an export this unit never
     //              used, so it now compiles against a contract it was
     //              published before.
+    //   provides   the surface changed shape without changing this shell's
+    //   uses       bytes, or a member this app uses was re-declared. Both are
+    //              derived from the surface and not from the bundle, so both
+    //              can move while the id does not - and the promote gate reads
+    //              them, so a stale one would let through what it exists to
+    //              refuse.
     //   integrity  a unit published before digests were recorded carries none,
     //              and the browser then checks nothing for it.
     //   provenance a unit first published from a dirty tree names a commit
@@ -152,7 +184,13 @@ for (const unit of wanted) {
     const canon = (d: Record<string, string> = {}) =>
       JSON.stringify(Object.entries(d).sort(([a], [b]) => a.localeCompare(b)));
     const sameDigests = canon(existing.integrity) === canon(manifest.integrity);
-    if (sameSet && sameDigests && !upgrade) {
+    const list = (v: string[] = []) => JSON.stringify([...v].sort());
+    const sameMembers =
+      canon(existing.provides) === canon(manifest.provides) &&
+      canon(existing.uses) === canon(manifest.uses) &&
+      canon(existing.blocks) === canon(manifest.blocks) &&
+      list(existing.subapps) === list(manifest.subapps);
+    if (sameSet && sameDigests && sameMembers && !upgrade) {
       console.error(`  ${unit.padEnd(width)} ${built.id}  unchanged`);
       published[unit] = built.id;
       continue;
@@ -168,6 +206,9 @@ for (const unit of wanted) {
         ? null
         : `contracts ${existing.contracts.join(",") || "none"} -> ${built.contracts.join(",")}`,
       sameDigests ? null : `digests for ${Object.keys(manifest.integrity ?? {}).length} files`,
+      sameMembers
+        ? null
+        : `members ${Object.keys(manifest.provides ?? manifest.uses ?? {}).length}`,
       upgrade ? `commit ${existing.commit.slice(0, 8)} dirty -> ${commit.slice(0, 8)} clean` : null,
     ].filter(Boolean);
     console.error(`  ${unit.padEnd(width)} ${built.id}  ${changed.join(", ")}`);

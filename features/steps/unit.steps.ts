@@ -151,14 +151,25 @@ Then("only the {word} unit is uploaded", function (this: PointerWorld, unit: str
   expect(uploaded, `publish reported:\n${report}`).toEqual([unit]);
 });
 
-// A unit that claims a contract nothing else supports. Written straight into
-// the store rather than built, because producing one from source would mean
-// minting a contract the repository then has to carry for one scenario.
-Given("a unit published against a contract the shell does not support", async function (this: PointerWorld) {
+/**
+ * Publishes an alpha nobody could compose, one way or the other.
+ *
+ * Written straight into the store rather than built, because producing one from
+ * source would mean minting a contract the repository then has to carry for one
+ * scenario. `patch` decides WHICH refusal it earns - see the two Givens below.
+ */
+async function publishIncompatible(
+  world: PointerWorld,
+  patch: (manifest: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
   const cfg = configFromEnv();
+  // The pid and nothing else: `versions.steps.ts` derives the SAME id to record
+  // it in a history and to look for it on the page, so anything more here makes
+  // the published unit and the recorded one two different things and the
+  // scenario proves less while still passing.
   const id = `incompat-${Bun.hash(`${process.pid}`).toString(16)}`;
   const prefix = `units/alpha/${id}`;
-  const baseline = this.unitIdOf("one", "alpha");
+  const baseline = world.unitIdOf("one", "alpha");
 
   const source = await fetch(
     `https://${cfg.bucket}.${new URL(cfg.endpoint).host}/units/alpha/${baseline}/unit.json`,
@@ -174,14 +185,13 @@ Given("a unit published against a contract the shell does not support", async fu
     `${prefix}/unit.json`,
     new TextEncoder().encode(
       `${JSON.stringify(
-        {
+        patch({
           ...manifest,
           id,
           assetBase: `https://${cfg.bucket}.${new URL(cfg.endpoint).host}/${prefix}/`,
           css: null,
           files: [manifest.js as string],
-          contracts: ["0000000"],
-        },
+        }),
         null,
         2,
       )}\n`,
@@ -189,7 +199,32 @@ Given("a unit published against a contract the shell does not support", async fu
     { contentType: "application/json; charset=utf-8", cacheControl: CACHE_IMMUTABLE },
   );
   fresh.set("incompatible", id);
-});
+}
+
+// The fallback rule, and the only one that applies to a unit published before
+// the member reading existed: no member reading either side, so the contract
+// sets are all there is.
+Given(
+  "a unit published against a contract the shell does not support",
+  async function (this: PointerWorld) {
+    await publishIncompatible(this, (m) => {
+      const { uses: _uses, subapps: _subapps, ...rest } = m;
+      return { ...rest, contracts: ["0000000"] };
+    });
+  },
+);
+
+// The member gate. Its contract set is untouched and shared, so nothing but the
+// member reading can refuse this one.
+Given(
+  "a unit published needing a member the shell does not provide",
+  async function (this: PointerWorld) {
+    await publishIncompatible(this, (m) => ({
+      ...m,
+      uses: { ...((m.uses as Record<string, string>) ?? {}), "ShellStore.teleport": "0000000" },
+    }));
+  },
+);
 
 When("the operator promotes that unit to the {word} channel", async function (this: PointerWorld, channel: string) {
   this.lastRun = await this.promoteUnit(channel as Channel, "alpha", fresh.get("incompatible")!);
@@ -200,6 +235,24 @@ Then("the promotion is refused because no contract is shared", function (this: P
   expect(this.lastRun?.stderr).toContain("no contract is supported by every unit");
   expect(this.lastRun?.stderr).toContain("Nothing was changed");
 });
+
+Then(
+  "the promotion is refused and names the member and the sub-app",
+  function (this: PointerWorld) {
+    expect(this.lastRun?.code).not.toBe(0);
+    // The exact half of the gate, not just the member's name. `held ===
+    // undefined` and `held !== digest` both name the member, so an assertion on
+    // the name alone stays green when one branch is disabled - measured on
+    // 2026-08-29, by a falsify mutation that survived it.
+    expect(this.lastRun?.stderr).toContain(
+      "alpha uses ShellStore.teleport, which this shell does not have",
+    );
+    expect(this.lastRun?.stderr).toContain("Nothing was changed");
+    // The refusal has to be about the member and not about the hash, or the
+    // reading an operator acts on is the one §9 replaced.
+    expect(this.lastRun?.stderr).not.toContain("no contract is supported");
+  },
+);
 
 Then("the promotion is refused because that unit is not published", function (this: PointerWorld) {
   expect(this.lastRun?.code).not.toBe(0);

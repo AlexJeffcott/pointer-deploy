@@ -1,6 +1,6 @@
 // The placement check. Build-time code, so it has no test home in `bun test
-// src/server` - the `test` script names src/web for this and for whatever §8
-// adds next.
+// src/server` - the `test` script names src/web for this. §8 went on to add a
+// `scripts` home beside it, for the direction reading.
 
 import { describe, expect, it } from "bun:test";
 import { APPS } from "../../../scripts/contract.ts";

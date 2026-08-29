@@ -23,10 +23,72 @@ const optionsOf = (world: PointerWorld, unit: string) =>
   versionsInShell(world.lastBody)[unit] ?? [];
 
 Given("that unit is recorded in the {word} channel's history", async function (this: PointerWorld, channel: string) {
+  // No member reading at all, which is what a unit published before §9 has and
+  // the only state the CONTRACT fallback still decides. Inheriting the served
+  // unit's reading would let the member gate allow it, and this scenario is not
+  // about that rule.
   await this.recordInHistory(channel as Channel, "alpha", {
     unitId: INCOMPATIBLE(),
     contracts: ["0000000"],
+    surface: null,
   });
+});
+
+// §11. A shell recorded as reading a field of the server's JSON blocks that
+// this server does not write. Written into the history directly, like the
+// incompatible unit above: building one would mean shipping a shell nobody
+// wants, for one scenario.
+const UNFEEDABLE = () => `unfeedable-${Bun.hash(`${process.pid}`).toString(16)}`;
+
+Given("a shell recorded in the {word} channel's history that reads a block field this server does not write", async function (this: PointerWorld, channel: string) {
+  // Contracts and members copied from the shell this channel serves, so the
+  // ONLY thing wrong with it is the block field. A fixture that also shared no
+  // contract would be refused by the older rule and prove nothing about this
+  // one - measured on 2026-08-29, by a mutation that survived it.
+  await this.recordInHistory(channel as Channel, "shell", {
+    unitId: UNFEEDABLE(),
+    surface: { blocks: { "VersionOption.teleported": "0000000" } },
+  });
+});
+
+Then("the {word} origin offers that shell and will not let it be chosen", async function (this: PointerWorld, channel: string) {
+  const want = UNFEEDABLE();
+  const started = Date.now();
+  let option: ReturnType<typeof optionsOf>[number] | undefined;
+  while (Date.now() - started < PROPAGATION_WINDOW_MS + 15_000) {
+    await this.visit(channel as Channel);
+    option = optionsOf(this, "shell").find((o) => o.unitId === want);
+    if (option) break;
+    await Bun.sleep(500);
+  }
+  const offered = optionsOf(this, "shell").map((o) => o.unitId).join(", ") || "nothing";
+  expect(option ? "offered" : `${want} is absent after ${Date.now() - started} ms; offered ${offered}`)
+    .toBe("offered");
+  expect(`disabled=${option?.disabled}`).toBe("disabled=true");
+});
+
+When("a visitor asks the {word} origin for that shell", async function (this: PointerWorld, channel: string) {
+  const want = UNFEEDABLE();
+  // Waits for the origin to KNOW the id before asking for it. The history was
+  // written directly and the server holds its last good copy until its own TTL
+  // is up, so asking straight away is refused with "not one this channel has
+  // served" - a different reading, and one that made this scenario pass with
+  // the block gate disabled. Measured on 2026-08-29.
+  const started = Date.now();
+  while (Date.now() - started < PROPAGATION_WINDOW_MS + 15_000) {
+    await this.visit(channel as Channel);
+    if (optionsOf(this, "shell").some((o) => o.unitId === want)) break;
+    await Bun.sleep(500);
+  }
+  await this.visit(channel as Channel, `/?shell=${want}`);
+});
+
+Then("the request is refused because this server cannot feed that shell", function (this: PointerWorld) {
+  expect(this.lastResponse?.status).toBe(400);
+  expect(this.lastBody).toContain("does not write");
+  // Not the "never served" refusal, which is what an id the origin has not
+  // caught up with produces and which would pass this for the wrong reason.
+  expect(this.lastBody).not.toContain("not one this channel has served");
 });
 
 When("a visitor asks the {word} origin for build {string}'s {string} unit", async function (this: PointerWorld, channel: string, name: string, app: string) {

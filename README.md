@@ -122,7 +122,7 @@ together.
 | A deploy is instant | No. 7.1 – 10.2 s measured, because two caches sit in front of it |
 | The store is on the critical path | Only for a cold start. A running server survives an outage on its last good answer |
 | Old units can be deleted | No. A tab opened before the deploy still fetches its own files |
-| A unit can be composed with any other | No. `promote` refuses a composition with no contract in common |
+| A unit can be composed with any other | No. `promote` refuses a sub-app that needs a member this shell does not have |
 | Anyone who can write the JSON | can serve an older composition, or break the page. Running their own code on the origin is closed: see below |
 
 ### Compared with
@@ -184,7 +184,9 @@ precisely how you get one it never saw. A shell that renamed an export, put in
 front of a six-week-old alpha, is a page where one panel renders an error.
 
 So each unit declares **which contracts it compiles against**, and `promote`
-refuses a composition whose sets do not intersect.
+refuses a composition whose sets do not intersect. That was the whole rule until
+2026-08-29; it is now the FALLBACK, and **Compatible, not identical** below says
+what replaced it and why.
 
 A contract is the type surface a sub-app is built against — `@pointer/shell`
 and `SubApp` — and **its identity is the content hash of that surface**, never a
@@ -229,7 +231,8 @@ Three consequences, and they are why the matrix is worth its cost:
 The table above is the real output of making `increment(ns, by = 1)` require
 `by`. The shell stops satisfying the old contract; the four apps, which all call
 `increment(NS)` with one argument, stop satisfying the new one; the intersection
-is empty and `promote` refuses.
+is empty. Every one of them calls `increment`, so the member gate below refuses
+it too — this is a change that genuinely breaks all four.
 
 `build.ts` refuses to run when the surface at HEAD hashes to something the
 registry does not hold, and names the command:
@@ -239,6 +242,248 @@ bun run contract:mint --name counters-2026-08
 ```
 
 The directory name is for people reading a listing. The hash is the identity.
+
+### Which way did it change?
+
+The hash says a surface changed and says nothing about the direction, and the
+direction is the whole difference between a mint and four republishes. `tsc`
+answers it, out of the machinery the matrix already has: two generated probes,
+compiled the way `cell()` compiles a matrix cell, between the new surface and
+each retained contract.
+
+| Half | Who consumes it | The probe |
+| --- | --- | --- |
+| `shell.d.ts` | sub-apps | `const provides: typeof import("old/shell") = <the new module>` |
+| `subapp.d.ts` | the shell | `const accepted: New.SubApp = <an old SubApp>` |
+
+The direction reverses between them because a sub-app **consumes** the shell API
+and **produces** a `SubApp`. Both compile: additive. Either fails, and
+`contract:mint` says which half broke and for whom — here, `reset` taken off
+`ShellStore`:
+
+```
+$ bun run contract:mint --name scratch-breaking
+minted 4cdfc87 as contracts/scratch-breaking/
+
+e0160a6 injected-store-2026-08: NOT additive.
+  the shell half. The new surface no longer provides what this contract declared, so every sub-app published against it consumes something that is gone:
+    probe/shell.ts(4,14): error TS2322: Type 'typeof import("new/shell")' is not assignable to type 'typeof import("old/shell")'.
+      The types returned by 'createStore(...)' are incompatible between these types.
+        Property 'reset' is missing in type 'import("new/shell").ShellStore' but required in type 'import("old/shell").ShellStore'.
+```
+
+A **warning, and never a refusal.** A breaking change is a legitimate thing to
+mint — the shell split was one — and `promote` refusing a composition whose sets
+do not intersect is what stops it reaching a channel. The reading is taken at
+`contract:mint` and nowhere else: that is the moment a surface change is
+recorded, and `build.ts` already refuses a surface no contract names.
+
+Measured on 2026-08-28, against generated pairs of surfaces and against the two
+contracts this repository has actually published:
+
+| Change | shell half | sub-app half |
+| --- | --- | --- |
+| nothing | pass | pass |
+| an export added | pass | pass |
+| a second prop on `SubAppProps` | pass | pass |
+| an export removed | `TS2741` | pass |
+| a parameter narrowed | `TS2322` | pass |
+| a required member added to `SubApp` | pass | `TS2322` |
+| a type export renamed | pass | `TS2305` |
+| `9e79879` → `e0160a6`, the change this repository made | `TS2740` | `TS2322` |
+
+Two traps. The first was predicted and reproduced; the second was not seen
+until the probes were run:
+
+**A module-level probe reads the sub-app half as additive whatever happens.**
+`subapp.d.ts` exports a type and no value, so `typeof import(...)` is an empty
+shape and every `SubApp` satisfies it — including one that gained a required
+member. The sub-app half names the **type**, never the module.
+
+**`skipLibCheck` hides the type-only half of the surface.** A module shape
+carries values, so with it on a removed or renamed *type* export left both
+probes green: the resulting `TS2305` lands inside a `.d.ts` and is skipped, and
+both `SubApp`s degrade to something permissive. The probes turn it off, which is
+what the `TS2305` row above is; on this project it raises no error from
+`node_modules` and takes a comparison from about 0.3 s to about 1.2 s. They also
+load no ambient package (`types: []`), because with `skipLibCheck` off, loading
+one means checking it.
+
+`@pointer/shell` resolves to the **new** `shell.d.ts` in both probes, so the old
+`subapp.d.ts` sees the store the shell would really hand it. One consequence to
+know when reading the output: a type the new surface no longer names is reported
+against the sub-app half, because `subapp.d.ts` is the file that imports it.
+
+### Compatible, not identical
+
+The hash asks whether two units were built against the **same** surface. The
+question an operator actually has is different — does this sub-app need
+anything this shell does not have — and the two come apart the moment the shell
+drops a member nothing in the composition ever called.
+
+`bun run contract:members`, on this repository:
+
+```
+member                alpha   bravo   charlie delta
+ShellStore.countOf    uses    uses    uses    uses
+ShellStore.increment  uses    uses    uses    uses
+ShellStore.register   uses    uses    uses    uses
+ShellStore.reset              uses
+ShellStore.setColour
+ShellStore.setName
+ShellStore.snapshot                   uses    uses
+ShellStore.user       uses    uses    uses    uses
+User.colour           uses    uses    uses    uses
+User.name             uses    uses    uses    uses
+createStore
+
+not removable on their own: Counts, ShellStore, User
+```
+
+Two of `ShellStore`'s eight members are called by no sub-app. Under the set
+intersection, removing either refused every composition — because a **published**
+app's contract set was fixed at its build time and cannot name a contract minted
+after it. `createStore` is used by nothing either: the shell reaches `api.ts` by
+relative path, so only the four apps are asked.
+
+**Use is measured by removal, never parsed.** Cut one declaration out of the
+surface and recompile the consumers against the rest; if it still compiles, they
+do not use it. That is the same definition the rule needs, and `tsc` is the
+oracle for it — the trick `falsify` plays on the scenarios, played on a type
+surface. Two runs per member, one to prove the cut surface still holds and one
+for all four apps at once: 11 members in about 4.3 s, in `build.ts` beside the
+matrix. A member whose removal stops the surface being a surface — `ShellStore`
+itself — cannot be asked about, and is reported rather than counted.
+
+`unit.json` carries what was derived: `provides` on the shell, `uses` on each
+app, both member path to the digest of that member's own declaration. The gate
+is set inclusion with matching digests, so `promote` needs no compiler.
+
+| Change to the shell | Set intersection | Member gate |
+| --- | --- | --- |
+| a member added | allowed | allowed |
+| a member removed that no app uses | **refused** | allowed |
+| `reset` removed | refused | refused, naming bravo and `ShellStore.reset` |
+| a parameter narrowed | refused for all four | refused for the apps that use that member |
+
+The digest is what keeps the same-name signature change covered; a list of
+member *names* would call a narrowed `increment` the same member.
+
+**The other half is gated whole.** `uses` reads `shell.d.ts`, which a sub-app
+consumes part of. `subapp.d.ts` is what a sub-app *produces* and the shell
+requires all of it, so each unit also records `subapps` — the sub-app halves of
+the contracts it compiles against — and those must intersect. Contracts that
+differ only in `api.ts` collapse to one entry there, which is exactly the churn
+this exists to stop counting.
+
+**The fallback stays, and it is why a rollback still works.** A unit published
+before any of this carries no reading. A pair where either side lacks one is
+judged on the contract sets, exactly as before. `promote` and the switcher call
+one function, so an option the `select` greys out is one the promote would have
+refused.
+
+**Proved end to end** on 2026-08-29, `bun run e2e:members`, against the real
+store and the real scripts: `reset` removed from `ShellStore`, the shell
+published alone, and the four sub-apps left exactly as they were.
+
+```
+bravo uses ShellStore.reset, which this shell does not have. Nothing was changed.
+  shell   0523e568  10 members provided
+  alpha   e34063ba  6 members used
+  bravo   38a212eb  7 members used
+  charlie 47c478c4  7 members used
+  delta   a8a66562  7 members used
+```
+
+Sixteen checks, all green. The contract sets in that run were `4cdfc87` for the
+shell and `e0160a6` for alpha — disjoint, so the rule this replaced refused
+alpha, charlie and delta too, none of which had ever called `reset`. Publishing
+the rebuilt bravo made the same promote succeed, and `test-qa` came back to its
+baseline.
+
+Five `falsify` mutations cover the new rule, and writing them found two faults
+in the checks rather than in the code. A scenario asserted only the member's
+*name*, which both halves of the gate print, so disabling one half left the
+other satisfying it. And `"if (refusal !== null) {"` matched `sourceRefusal`'s
+branch as well as the gate, so the mutation patched the wrong `if` and was
+reported as caught. **`falsify` now refuses a `find` that matches more than one
+place** — the general form of the second fault, and the one that would have
+hidden it.
+
+### The other surface: the server and the shell
+
+The contract covers `api.ts` and `subapp.ts` — the shell's surface with its
+**sub-apps**. Its surface with the **server** is three JSON blocks in the
+document, `__BUILD__`, `__APPS__` and `__VERSIONS__`, and nothing covered it:
+the server is not a unit, so `promote` had nowhere to look.
+
+**Demonstrated on 2026-08-28, not hypothetically.** Renaming `deployed` to
+`live` in `__VERSIONS__` broke shell `606c1c3c`, which the switcher itself
+offers. It went on reading `deployed`, got `undefined`, and pinned the query
+parameter where it should have cleared it. The page rendered, the composition
+worked, and the control quietly did the wrong thing.
+
+**Why it could happen, counted on 2026-08-29:** each block's shape was declared
+**twice**, once on the writing side and once on the reading side, and nothing
+compared the two — `AppAssets` in `html.ts` and in `loader.ts`, `VersionOption`
+in `composition.ts` and in `versions.ts`, `BuildInfo` in `html.ts` and
+`ShellBuildInfo` in the harness. Three blocks, six declarations, no two of them
+checked against each other.
+
+**One declaration each**, in `src/server/blocks.ts`, reached by
+`@pointer/blocks` the way the contract halves are reached. A renamed field is
+now a compile error on whichever side did not move. It lives under `src/server`
+because the runtime image copies that directory and nothing else; every import
+of it is type-only, so nothing resolves the specifier at runtime.
+
+**That holds only while both sides compile together**, and they do not. A shell
+is a published unit a visitor can roll back to; the server is an image deployed
+by `fly deploy`. So the same removal probe §9 uses runs on this surface — cut
+one field, recompile the shell, see whether it still builds:
+
+```
+19 members written by the server, 10 read by this shell
+never read: BuildInfo and all seven of its fields, VersionOption.deployed
+```
+
+`BuildInfo` is read by the harness and by a person, never by the shell bundle.
+And **`VersionOption.deployed` is read by no current shell** — it is retained
+for `606c1c3c`, and the reading now says so where a comment used to.
+
+The reading travels differently from the contract's, because the party on the
+other side is not a unit:
+
+| Side | How it carries what it knows |
+| --- | --- |
+| the server | `bun run blocks:record` derives it and commits `src/server/blocks.provides.json`; `build.ts` refuses a stale copy. The image has no `tsc` to work it out at startup |
+| the shell | `unit.json` records the fields it reads, like `uses` |
+| the comparison | made by the RUNNING server. `promote` executes in a working tree and cannot see which image is answering requests |
+
+| Situation | What happens |
+| --- | --- |
+| a chosen shell reads a field this server does not write | 400, and the option was already `disabled` in the `select` |
+| the channel's own pointer names such a shell | served, with `x-shell-blocks` naming the field |
+| a shell that records nothing | judged by nothing, and offered. The append-only rule is all that protects it |
+
+The middle row is a decision: refusing a channel's own pointer would take the
+site down over a control that misbehaves, which is worse than the bug. It is
+reported in the same idiom as `x-manifest-age` beside it.
+
+**Two @live scenarios and four mutations cover it**, and writing them found
+three more fixture faults. *Choosing a shell this server cannot feed is refused*
+passed with the gate disabled, twice for different reasons: its fixture also
+shared no contract, so the older rule refused it; and it asked for the shell
+before the origin's history had caught up, so the refusal was *not one this
+channel has served*. The fixture now inherits the served shell's contracts and
+members, and the step waits for the id to be known. Making it inherit then broke
+the older scenario in the other direction — the contract-fallback fixture came
+to carry a member reading, and the member gate allowed it — so a fixture can now
+say it records **none**. Four fixture faults across this session, three found by
+a mutation and one by a live run.
+
+**What it costs:** about 10.5 s of `tsc` in every build, for the contract's 11
+members and the blocks' 19 read together. The lane count is not what to tune —
+at 12 cores the CPU sits at 1055% either way — the number of members is.
 
 ### What the contract does not cover
 
@@ -286,10 +531,14 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/web/vendor/` | One re-export per shared specifier. These are what the import map points at |
 | `contracts/<name>/` | One retained contract: `shell.d.ts`, `subapp.d.ts`, and the hash of the two |
 | `build.ts` | Five `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
-| `scripts/contract.ts` | Surface emit, the hash, the registry, and the matrix |
+| `scripts/contract.ts` | Surface emit, the hash, the registry, the matrix, and the direction reading |
+| `scripts/members.ts` | The removal prober: what a surface provides, and which member each consumer uses |
+| `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__`, `__APPS__` and `__VERSIONS__`, declared once |
+| `src/server/blocks.provides.json` | What this server writes, derived and committed. The image cannot work it out |
+| `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
-| `scripts/promote.ts` | Read the composition, merge what was named, test the intersection, write |
+| `scripts/promote.ts` | Read the composition, merge what was named, test the member gate, write |
 | `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
 | `features/support/bdd.ts` | The bindings, and the one file that names the runner |
@@ -298,7 +547,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 44 ways; each break must turn one check red |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 52 ways; each break must turn one check red, and a `find` that names more than one place is refused |
 | `scripts/measure-preload.ts` | What warming a sub-app's files buys, in a real Chrome, with a control |
 | `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve |
 | `stryker.config.json` | Mutation testing over the server logic |
@@ -467,7 +716,7 @@ neither, and it can say which options are impossible.
 | Asked for | Answer |
 | --- | --- |
 | An id this channel has never served | 400. Without this the query string is a way to make the origin serve any object in the store |
-| A composition with no contract in every unit's set | 400, and the option was already disabled in the `select` |
+| A sub-app needing a member that shell does not have | 400, and the option was already disabled in the `select` |
 
 An option that cannot be composed is **disabled and not hidden**. "This build
 exists and cannot run beside the others" is the reading an operator came for,
@@ -483,7 +732,36 @@ one visitor's choice reaches nobody else.
 `get`. A cold manifest is worth waiting for, because without one there is no
 page; a cold history is not, because without it the page is exactly the one that
 was served before the switcher existed. The first request after a server starts
-has no switcher and the next one does.
+has no switcher and the next one does. `scripts/e2e-version-switcher.ts`
+reloads once rather than reporting that as a fault — reproduced on 2026-08-28:
+no switcher at all on the first request, five selects with two options each on
+the next, against a machine that had been up and idle.
+
+**One of that script's checks has three states, and §20 is why.** Whether the
+chosen unit renders differently from the deployed one is a fact about the
+channel's history and not about the code. On 2026-08-28 `qa` held two
+generations of each sub-app, at `b2c8154` and `2c08a50`, and they differ by six
+bytes — `register(NS)` moving from `useEffect` to `useLayoutEffect`. All four
+sub-apps therefore rendered identically and the check went red for all four,
+honestly and uselessly; a check that is usually red is a check people stop
+reading. It now reports **UNDECIDED**, the way `falsify` reports a mutation
+nobody ran rather than counting it as passing:
+
+```
+  ok   the page fetches alpha from the chosen unit's own directory
+  ----  the chosen unit is a different bundle from the deployed one
+        UNDECIDED: e34063ba and a3bba92a render the same text, so the page cannot say which one ran.
+        The check above says the chosen unit's own file was fetched, so this is two
+        generations that look alike. Publish a visible change and promote it to decide it.
+
+SUCCESS: the switcher serves a chosen unit, and moves no channel doing it, 1 undecided on what this channel has published.
+```
+
+It stays a **FAILURE** when the check above it did not pass. That check — the
+page fetched the chosen unit's own file — is what establishes which unit ran,
+so without it an identical page is a switcher that ignored the choice. Measured
+both ways on 2026-08-28: four sub-apps undecided and exit 0; the fetch check
+forced red, and the same identical render exits 1.
 
 **The blocks are a surface the contract does not cover, and renaming a field in
 one proved it.** `__BUILD__`, `__APPS__` and `__VERSIONS__` are written by the
@@ -528,31 +806,37 @@ was built with, and the intersection stays non-empty.
 | --- | --- | --- | --- |
 | baseline | pass | pass | allowed |
 | one export ADDED | pass | pass | allowed |
-| one export REMOVED | fail | pass | refused, correctly |
+| one export REMOVED | fail | pass | allowed since 2026-08-29, if alpha never called it |
 
-So the deliberate change to make on purpose is a REMOVAL or a narrowing. An
-addition is a mint and nothing else.
+That last row used to read *refused, correctly*, and it was neither. See
+**Compatible, not identical**.
 
 ## Verifying
 
 ```sh
-bun test                   # 201 unit tests: src/server, src/web, features/support
+bun test                   # 235 unit tests: src/server, src/web, scripts, features/support, ~19 s
 bun run verify             # 21 @local scenarios, stub store, ~8 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
+bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
+bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
 bun run verify:live        # 33 @live scenarios against Fly and Tigris, ~6 min
 bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
-bun run falsify            # 44 architectural mutations, each must turn a check red
+bun run falsify            # 52 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the eighteen that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
+bun run e2e:members        # drop a member, and refuse only the app that used it
 bun run measure:preload    # what warming a sub-app's files buys, with a control
 bun run scripts/e2e-version-switcher.ts   # drive the switcher on the LIVE site
 bun run mutate             # Stryker over the server logic
 ```
 
-`bun test` covers three homes and the third is newer than the others.
-`src/server` is the server's pure logic, `features/support` is the harness's
-own, and `src/web` is where build-time code goes: `views.ts` decides which
-sub-apps the build must emit, and a script has no test home otherwise.
+`bun test` covers four homes. `src/server` is the server's pure logic,
+`features/support` is the harness's own, `src/web` is where build-time code in
+the web tree goes — `views.ts` decides which sub-apps the build must emit — and
+`scripts` is the newest, and holds the three readings that cost real `tsc` runs:
+`contract.test.ts` is §8's direction reading, `members.test.ts` is §9's removal
+prober, and `blocks.test.ts` holds §11's committed reading to the surface it
+came from.
 
 ### The runner
 

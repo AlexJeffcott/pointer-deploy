@@ -241,12 +241,92 @@ const MUTATIONS: Mutation[] = [
   {
     // Rolling one unit back is exactly how a combination nothing has ever
     // typechecked comes to be served.
-    name: "the contract intersection test is removed",
+    name: "the composition refusal is removed",
     file: "scripts/promote.ts",
-    find: "if (shared.length === 0) {",
-    replace: "if (false) {",
+    // The leading newline is load-bearing: `sourceRefusal` has an `} else if
+    // (refusal !== null) {` above this, and a `find` that matched it patched
+    // the wrong branch and read as caught. Measured on 2026-08-29.
+    find: "\nif (refusal !== null) {",
+    replace: "\nif (false) {",
     scenario: "A composition with no contract in common is refused",
     live: true,
+  },
+  {
+    // §9. The gate that replaced the intersection: an app may not need a
+    // member the shell does not have.
+    name: "a member the shell does not have is allowed through",
+    file: "src/server/composition.ts",
+    find: "if (held === undefined) problems.push(",
+    replace: "if (false) problems.push(",
+    scenario: "A sub-app needing a member the shell does not have is refused",
+    live: true,
+  },
+  {
+    // A list of member NAMES would pass this. The digest is what makes a
+    // narrowed parameter a different member.
+    name: "a re-declared member is treated as the same member",
+    file: "src/server/composition.ts",
+    // Named in full: `blockRefusal` has the same shape one function below, and
+    // a `find` that matched both would patch whichever came first.
+    find: "else if (held !== digest) problems.push(`${name} uses",
+    replace: "else if (false) problems.push(`${name} uses",
+    unitTest: "a re-declared member refuses only the apps that name it",
+  },
+  {
+    // The half `uses` cannot see. The shell requires all of `subapp.d.ts`, so
+    // nothing about which members an app calls covers it.
+    name: "the SubApp half is not compared",
+    file: "src/server/composition.ts",
+    find: "if (!surface.subapps.some((h) => shellHalves.includes(h))) {",
+    replace: "if (false) {",
+    unitTest: "a different SubApp half refuses even when every member fits",
+  },
+  {
+    // §11, at the boundary a visitor crosses: choosing a shell this image
+    // cannot feed must be refused, not rendered.
+    name: "a shell this server cannot feed is served anyway",
+    file: "src/server/composition.ts",
+    find: "if (typeof blocks === \"string\") return blocks;",
+    replace: "if (false) return blocks;",
+    scenario: "Choosing a shell this server cannot feed is refused",
+    live: true,
+  },
+  {
+    // And the control: an option that cannot be chosen must say so, or an
+    // operator finds out by being refused.
+    name: "the switcher offers a shell this server cannot feed",
+    file: "src/server/composition.ts",
+    find: "          typeof blocks === \"string\" ||",
+    replace: "          false ||",
+    scenario: "A shell this server cannot feed is offered and disabled",
+    live: true,
+  },
+  {
+    // §11. Renaming a field of the server-to-shell blocks is exactly what broke
+    // shell 606c1c3c on 2026-08-28. Nothing covered it then.
+    name: "a block field is renamed",
+    file: "src/server/blocks.ts",
+    find: "  live: boolean;",
+    replace: "  alive: boolean;",
+    unitTest: "matches the surface it is derived from",
+  },
+  {
+    // The gate itself: a shell may not read a field this server does not write.
+    name: "a block field the server does not write is allowed through",
+    file: "src/server/composition.ts",
+    find: "if (held === undefined) problems.push(`that shell reads",
+    replace: "if (false) problems.push(`that shell reads",
+    unitTest: "a field this server does not write refuses, and names it",
+  },
+  {
+    // A member whose removal breaks the surface cannot be asked about. Probing
+    // it anyway reads it as used by every app, which would refuse compositions
+    // that are fine.
+    name: "a member that cannot be removed is probed anyway",
+    file: "scripts/members.ts",
+    find: "if (!(await surfaceHolds(dir, spec))) return { member, structural: true, users: [] as string[] };",
+    replace: "if (false) return { member, structural: true, users: [] as string[] };",
+    unitTest: "measures which app uses what",
   },
   {
     // A unit id that carried the commit would change on every commit, so one
@@ -628,7 +708,9 @@ async function runScenario(m: Mutation): Promise<boolean> {
 }
 
 async function runUnitTest(name: string): Promise<boolean> {
-  const proc = Bun.spawn(["bun", "test", "src/server", "src/web", "-t", name], {
+  // The same homes the `test` script names. `scripts` is here because the
+  // member reading lives there and a mutation of it must find its test.
+  const proc = Bun.spawn(["bun", "test", "src/server", "src/web", "scripts", "-t", name], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -657,6 +739,19 @@ for (const m of MUTATIONS) {
   const original = await Bun.file(m.file).text();
   if (!original.includes(m.find)) {
     console.log(`✗ ${m.name}: the code it patches has moved. Update scripts/falsify.ts.`);
+    failures++;
+    continue;
+  }
+  // A `find` that matches twice patches whichever comes first, which may not be
+  // the code the mutation is about - and the check that then goes red is
+  // reported as catching a mutation that was never applied where it was aimed.
+  // Found on 2026-08-29: "if (refusal !== null) {" matched `sourceRefusal`'s
+  // branch as well as the composition gate, and the reading was wrong twice.
+  if (original.split(m.find).length > 2) {
+    console.log(
+      `✗ ${m.name}: ${JSON.stringify(m.find)} matches ${original.split(m.find).length - 1} places ` +
+        `in ${m.file}. A mutation must name one. Update scripts/falsify.ts.`,
+    );
     failures++;
     continue;
   }

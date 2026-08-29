@@ -6,7 +6,10 @@ dist/
 .stryker-tmp/
 reports/
 .contract-emit/
+.contract-emit-blocks/
 .contract-matrix/
+.contract-direction/
+.contract-members/
 .features-gen/
 test-results/
 playwright-report/

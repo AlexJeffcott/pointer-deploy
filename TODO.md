@@ -34,42 +34,6 @@ uncommitted tree — and `--no-source-check` overrides the last two.
 Numbers are stable identifiers - other sections point at them - so a gap means
 that item moved to Done, not that anything was renumbered.
 
-### 20. The live switcher check cannot discriminate on this channel
-
-`scripts/e2e-version-switcher.ts` fails one check for all four sub-apps against
-`qa`, and the failure is honest rather than a defect:
-
-```
-FAIL the chosen unit is a different bundle from the deployed one -
-     saw the same page, so nothing here can say which unit ran
-```
-
-Measured on 2026-08-28. `qa`'s history holds exactly two generations of each
-sub-app, at commits `b2c8154` and `2c08a50`, and they differ by SIX BYTES: the
-`register(NS)` call moving from `useEffect` to `useLayoutEffect`. Both
-generations already carry the visible markers a previous session added for this
-very purpose - bravo's `-1`, charlie's total row, delta's share - because those
-landed in `962b63f`, before both. So the two units render identically and the
-script says so rather than claiming a proof it does not have.
-
-Everything else in the script passes, including the check that actually
-establishes which unit ran: the page fetches the sub-app from the CHOSEN unit's
-own directory. Nothing about the switcher is broken.
-
-The item is what to do about a check whose discriminator depends on the
-channel's history rather than on the code. Three options and the third is the
-recommendation:
-
-- compare the fetched BYTES rather than the rendered text. Reliable, and it
-  stops proving that the running code differs - only that the file did;
-- keep it and accept that it fails whenever two adjacent generations look the
-  same. That is most of the time, and a check that is usually red is a check
-  people stop reading;
-- have the script SAY it cannot discriminate and not call it a failure, the way
-  a skipped falsify mutation is reported rather than counted as passing. The
-  reading "these two units are indistinguishable from the page" is true and
-  worth printing; it is not a fault.
-
 ### 2. A browser-reachable `prod`
 
 Needs a domain and a certificate. The domain substitutes in three places:
@@ -259,78 +223,43 @@ Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
 not reproduce and is not explained. Its assertion now carries publish's whole
 output, which names which of contracts, digests or provenance moved.
 
-### 8. A build-time reading of whether a contract change is additive
+### 21. Pin the vendor types the contract references, or stop claiming to
 
-The hash changes when the type surface changes and says nothing about the
-direction. `tsc` answers it with the machinery already in `scripts/contract.ts`
-— two generated probes, compiled the way `cell()` compiles a matrix cell,
-between a new surface and each retained contract:
+Was §9's second half. NOT built, and the decision is open.
 
-| Half | Who consumes it | The probe |
-| --- | --- | --- |
-| `shell.d.ts` | sub-apps | `const o: typeof import("<old>/shell.d.ts") = <new module>` |
-| `subapp.d.ts` | the shell | `const s: New.SubApp = <an old SubApp>` |
+`subapp.ts` says `import type { ComponentType } from "preact"`, and the emitted
+`subapp.d.ts` carries that line rather than inlining the type - measured on
+2026-08-28. So a matrix cell resolves `preact` from `node_modules` at HEAD, and
+a retained contract's hash covers a type whose meaning can change under it.
 
-The direction reverses between them because sub-apps CONSUME the shell API and
-PRODUCE a `SubApp`. Both compile: additive. Either fails: `contract:mint`
-names which half broke and for whom, before a promote refuses on an empty
-intersection.
+The fix §9 named was to copy Preact's own `.d.ts` into each contract directory
+and point the cell's `paths` at the copy. Three readings taken on 2026-08-28 and
+2026-08-29 bear on whether to:
 
-Measured on 2026-08-28, not assumed. Against a scratch pair of surfaces, the
-shell probe passed on an added export and failed on both a removed one
-(`TS2741`) and a narrowed parameter (`TS2322`). The sub-app probe failed on a
-required member added to `SubApp`, which is the change that breaks every
-sub-app already published.
+| Reading | Value |
+| --- | --- |
+| The matrix under preact 10.29.8 | 5 cells pass against `e0160a6` |
+| The matrix under preact 11.0.0-rc.1 | 5 cells pass against `e0160a6` |
+| Vendor types a pin must copy | 255 kB (preact src, hooks, jsx-runtime, signals) |
+| A contract directory today | 12 kB |
 
-A warning and never a refusal. A breaking change is a legitimate thing to
-mint; the promote's intersection rule is what stops it reaching a channel.
+So the pin would have caught nothing across the one major step available, and
+any HASHED pin mints a contract on every Preact patch, because the identity
+moves with the copied bytes. The three ways:
 
-Trap, and it reproduced: `subapp.d.ts` exports a type and no value, so
-`typeof import(...)` gives an empty module shape and the module-level probe
-PASSES on a `SubApp` that gained a required member. The sub-app half must name
-the type, never the module.
+- record the resolved vendor versions on `ContractRecord`, unhashed, and warn
+  when `node_modules` differs from what a retained contract was minted at. No
+  growth, no churn, and the gap becomes visible rather than invisible. It does
+  NOT restore `tsc` as the oracle;
+- copy the types into each contract directory and hash them, as §9 said. The
+  oracle is restored. 255 kB a contract, a mint per patch, and old contracts
+  cannot be retrofitted because their hash would move;
+- copy once into `contracts/vendor/preact@<version>/` and have each contract
+  hash a reference to it. Same oracle, no duplication, one more concept.
 
-Second trap: `bun test` runs `src/server` and `features/support`. A script has
-no test home, so this needs the `test` script extended.
-
-### 9. Measure what a vendor major mismatch actually breaks
-
-`scripts/promote.ts:332` warns when a sub-app was built against a different
-major from the shell's, and the comment beside it gives the reason for not
-refusing. The undecided part is not the refusal. It is what breaks.
-
-So: publish one sub-app against a second Preact major, promote it past the
-warning, and read the page. The import map resolves every bare specifier
-against the SHELL's base — `importMap` in `html.ts` joins against
-`m.shell.assetBase` whichever unit a sub-app came from — so a second copy only
-reaches the page when that sub-app stops treating the specifier as external
-and bundles its own. That is the state to reach: two signals runtimes, and
-counters that stop agreeing.
-
-Both outcomes are worth writing down. Either the page holds and the warning is
-noise, or it splits and the refusal at `promote.ts:332` has a measured reason
-instead of a guessed one. Facades are the next question and not this one.
-
-Trap: this is a deliberately broken publish. `test-qa`, never `qa`.
-
-**Second half, added by §18: pin the vendor types the contract REFERENCES.**
-Once `subapp.ts` says `import type { ComponentType } from "preact"`, the emitted
-`subapp.d.ts` carries that line and nothing more - measured on 2026-08-28, the
-type is referenced and not inlined. So a matrix cell resolves `preact` from
-`node_modules` at HEAD, and the hash claims a coverage it does not have: a
-Preact release could change what `ComponentType` means with every retained
-contract keeping its hash.
-
-The fix is to copy Preact's own `.d.ts` into each contract directory and point
-the cell's `paths` at that copy, the way `shell.d.ts` and `subapp.d.ts` are
-already pointed. Then the hash covers it.
-
-`scripts/contract.ts:16-21` gives the reason vendors were excluded: folding
-their versions in would force every app to republish on a patch bump. §15
-measured that and it is not so - an additive type change mints a new contract,
-the old one stays retained, and every published unit stays promotable. So the
-stated reason no longer holds and the exclusion should be revisited with the
-measurement in hand.
+§9's member gate narrows the question: a member's digest covers the text of its
+declaration, so the vendor gap is now scoped to the members that name a vendor
+type, which is `SubApp` alone.
 
 ### 10. A deprecation dynamic
 
@@ -348,40 +277,6 @@ contract. Invisible to the hash by design, which is right; invisible to the
 consumer too, which is not. Deciding what carries it is most of the work.
 
 Nothing can actually be REMOVED without §12.
-
-### 11. A hash over the server–shell surface
-
-Three blocks — `__BUILD__`, `__APPS__`, `__VERSIONS__` — written by
-`src/server/html.ts` and parsed by `Shell.tsx`, `loader.ts` and `versions.ts`.
-The contract hash covers `api.ts` and `subapp.ts`, which is the shell's surface
-with its sub-apps. This one is the shell's surface with the SERVER, and nothing
-covers it — the server is not a unit, so `promote` has nowhere to look.
-
-Demonstrated on 2026-08-28, not hypothetically: renaming `deployed` to `live`
-in `__VERSIONS__` broke shell `606c1c3c`, which the switcher offers. It read
-`deployed`, got undefined, and pinned the query parameter where it should have
-cleared it. The page rendered and the composition worked. The field is retained
-and the rule is written down — these blocks are append-only — but a rule in a
-comment is what the contract exists to replace.
-
-The shell reads JSON out of the DOM, so there is no type surface `tsc` emits.
-Two ways:
-
-a. A hand-written declaration file both sides import — the server's writers
-   typed against it, each shell parser returning it. `tsc` proves each side and
-   the file's hash travels with the shell unit. Cheap, and it holds only while
-   both sides keep importing it.
-b. `src/server/blocks.ts` exporting the three block types, with the surface
-   emitted the way `emitSurface` already emits the other one. The same
-   tsc-as-oracle argument, one layer out.
-
-Then the piece the design has no slot for: `promote` compares the shell unit's
-block hash against the SERVER's, and the server is deployed by `fly deploy`
-and carries no unit id. `/healthz` reporting its block hash, read by `promote`,
-is one way. Unresolved, not solved.
-
-Proof is already written: the 2026-08-28 rename is the falsify mutation, and
-the promote must refuse it.
 
 ### 12. A reading of which compositions are in use
 
@@ -431,14 +326,15 @@ Where it goes is a decision to make before writing any of it: `src/server` is
 copied into the runtime image by the Dockerfile and holds the shell's
 templating only. A second Fly app, or a second route here.
 
-The largest of these. §8 and §12 come first — one gives the additive reading
-this needs per API version, the other says when a version can go.
+The largest of these. §12 comes first — it says when a version can go. §8 is
+done, and the additive reading it gives is the shape to copy per API version,
+against a surface no compiler owns.
 
 ## Open questions
 
-One left. What was scoped became §7 to §19 above; §14, §15, §17 and §19 are now
-under Done, §14 and §15 having been answered by reading what the code already
-does, and §16 was a defect that reading found.
+One left. What was scoped became §7 to §19 above; §8, §14, §15, §17 and §19 are
+now under Done, §14 and §15 having been answered by reading what the code
+already does, and §16 was a defect that reading found.
 
 ### Do apps need migrations?
 
@@ -475,6 +371,223 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **The server-to-shell surface has one declaration and a reading, not a
+  hash.** Was §11. A hash over the blocks was the item's idea and is not what
+  this needed: the two parties are a PUBLISHED unit and a DEPLOYED image, so an
+  identity they must share would refuse every rollback the moment either moved.
+  §9's rule fits instead - the shell reads PART of what the server writes, so
+  the gate is per field.
+
+  **The cause, counted:** each block's shape was declared twice, once on each
+  side, and nothing compared them. `AppAssets` in `html.ts` and `loader.ts`,
+  `VersionOption` in `composition.ts` and `versions.ts`, `BuildInfo` in
+  `html.ts` and `ShellBuildInfo` in `world.ts`. Three blocks, six declarations,
+  no two checked against each other - which is exactly how renaming `deployed`
+  to `live` reached a channel.
+
+  **Part one: one declaration.** `src/server/blocks.ts`, reached by
+  `@pointer/blocks`, imported by both sides and by the harness. A renamed field
+  is now a compile error on whichever side did not move. It sits under
+  `src/server` because the image copies that and nothing else, and every import
+  of it is type-only so nothing resolves the specifier at runtime.
+
+  **Part two: the reading, because part one holds only while both sides compile
+  together.** The same removal prober, on this surface:
+
+  | | |
+  | --- | --- |
+  | written by the server | 19 members |
+  | read by this shell | 10 |
+  | read by no current shell | `BuildInfo` and its seven fields, and `VersionOption.deployed` |
+
+  `VersionOption.deployed` is the retained field from 2026-08-28. It is now
+  measured rather than asserted in a comment.
+
+  **How it travels, and who compares it.** The server cannot derive its own
+  reading - the image has a Bun and no tsc - so `bun run blocks:record` commits
+  `src/server/blocks.provides.json` and `build.ts` refuses a stale one. The
+  shell records what it reads in `unit.json`. The comparison is made by the
+  RUNNING server, not by `promote`: a promote executes in a working tree and
+  cannot see which image is answering requests. That is the piece the item
+  called unresolved, and this is the answer - it was never `promote`'s question.
+
+  | Situation | What happens |
+  | --- | --- |
+  | a chosen shell reads a field this server does not write | 400, and the option was already disabled in the `select` |
+  | the channel's own pointer names such a shell | served, with `x-shell-blocks` naming the field |
+  | a shell that records nothing | judged by nothing. The append-only rule is all that protects it |
+
+  The middle row is a decision. Refusing a channel's own pointer would take the
+  site down over a control that misbehaves.
+
+  **Two @live scenarios and four mutations, and writing them found three more
+  fixture faults.** *Choosing a shell this server cannot feed is refused* passed
+  with the gate disabled, for two different wrong reasons: its fixture shared no
+  contract, so the older rule refused it; and it asked before the origin's
+  history had caught up, so the refusal was *not one this channel has served*.
+  The fixture now inherits the served shell's contracts and members and the step
+  waits for the id to be known. Two more were mine from earlier in the session:
+  an id built from the pid AND the clock stopped matching the one
+  `versions.steps.ts` derives from the pid alone, so the published fixture and
+  the recorded one became two different things while the scenario went on
+  passing; and making `recordInHistory` inherit the served entry's surface gave
+  the CONTRACT-fallback fixture a member reading, which let the member gate
+  allow it - the one failure in an otherwise green live run, and the only one
+  of the four that a check caught rather than a mutation.
+
+  36 @live green in 8.9 min, 31 of 52 mutations caught with none surviving,
+  `bun test` 235. The two
+  readings cost about 10.5 s of tsc in every build.
+
+- **Compatibility is read from what a sub-app USES, not from one hash over the
+  surface.** Was §9, and the second half went a different way than the item
+  said - the vendor pin is now §21, unbuilt.
+
+  **First half: measured on 2026-08-28, against `test-qa`. The page holds, and
+  the warning at `scripts/promote.ts:332` is noise.** Preact 11.0.0-rc.1
+  installed, everything rebuilt, the shell promoted beside four sub-apps
+  recorded at 10.29.8.
+
+  | What was run | Reading |
+  | --- | --- |
+  | build at preact 11 | shell `ff144709` → `b5a80c68`. **All four sub-app unit ids unchanged** |
+  | `publish` | shell uploaded, four apps `unchanged` |
+  | `promote test-qa --from-build` | the WARNING, four times |
+  | the page, in Chrome, through `src/server/index.ts` | four panels render, alpha 6 + bravo 1 = charlie's total 7, delta's shares agree, 0 page errors |
+
+  A sub-app cannot be built against a second major in any way the store can
+  see: every Preact specifier is external, so its bundle carries no Preact bytes
+  and its id does not move. Only the SHELL's version can differ, and the warning
+  then fires for every app at once. The item's picture had it the other way
+  round.
+
+  The state that does break was reached by removing the guard in `build.ts`, not
+  by changing a version. bravo bundled its own Preact (2.2 kB → 13.8 kB) and its
+  panel came back as `Cannot read properties of undefined (reading '__H')` with
+  a Mount again button, caught by the shell's boundary, the other three
+  untouched. It THROWS on first render rather than quietly failing to
+  re-render, which is what that guard's comment used to claim; the comment now
+  says what was measured.
+
+  **Second half: the question changed.** The hash asks whether two units were
+  built against the SAME surface. What an operator needs is whether a sub-app
+  needs anything this shell does not have. Two of `ShellStore`'s eight members
+  are called by no sub-app, so the set intersection refused a removal that cost
+  nothing - and it refused it because a PUBLISHED app's contract set is fixed at
+  its build time and cannot name a contract minted after it.
+
+  **Use is measured by removal, never parsed.** Cut one declaration out of the
+  surface and recompile the consumers against the rest; still compiling means
+  not used. Two `tsc` runs per member - one for the cut surface, one for all
+  four apps at once - 11 members in about 4.3 s, in `build.ts` beside the
+  matrix. `unit.json` carries `provides` on the shell and `uses` on each app,
+  member path to the digest of its declaration, and `promote` needs no compiler.
+
+  | Change to the shell | Set intersection | Member gate |
+  | --- | --- | --- |
+  | a member added | allowed | allowed |
+  | a member removed that no app uses | refused | allowed |
+  | `reset` removed | refused | refused, naming bravo and `ShellStore.reset` |
+  | a parameter narrowed | refused for all four | refused for the apps that use it |
+
+  The digest is what keeps a same-name signature change covered. The half `uses`
+  cannot see - `subapp.d.ts`, which the shell requires whole - keeps its own
+  identity: each unit records `subapps`, the sub-app halves of its contracts,
+  and those must intersect. The contract sets remain as the FALLBACK for any
+  pair where either side carries no reading, which is what keeps a rollback onto
+  an old unit working. `promote` and the switcher call one function.
+
+  **Proved end to end**, `bun run e2e:members`, 16 checks green against the real
+  store: `reset` removed, the shell published alone, the four apps untouched.
+
+  ```
+  bravo uses ShellStore.reset, which this shell does not have. Nothing was changed.
+    shell   0523e568  10 members provided
+    alpha   e34063ba  6 members used
+  ```
+
+  The contract sets in that run were `4cdfc87` and `e0160a6` - disjoint - so the
+  old rule refused alpha, charlie and delta too, none of which called `reset`.
+
+  **Five falsify mutations cover the new rule, and writing them found two
+  faults in the checks themselves.** Both were mutations that SURVIVED and were
+  then fixed:
+
+  | Fault | What it was |
+  | --- | --- |
+  | the scenario's assertion was too loose | It read the member's name, and both halves of the gate - `held === undefined` and `held !== digest` - name the member. Disabling one branch left the other producing a message the assertion accepted. It now reads the exact half |
+  | a `find` string matched two places | `"if (refusal !== null) {"` also matches `sourceRefusal`'s branch, so the mutation patched the wrong `if` and the scenario went red for a reason nobody aimed at. `falsify` now REFUSES a `find` that matches more than once, which is the general form of the fault |
+
+  34 @live green in 6.9 min when this landed, `bun test` 227. Both counts moved
+  again under §11; the current ones are in that entry.
+  `bun test` now names `scripts` for `falsify` too.
+
+- **The live switcher check reports what it cannot decide.** Was §20. Option
+  three, as the item recommended: the render comparison now has three states
+  rather than two. It reports UNDECIDED — the way `falsify` reports a mutation
+  nobody ran rather than counting it as passing — and it stays a FAILURE when
+  the check above it did not pass. That check, the page fetching the chosen
+  unit's own file, is what establishes which unit ran; without it an identical
+  page is a switcher that ignored the choice. Bytes were not compared, because
+  comparing them stops proving that the running code differs and only proves
+  the file did.
+
+  | Run on 2026-08-28 against `qa` | Result |
+  | --- | --- |
+  | alpha, bravo, charlie, delta | SUCCESS, 1 undecided each, exit 0 |
+  | the fetch check forced red, same identical render | FAILED, exit 1 |
+
+  **A second non-fault was found while verifying the first, and it blocked the
+  check entirely.** The first run reported *no switcher at all* and told the
+  operator to publish a change and promote it. The history is read with `peek`
+  and never `get`, so the first request after a server starts has no switcher
+  and the next one does — by design, and the README already said so. The page
+  carried two generations of all five units at that moment. The script now
+  reloads once before calling an absent switcher a fault, and names which of
+  the two causes it saw when the switcher is still absent after that.
+
+- **The direction of a surface change is read at mint.** Was §8. The hash says
+  a surface changed and says nothing about which way, so `tsc` is asked, out of
+  the machinery the matrix already had: two generated probes, compiled the way
+  `cell()` compiles a matrix cell, between the new surface and each retained
+  contract. The direction REVERSES between the halves, because a sub-app
+  consumes the shell API and produces a `SubApp`. Both compile: additive.
+  Either fails, and `contract:mint` names the half, says whom it breaks, and
+  prints what `tsc` said. A warning and never a refusal — `promote` refusing an
+  empty intersection is what stops a breaking change reaching a channel.
+
+  Measured on 2026-08-28, against generated pairs of surfaces and against the
+  two contracts this repository has actually published:
+
+  | Change | shell half | sub-app half |
+  | --- | --- | --- |
+  | nothing | pass | pass |
+  | an export added | pass | pass |
+  | a second prop on `SubAppProps` | pass | pass |
+  | an export removed | `TS2741` | pass |
+  | a parameter narrowed | `TS2322` | pass |
+  | a required member added to `SubApp` | pass | `TS2322` |
+  | a type export renamed | pass | `TS2305` |
+  | `9e79879` → `e0160a6` | `TS2740` | `TS2322` |
+
+  **Both traps the item named reproduced, and a third one was found.** A
+  module-level probe reads the sub-app half as additive whatever happens,
+  because `subapp.d.ts` exports a type and no value and its module shape is
+  empty; the sub-app half names the type. A script had no test home, and `bun
+  test` now names `scripts` beside `src/web`.
+
+  The third was invisible from the item: **`skipLibCheck` hid the type-only
+  half of the surface.** A module shape carries values, so a removed or renamed
+  TYPE export read as additive — the `TS2305` lands inside a `.d.ts` and is
+  skipped, and both `SubApp`s then degrade to something permissive. The probes
+  turn it off, which is the `TS2305` row above; on this project it raises no
+  error from `node_modules`.
+
+  Cost: about 1.2 s a comparison, against 0.3 s with `skipLibCheck` on. One
+  comparison at a mint. Eight in `scripts/contract.test.ts`, which is about
+  15 s of a 19 s `bun test` — the probes load no ambient package (`types: []`),
+  which took that from 26 s.
 
 - **The suite runs on Playwright, through `playwright-bdd`.** Was §1. Not one
   `.feature` file changed: `playwright-bdd` supports a cucumber-style world, so

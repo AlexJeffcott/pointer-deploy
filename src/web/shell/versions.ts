@@ -18,20 +18,12 @@
 // draws all of them instead, which makes every unit selectable, and handing the
 // data through to a sub-app is a contract change and its own decision.
 
-/** One choice for one unit. Computed by the server; the shell only draws it. */
-export type VersionOption = {
-  unitId: string;
-  marker: string;
-  /** What this page is showing. */
-  current: boolean;
-  /**
-   * What the channel's pointer names RIGHT NOW. Choosing it clears the
-   * override. Not "deployed": every id here has been deployed to this channel.
-   */
-  live: boolean;
-  /** Composing it with the rest would leave no shared contract. */
-  disabled: boolean;
-};
+// Declared once, in the file that holds the whole server-to-shell surface. It
+// used to be declared here AND in `composition.ts`; renaming a field in one of
+// them is exactly what §11 demonstrated, and is now a compile error.
+export type { VersionOption, VersionsBlock } from "@pointer/blocks";
+
+import type { VersionOption, VersionsBlock } from "@pointer/blocks";
 
 /**
  * The options the server rendered, or none.
@@ -40,11 +32,11 @@ export type VersionOption = {
  * in VERSION_SWITCHER_CHANNELS. Absent and unreadable are the same answer, so a
  * malformed block costs the control and never the page.
  */
-export function readVersions(): Record<string, VersionOption[]> {
+export function readVersions(): VersionsBlock {
   const tag = document.getElementById("__VERSIONS__");
   if (!tag?.textContent) return {};
   try {
-    return JSON.parse(tag.textContent) as Record<string, VersionOption[]>;
+    return JSON.parse(tag.textContent) as VersionsBlock;
   } catch {
     return {};
   }

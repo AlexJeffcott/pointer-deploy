@@ -28,8 +28,10 @@ import {
   SHARED,
   UNITS,
   emitSurface,
+  hashHalf,
   hashSurface,
   readRegistry,
+  readSurface,
   renderMatrix,
   retainedContracts,
   runMatrix,
@@ -37,6 +39,8 @@ import {
   verifyRegistry,
   type Unit,
 } from "./scripts/contract.ts";
+import { readBlockMembers, readMembers, renderMembers } from "./scripts/members.ts";
+import { PROVIDES_FILE, blocksProvided, sameProvided } from "./scripts/blocks.ts";
 import { currentSource, type Source } from "./scripts/source.ts";
 import { placementProblems } from "./src/web/shell/views.ts";
 
@@ -64,7 +68,8 @@ if (problems.length) {
 }
 
 const retained = retainedContracts(registry);
-const headHash = hashSurface(await emitSurface());
+const headSurface = await emitSurface();
+const headHash = hashSurface(headSurface);
 
 // The forcing function. A surface change that reached the store with no
 // contract naming it would leave every unit claiming a hash nobody can check.
@@ -89,6 +94,61 @@ if (unsupported.length) {
   );
   process.exit(1);
 }
+
+// --- 0a2. what the shell provides, and what each app uses ------------------
+//
+// The contract hash asks whether two units were built against the SAME
+// surface. This asks the question an operator actually has: does this app need
+// anything this shell does not have. Use is measured by removal - cut one
+// declaration out and see whether the app still compiles - so an added member
+// changes nothing and a removed member changes nothing for an app that never
+// called it. `promote` refuses on this, naming the app and the member.
+//
+// Derived here, on the bytes being published, for the same reason the matrix is.
+// Two independent readings, started together: each spawns its own tsc runs and
+// they share nothing but the CPU.
+const [members, blocks] = await Promise.all([
+  readMembers(headSurface, [...APPS]),
+  readBlockMembers(),
+]);
+console.error(renderMembers(members, [...APPS]));
+console.error(`  ${Object.keys(members.provides).length} members read in ${members.ms} ms\n`);
+
+// --- 0a3. the server-to-shell blocks, §11 ---------------------------------
+//
+// The three JSON blocks are a surface between two things with SEPARATE
+// lifecycles: the server is deployed by `fly deploy` and the shell is a
+// published unit that can be rolled back under it. So the shell records which
+// fields it reads, and the server carries what it writes - a committed file,
+// because the runtime image has no tsc to derive it.
+const provided = await blocksProvided();
+if (!sameProvided(provided, blocks.provides)) {
+  const gone = Object.keys(provided).filter((p) => provided[p] !== blocks.provides[p]);
+  const added = Object.keys(blocks.provides).filter((p) => !(p in provided));
+  console.error(
+    `${PROVIDES_FILE} does not match src/server/blocks.ts.\n` +
+      (gone.length ? `  changed or removed: ${gone.join(", ")}\n` : "") +
+      (added.length ? `  added: ${added.join(", ")}\n` : "") +
+      `Record it before building:\n  bun run blocks:record`,
+  );
+  process.exit(1);
+}
+const blocksUsed = blocks.uses.shell ?? {};
+console.error(
+  `blocks   ${Object.keys(blocks.provides).length} written by the server, ` +
+    `${Object.keys(blocksUsed).length} read by this shell, in ${blocks.ms} ms\n`,
+);
+
+// The sub-app half of each retained contract, by the full hash that names it.
+// Two contracts that differ only in `api.ts` collapse to one value here, which
+// is what lets a published app stay composable across a shell-half change.
+const subappHalves = new Map<string, string>();
+for (const contract of retained) {
+  subappHalves.set(contract.hash, hashHalf(await readSurface(contract), "subapp.d.ts"));
+}
+const subappsOf = (set: string[]): string[] => [
+  ...new Set(set.map((h) => subappHalves.get(h)).filter((h): h is string => Boolean(h))),
+];
 
 const versions = await sharedVersions();
 
@@ -246,9 +306,16 @@ for (const app of APPS) {
   };
 
   // The invariant the whole design rests on: a sub-app reaches the shared
-  // runtime and the store by name, and carries no copy of its own. If Preact
-  // were bundled in here it would have its own signals runtime, and the shell's
-  // counters would quietly stop re-rendering this app.
+  // runtime and the store by name, and carries no copy of its own.
+  //
+  // Measured on 2026-08-28 by removing this guard for bravo and promoting the
+  // result to test-qa: a bundled copy does not quietly stop re-rendering, as
+  // this comment used to claim. It THROWS on first render - `preact/hooks`
+  // reads `__H` off a component the other copy's renderer never set - and the
+  // shell's boundary catches it, so the panel becomes "Cannot read properties
+  // of undefined (reading '__H')" with a Mount again button and the other
+  // three panels go on working. Loud, contained, and still a page with a hole
+  // in it.
   const specifiers = new Set(specifiersIn(await js.text()));
   const strays = [...specifiers].filter((s) => !SHARED.includes(s as (typeof SHARED)[number]));
   if (strays.length) {
@@ -305,6 +372,34 @@ export type UnitRecord = {
   integrity: Record<string, string>;
   /** Which contracts this unit compiles against. Generated, never written. */
   contracts: string[];
+  /**
+   * The shell only: every removable member of its surface, and each one's
+   * digest. What a sub-app is allowed to need.
+   */
+  provides?: Record<string, string>;
+  /**
+   * A sub-app only: the members whose removal stops it compiling.
+   *
+   * Measured, never declared. `promote` refuses when one of these is absent
+   * from the shell's `provides`, or is present with a different digest.
+   */
+  uses?: Record<string, string>;
+  /**
+   * The `subapp.d.ts` halves of the contracts in `contracts`, deduplicated.
+   *
+   * The half a sub-app PRODUCES is all-or-nothing, so it keeps one identity
+   * rather than a member list - and keeping it apart from the full hash is what
+   * stops a change to `api.ts` making every published app uncomposable.
+   */
+  subapps?: string[];
+  /**
+   * The shell only: which fields of the server's JSON blocks it reads.
+   *
+   * Measured by removal, like `uses`. What it is FOR is different: the party on
+   * the other side is not a unit but a deployed image, so this is compared by
+   * the running server rather than by `promote`.
+   */
+  blocks?: Record<string, string>;
   /** Resolved versions of the shared packages. Compared at promote, not enforced. */
   shared: Record<string, string>;
   marker: string;
@@ -335,6 +430,9 @@ const units: Record<string, UnitRecord> = {
     files: shellFiles,
     integrity: await integrityOf(shell.outputs),
     contracts: matrix.sets.shell,
+    provides: members.provides,
+    subapps: subappsOf(matrix.sets.shell),
+    blocks: blocksUsed,
     shared: versions,
     marker: markerFor("shell"),
   },
@@ -348,6 +446,8 @@ for (const app of APPS) {
     files: out.files,
     integrity: out.integrity,
     contracts: matrix.sets[app],
+    uses: members.uses[app] ?? {},
+    subapps: subappsOf(matrix.sets[app]),
     shared: versions,
     marker: markerFor(app),
   };

@@ -16,6 +16,17 @@
 //
 // It needs a sub-app with two published units on the channel. Without one there
 // is nothing to choose and it says so rather than passing.
+//
+// One check has THREE states, not two, and §20 is why. Whether the chosen unit
+// renders differently from the deployed one depends on the channel's history
+// and not on the code: two adjacent generations of a sub-app can differ by six
+// bytes and draw the same panel. A red check for that is a reading about the
+// history reported as a fault, and a check that is usually red is a check
+// people stop reading. So it reports UNDECIDED, the way `falsify` reports a
+// mutation nobody ran rather than counting it as passing. It stays a FAILURE
+// when the check above it - the page fetched the chosen unit's own file - did
+// not pass, because then an identical page is a switcher that ignored the
+// choice.
 
 import { chromium, type Page } from "playwright-core";
 
@@ -26,9 +37,24 @@ const PATH = Bun.env.E2E_PATH ?? (APP === "charlie" || APP === "delta" ? "/total
 const TIMEOUT = 30_000;
 
 const failures: string[] = [];
-const check = (claim: string, ok: boolean, saw: string) => {
+const undecided: string[] = [];
+
+const check = (claim: string, ok: boolean, saw: string): boolean => {
   console.log(`${ok ? "  ok  " : "  FAIL"} ${claim}${ok ? "" : ` - saw ${saw}`}`);
   if (!ok) failures.push(claim);
+  return ok;
+};
+
+/**
+ * A check this channel's history cannot decide.
+ *
+ * Reported and never dropped: a reader who sees only the ok lines would take
+ * the claim as proved. `why` says what the run saw; `decides` says what would
+ * make the check answerable on the next run.
+ */
+const undecidable = (claim: string, why: string, decides: string) => {
+  console.log(`  ----  ${claim}\n        UNDECIDED: ${why}\n        ${decides}`);
+  undecided.push(claim);
 };
 
 /**
@@ -62,7 +88,20 @@ try {
   await page.goto(`${ORIGIN}${PATH}`);
   await page.waitForSelector(`[data-app="${APP}"] section`, { timeout: TIMEOUT });
 
-  const offered = await options(page);
+  // The history is read with `peek` and never `get`, so the FIRST request after
+  // a server starts has no switcher and the next one does. That is by design -
+  // a cold history is not worth a visitor's wait - and reported as a fault it
+  // reads as "publish a change and promote it", which is the wrong instruction
+  // for a cache that is simply cold. Reproduced on 2026-08-28: no switcher at
+  // all on the first request, five selects with two options each on the next.
+  let offered = await options(page);
+  if (offered.length === 0) {
+    console.log("  ....  no switcher on the first request. A cold history is not a fault - reloading");
+    await page.reload();
+    await page.waitForSelector(`[data-app="${APP}"] section`, { timeout: TIMEOUT });
+    offered = await options(page);
+  }
+
   check(
     `the switcher offers more than one ${APP}`,
     offered.length > 1,
@@ -70,7 +109,10 @@ try {
   );
   if (offered.length < 2) {
     console.error(
-      `\nNothing to choose. Publish a change to ${APP} and promote it, then run this again.`,
+      offered.length === 0
+        ? `\nNo switcher after a reload. Either this channel is not in ` +
+            `VERSION_SWITCHER_CHANNELS, or the origin serves no history for it.`
+        : `\nNothing to choose. Publish a change to ${APP} and promote it, then run this again.`,
     );
     process.exit(1);
   }
@@ -96,7 +138,9 @@ try {
   const served = await page.$eval(`[data-app="${APP}"] section`, () =>
     JSON.parse(document.getElementById("__APPS__")?.textContent ?? "{}"),
   );
-  check(
+  // This is the check that establishes WHICH unit ran. The one below only says
+  // whether the two units can be told apart from the page.
+  const fetchedTheChosen = check(
     `the page fetches ${APP} from the chosen unit's own directory`,
     String(served[APP]?.js ?? "").includes(`/${APP}/${older.id}/`),
     String(served[APP]?.js ?? "nothing"),
@@ -104,11 +148,19 @@ try {
 
   const after = await rendered(page);
   console.log(`  ${APP} ${older.id} renders: ${brief(after)}`);
-  check(
-    "the chosen unit is a different bundle from the deployed one",
-    after !== before,
-    "the same page, so nothing here can say which unit ran",
-  );
+  const DIFFERENT = "the chosen unit is a different bundle from the deployed one";
+  if (after !== before) {
+    check(DIFFERENT, true, "");
+  } else if (fetchedTheChosen) {
+    undecidable(
+      DIFFERENT,
+      `${deployed} and ${older.id} render the same text, so the page cannot say which one ran.`,
+      "The check above says the chosen unit's own file was fetched, so this is two " +
+        "generations that look alike. Publish a visible change and promote it to decide it.",
+    );
+  } else {
+    check(DIFFERENT, false, "the same page, and the chosen unit's file was not the one fetched");
+  }
 
   await page.click(`[data-app="${APP}"] button:nth-of-type(1)`);
   check("the chosen unit responds to a click", (await count(page))?.trim() === "1", `${await count(page)}`);
@@ -140,9 +192,12 @@ try {
   await browser.close();
 }
 
+const tail = undecided.length
+  ? `, ${undecided.length} undecided on what this channel has published`
+  : "";
 console.log(
   failures.length
-    ? `\nFAILED: ${failures.length} of the checks above.`
-    : "\nSUCCESS: the switcher serves a chosen unit, and moves no channel doing it.",
+    ? `\nFAILED: ${failures.length} of the checks above${tail}.`
+    : `\nSUCCESS: the switcher serves a chosen unit, and moves no channel doing it${tail}.`,
 );
 process.exit(failures.length ? 1 : 0);

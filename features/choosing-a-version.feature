@@ -47,6 +47,21 @@ Feature: Choosing which build the page runs
     And that unit is recorded in the qa channel's history
     Then the qa origin offers that unit and will not let it be chosen
 
+  # §11. The other boundary: the server writes three JSON blocks and the shell
+  # reads them, and the two are separate deploys. A shell in this channel's
+  # history may read a field this image no longer writes - which is exactly what
+  # renaming `deployed` to `live` did on 2026-08-28, silently.
+  @live @test-channel
+  Scenario: A shell this server cannot feed is offered and disabled
+    Given a shell recorded in the qa channel's history that reads a block field this server does not write
+    Then the qa origin offers that shell and will not let it be chosen
+
+  @live @test-channel
+  Scenario: Choosing a shell this server cannot feed is refused
+    Given a shell recorded in the qa channel's history that reads a block field this server does not write
+    When a visitor asks the qa origin for that shell
+    Then the request is refused because this server cannot feed that shell
+
   @browser @test-channel
   Scenario: An operator picks an older unit from the page
     When a visitor picks build "one"'s "alpha" unit from the switcher

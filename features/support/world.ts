@@ -3,6 +3,7 @@ import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
+import type { BuildInfo } from "@pointer/blocks";
 
 // The hooks are in hooks.ts and the bindings in bdd.ts. This file holds the
 // world and nothing that registers itself with the runner: bdd.ts imports the
@@ -116,11 +117,15 @@ export async function pointerBuildId(channel: string): Promise<string> {
   }
 }
 
-type ShellBuildInfo = {
-  buildId?: string;
-  contract?: string;
-  units?: Record<string, { unitId: string; commit: string; marker: string }>;
-};
+/**
+ * What the harness reads out of `__BUILD__`.
+ *
+ * Every field optional and the shape derived from the server's own
+ * declaration: this parses a document the suite did not write, so a missing
+ * field is a reading and never a crash - but WHICH fields exist is the server's
+ * to say, and §11 is about that having been written down twice.
+ */
+type ShellBuildInfo = Partial<BuildInfo>;
 
 function buildInfoInShell(html: string): ShellBuildInfo | null {
   const m = /<script type="application\/json" id="__BUILD__">(.*?)<\/script>/s.exec(html);
@@ -508,10 +513,24 @@ export class PointerWorld {
    * and the registry holds one. So the document is written directly, the same
    * way the schema 2 rollback scenarios write a pointer, and put back after.
    */
+  /**
+   * Adds one id to a channel's history, copying the served entry's shape.
+   *
+   * `contracts` and `surface` are OVERRIDES: leave one out and the served
+   * entry's own is copied, and pass `surface: null` for a unit that records
+   * none at all. Both matter, and two scenarios got it wrong on 2026-08-29 - a
+   * fixture given `contracts: ["0000000"]` to test the BLOCK gate was refused
+   * by the contract rule instead, and one testing the CONTRACT fallback
+   * inherited a member reading that let the member gate allow it.
+   */
   async recordInHistory(
     channel: Channel,
     unit: Unit,
-    entry: { unitId: string; contracts: string[] },
+    entry: {
+      unitId: string;
+      contracts?: string[];
+      surface?: Record<string, unknown> | null;
+    },
   ): Promise<void> {
     const cfg = configFromEnv();
     const key = this.historyKey(channel);
@@ -522,13 +541,26 @@ export class PointerWorld {
     this.historyBefore = { key, text: before };
 
     const doc = JSON.parse(before) as {
-      units: Record<string, Array<{ unit: Record<string, unknown>; contracts: string[] }>>;
+      units: Record<
+        string,
+        Array<{ unit: Record<string, unknown>; contracts: string[]; surface?: Record<string, unknown> }>
+      >;
     };
     const served = doc.units[unit]?.[0];
     if (!served) throw new Error(`${key} holds no ${unit} entry to copy a shape from`);
+    const surface =
+      entry.surface === null
+        ? undefined
+        : entry.surface
+          ? { ...served.surface, ...entry.surface }
+          : served.surface;
     doc.units[unit] = [
       served,
-      { unit: { ...served.unit, unitId: entry.unitId }, contracts: entry.contracts },
+      {
+        unit: { ...served.unit, unitId: entry.unitId },
+        contracts: entry.contracts ?? served.contracts,
+        ...(surface ? { surface } : {}),
+      },
       ...doc.units[unit]!.slice(1),
     ];
     await this.writePointer(cfg, key, `${JSON.stringify(doc, null, 2)}\n`);

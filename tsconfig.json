@@ -11,7 +11,14 @@
     // these are the head values.
     "paths": {
       "@pointer/shell": ["./src/web/shell/api.ts"],
-      "@pointer/subapp": ["./src/web/shell/subapp.ts"]
+      "@pointer/subapp": ["./src/web/shell/subapp.ts"],
+
+      // The server-to-shell surface, §11. By specifier for the same reason the
+      // two above are: the member reading re-points it at a copy with one
+      // declaration cut out, and a relative path cannot be re-pointed. Types
+      // only, so every import of it is erased and nothing resolves this at
+      // runtime - which matters because the image carries no tsconfig.
+      "@pointer/blocks": ["./src/server/blocks.ts"]
     },
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun-types"],

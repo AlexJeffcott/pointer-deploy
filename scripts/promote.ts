@@ -29,9 +29,11 @@ import { APPS, UNITS, majorOf, type Unit } from "./contract.ts";
 import {
   HISTORY_DEPTH,
   chooseContract,
+  compositionRefusal,
+  decidesMembers,
   parseHistory,
-  sharedContracts,
   type ChannelHistory,
+  type UnitSurface,
 } from "../src/server/composition.ts";
 import { currentSource, describeSource, type Source } from "./source.ts";
 import type { UnitManifest } from "./publish.ts";
@@ -303,21 +305,40 @@ for (const unit of UNITS) {
 // too - a visitor choosing an older unit must be refused the same combination
 // this refuses. The import goes that way and not the other: the runtime image
 // copies src/server and nothing else, so nothing there can reach scripts/.
+//
+// Since §9 the contract set is the FALLBACK and not the first question. A pair
+// that both carry a member reading is judged on what the app actually uses, so
+// a shell that dropped a member nothing in this composition called is allowed
+// through - which the set intersection refused, because a published app's set
+// was fixed at its build time and cannot name a contract minted after it.
 const contractsByUnit: Record<string, string[]> = Object.fromEntries(
   UNITS.map((u) => [u, manifests.get(u)!.contracts ?? []]),
 );
-const shared = sharedContracts(contractsByUnit);
+const surfacesByUnit: Record<string, UnitSurface | undefined> = Object.fromEntries(
+  UNITS.map((u) => {
+    const m = manifests.get(u)!;
+    return [u, { provides: m.provides, uses: m.uses, subapps: m.subapps, blocks: m.blocks }];
+  }),
+);
 
-if (shared.length === 0) {
-  console.error(`no contract is supported by every unit in this composition. Nothing was changed.`);
+const refusal = compositionRefusal(contractsByUnit, surfacesByUnit);
+if (refusal !== null) {
+  console.error(`${refusal}. Nothing was changed.`);
   const width = Math.max(...UNITS.map((u) => u.length));
   for (const unit of UNITS) {
     const m = manifests.get(unit)!;
-    console.error(`  ${unit.padEnd(width)} ${m.id}  ${m.contracts.join(", ") || "none"}`);
+    const gate = decidesMembers(surfacesByUnit.shell, surfacesByUnit[unit])
+      ? `${Object.keys(m.uses ?? {}).length} members used`
+      : (m.contracts.join(", ") || "no contract");
+    console.error(`  ${unit.padEnd(width)} ${m.id}  ${unit === "shell" ? `${Object.keys(m.provides ?? {}).length} members provided` : gate}`);
   }
   process.exit(1);
 }
-const contract = chooseContract(contractsByUnit)!;
+
+// For the record written into the composition, and for diagnosis. A composition
+// every unit of which was judged on members can share no contract at all, and
+// that is no longer a refusal - so this can be null where it never used to be.
+const contract = chooseContract(contractsByUnit) ?? "none";
 
 // Vendor packages are not in the contract - see scripts/contract.ts - so a
 // mismatch is reported rather than refused. Refusing would force every app to
@@ -432,7 +453,14 @@ try {
     // The id being served goes to the head, so the depth cap prunes from the
     // tail and can never take what this channel is about to serve.
     history.units[unit] = [
-      { unit: served, contracts: manifests.get(unit)!.contracts ?? [] },
+      {
+        unit: served,
+        contracts: manifests.get(unit)!.contracts ?? [],
+        // The switcher applies the same gate as this script, so it needs the
+        // same reading. Without it every option would fall back to the contract
+        // sets and be greyed out for the reason §9 removed.
+        surface: surfacesByUnit[unit] ?? {},
+      },
       ...older,
     ].slice(0, HISTORY_DEPTH);
   }

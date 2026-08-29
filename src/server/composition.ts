@@ -10,7 +10,49 @@
 // HEAD combination, and choosing an older unit is precisely how a combination
 // nothing has ever typechecked comes to be served.
 
+import type { VersionOption } from "@pointer/blocks";
 import type { ComposedUnit, ManifestV3 } from "./manifest.ts";
+
+// One declaration, in the file that holds the whole server-to-shell surface.
+export type { VersionOption } from "@pointer/blocks";
+
+/**
+ * What a unit says about the type surface, beyond which contracts it holds.
+ *
+ * The contract set answers "were these built against the same surface". That
+ * refuses a shell which dropped a member no sub-app in the composition ever
+ * called, because a PUBLISHED app's set was fixed at its build time and cannot
+ * name a contract minted after it. These two fields answer the question an
+ * operator actually has - does this app need anything this shell does not have
+ * - and they are both derived by the compiler at build time, never written.
+ *
+ * The halves are gated differently because they are not alike:
+ *
+ *   shell.d.ts   a sub-app consumes PART of it, so the gate is per member
+ *   subapp.d.ts  the shell requires ALL of it, so the gate is one identity
+ */
+export type UnitSurface = {
+  /** The shell: every removable member of `shell.d.ts`, path to digest. */
+  provides?: Record<string, string>;
+  /** A sub-app: the members whose removal stops it compiling, path to digest. */
+  uses?: Record<string, string>;
+  /**
+   * The `subapp.d.ts` halves this unit compiles against.
+   *
+   * A set, like `contracts`, and coarser: contracts that differ only in
+   * `shell.d.ts` collapse to one entry here, which is exactly the churn the
+   * member gate exists to stop counting.
+   */
+  subapps?: string[];
+  /**
+   * The shell: which fields of the server's JSON blocks it reads, §11.
+   *
+   * Not part of `memberRefusal`. The other side of this one is the running
+   * SERVER, which `promote` cannot see - so only a server compares it, in
+   * `blockRefusal` below.
+   */
+  blocks?: Record<string, string>;
+};
 
 /**
  * One id a channel has served, with everything needed to serve it again.
@@ -25,6 +67,8 @@ import type { ComposedUnit, ManifestV3 } from "./manifest.ts";
 export type HistoryEntry = {
   unit: ComposedUnit;
   contracts: string[];
+  /** Absent for a unit published before the member gate existed. */
+  surface?: UnitSurface;
 };
 
 /**
@@ -80,6 +124,119 @@ export function chooseContract(byUnit: Record<string, string[]>): string | null 
   return shared.length ? shared[shared.length - 1]! : null;
 }
 
+/**
+ * Why this shell cannot serve these sub-apps, or null if it can.
+ *
+ * `undefined` means nothing here can decide: one side of the pair carries no
+ * reading, which is every unit published before this existed. The caller falls
+ * back to the contract sets for those, and rolling a channel back onto them
+ * goes on working.
+ *
+ * A member is a fit when the shell provides that path with the SAME digest. A
+ * digest that moved is a member that was re-declared - a narrowed parameter, a
+ * changed return - and it refuses only the apps that named it, which is the
+ * whole difference from one hash over the surface.
+ */
+export function memberRefusal(
+  surfaces: Record<string, UnitSurface | undefined>,
+): string | null | undefined {
+  const provides = surfaces.shell?.provides;
+  const shellHalves = surfaces.shell?.subapps;
+  if (!provides || !shellHalves) return undefined;
+
+  const problems: string[] = [];
+  let decided = false;
+  for (const [name, surface] of Object.entries(surfaces)) {
+    if (name === "shell") continue;
+    if (!surface?.uses || !surface.subapps) continue;
+    decided = true;
+
+    for (const [path, digest] of Object.entries(surface.uses)) {
+      const held = provides[path];
+      if (held === undefined) problems.push(`${name} uses ${path}, which this shell does not have`);
+      else if (held !== digest) problems.push(`${name} uses ${path}, which this shell declares differently`);
+    }
+    // The other half, and it is all-or-nothing: the shell renders the component
+    // a sub-app exports, so it requires the whole of `subapp.d.ts` rather than
+    // some members of it.
+    if (!surface.subapps.some((h) => shellHalves.includes(h))) {
+      problems.push(`${name} was built against a different SubApp type`);
+    }
+  }
+  if (!decided) return undefined;
+  return problems.length ? problems.join("; ") : null;
+}
+
+/**
+ * Why this SERVER cannot feed that shell, or null if it can. §11.
+ *
+ * The shell reads fields out of three JSON blocks this server writes, and the
+ * two are separate deploys: the shell is a published unit a visitor can roll
+ * back to, and the server is an image. So the comparison belongs here, at serve
+ * time, and nowhere else - `promote` runs in a working tree and cannot see
+ * which image is answering requests.
+ *
+ * `undefined` when the shell records nothing, which is every shell published
+ * before §11. That is the case the append-only rule exists for, and it is why
+ * `VersionOption.deployed` is still written: shell `606c1c3c` reads it and
+ * cannot say so.
+ */
+export function blockRefusal(
+  provided: Record<string, string>,
+  shell: UnitSurface | undefined,
+): string | null | undefined {
+  const reads = shell?.blocks;
+  if (!reads) return undefined;
+  const problems: string[] = [];
+  for (const [path, digest] of Object.entries(reads)) {
+    const held = provided[path];
+    if (held === undefined) problems.push(`that shell reads ${path}, which this server does not write`);
+    else if (held !== digest) problems.push(`that shell reads ${path}, which this server writes differently`);
+  }
+  return problems.length ? problems.join("; ") : null;
+}
+
+/** Whether the pair carries enough for the member gate to answer at all. */
+export function decidesMembers(shell?: UnitSurface, app?: UnitSurface): boolean {
+  return Boolean(shell?.provides && shell.subapps && app?.uses && app.subapps);
+}
+
+/**
+ * Why this composition cannot be served, or null if it can. The one rule.
+ *
+ * Each sub-app is judged by whichever gate can answer for it. A pair that both
+ * carry readings is judged on members, and the contract sets are not consulted
+ * for it - that is the point, because a published app's set cannot name a
+ * contract minted after it was built. A pair where either side predates the
+ * readings falls back to the contract intersection, which is what keeps a
+ * rollback onto an old unit working.
+ */
+export function compositionRefusal(
+  contractsByUnit: Record<string, string[]>,
+  surfaces: Record<string, UnitSurface | undefined>,
+): string | null {
+  const shell = surfaces.shell;
+  const byMembers: Record<string, UnitSurface | undefined> = { shell };
+  const byContract: Record<string, string[]> = { shell: contractsByUnit.shell ?? [] };
+
+  for (const name of Object.keys(contractsByUnit)) {
+    if (name === "shell") continue;
+    if (decidesMembers(shell, surfaces[name])) byMembers[name] = surfaces[name];
+    else byContract[name] = contractsByUnit[name] ?? [];
+  }
+
+  const members = memberRefusal(byMembers);
+  if (typeof members === "string") return members;
+
+  // Only the shell is left when every app was judged on members. sharedContracts
+  // then returns the shell's own set, which is empty for a shell that compiles
+  // against no retained contract - and that is a state `build` already refuses.
+  if (Object.keys(byContract).length > 1 && chooseContract(byContract) === null) {
+    return "no contract is supported by every unit in that composition";
+  }
+  return null;
+}
+
 const str = (name: string, value: unknown): string => {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`history field ${name} is missing or not a string`);
@@ -121,7 +278,14 @@ export function parseHistory(input: unknown): ChannelHistory {
       if (!Array.isArray(e.contracts)) {
         throw new Error(`history field units.${name}[${i}].contracts is not an array`);
       }
-      return { unit: unit as unknown as ComposedUnit, contracts: e.contracts as string[] };
+      return {
+        unit: unit as unknown as ComposedUnit,
+        contracts: e.contracts as string[],
+        // Not validated here, for the reason above: a malformed reading costs
+        // that one option rather than the whole switcher. An absent one is the
+        // ordinary case for a unit published before the gate existed.
+        ...(e.surface && typeof e.surface === "object" ? { surface: e.surface as UnitSurface } : {}),
+      };
     });
   }
 
@@ -154,6 +318,21 @@ function contractsChosen(
   );
 }
 
+/** What one id in one unit recorded about the surface, or nothing. */
+export function surfaceOf(history: ChannelHistory, unit: string, id: string): UnitSurface | undefined {
+  return history.units[unit]?.find((e) => e.unit.unitId === id)?.surface;
+}
+
+/** What every chosen id recorded about the surface, by unit. */
+function surfacesChosen(
+  history: ChannelHistory,
+  chosen: Record<string, string>,
+): Record<string, UnitSurface | undefined> {
+  return Object.fromEntries(
+    Object.entries(chosen).map(([unit, id]) => [unit, surfaceOf(history, unit, id)]),
+  );
+}
+
 /** The unit ids a manifest currently names, by unit. */
 export function currentIds(m: ManifestV3): Record<string, string> {
   return {
@@ -161,50 +340,6 @@ export function currentIds(m: ManifestV3): Record<string, string> {
     ...Object.fromEntries(Object.entries(m.apps).map(([n, a]) => [n, a.unitId])),
   };
 }
-
-/** One choice a visitor can make, and whether it can be made. */
-export type VersionOption = {
-  unitId: string;
-  marker: string;
-  current: boolean;
-  /**
-   * True when this is what the channel's pointer names RIGHT NOW.
-   *
-   * Not "deployed": every id in this list has been deployed to this channel,
-   * which is exactly what put it here. Only one of them is live.
-   *
-   * Distinct from `current`, which is what the visitor is looking at. The shell
-   * needs both: choosing the live id must CLEAR the override rather than pin
-   * it, or a link shared from this page would freeze at today's build and stop
-   * following the channel.
-   */
-  live: boolean;
-  /**
-   * The same value as `live`, for a shell published before it was renamed.
-   *
-   * Retained on 2026-08-28, and this is the lesson it carries: these JSON
-   * blocks are a surface between the SERVER and the shell, and the contract
-   * covers only the surface between the shell and its sub-apps. Renaming a
-   * field here broke shell `606c1c3c` - which the switcher itself offers -
-   * silently: it went on reading `deployed`, got undefined, and pinned the
-   * query parameter where it should have cleared it. Nothing refused that,
-   * because the server is not a unit and no hash covers it.
-   *
-   * So this block is append-only. A field may be added and a field may stop
-   * being read, and a field may never be renamed or removed while a shell that
-   * reads it is still in a channel's history.
-   */
-  deployed: boolean;
-  /**
-   * True when choosing it would make a composition no contract covers.
-   *
-   * Disabled rather than absent, because "this build exists and cannot be run
-   * beside the others" is the reading an operator wants. Hiding it would say
-   * the build was never deployed here, which is false of everything in this
-   * list.
-   */
-  disabled: boolean;
-};
 
 /**
  * Every unit's options, given what is chosen for the other units.
@@ -216,21 +351,35 @@ export function optionsFor(
   history: ChannelHistory,
   chosen: Record<string, string>,
   live: Record<string, string>,
+  /** What THIS server writes into its blocks. Absent means the shell half is not judged. */
+  provided: Record<string, string> = {},
 ): Record<string, VersionOption[]> {
   const chosenContracts = contractsChosen(history, chosen);
+  const chosenSurfaces = surfacesChosen(history, chosen);
 
   return Object.fromEntries(
     Object.entries(history.units).map(([unit, entries]) => [
       unit,
-      entries.map((e) => ({
+      entries.map((e) => {
+        // §11, and only for the shell: choosing a shell this server cannot feed
+        // renders a page whose controls quietly do the wrong thing.
+        const blocks = unit === "shell" ? blockRefusal(provided, e.surface) : null;
+        return {
         unitId: e.unit.unitId,
         marker: e.unit.marker ?? "",
         current: chosen[unit] === e.unit.unitId,
         live: live[unit] === e.unit.unitId,
         deployed: live[unit] === e.unit.unitId,
+        // The same rule `promote` applies, from the same function. An option the
+        // switcher greys out that a promote would allow is the switcher lying.
         disabled:
-          chooseContract({ ...chosenContracts, [unit]: e.contracts }) === null,
-      })),
+          typeof blocks === "string" ||
+          compositionRefusal(
+            { ...chosenContracts, [unit]: e.contracts },
+            { ...chosenSurfaces, [unit]: e.surface },
+          ) !== null,
+        };
+      }),
     ]),
   );
 }
@@ -239,6 +388,8 @@ export function optionsFor(
 export function refuseComposition(
   history: ChannelHistory,
   chosen: Record<string, string>,
+  /** What THIS server writes into its blocks. Absent means the shell half is not judged. */
+  provided: Record<string, string> = {},
 ): string | null {
   for (const [unit, id] of Object.entries(chosen)) {
     const known = history.units[unit]?.some((e) => e.unit.unitId === id);
@@ -246,10 +397,10 @@ export function refuseComposition(
     // string is a way to make this origin serve any object in the store.
     if (!known) return `the ${unit} unit ${id} is not one this channel has served`;
   }
-  if (chooseContract(contractsChosen(history, chosen)) === null) {
-    return "no contract is supported by every unit in that composition";
-  }
-  return null;
+  const surfaces = surfacesChosen(history, chosen);
+  const blocks = blockRefusal(provided, surfaces.shell);
+  if (typeof blocks === "string") return blocks;
+  return compositionRefusal(contractsChosen(history, chosen), surfaces);
 }
 
 /**

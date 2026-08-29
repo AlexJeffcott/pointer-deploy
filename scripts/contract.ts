@@ -135,6 +135,47 @@ export async function emitSurface(): Promise<Surface> {
   return surface;
 }
 
+/**
+ * The server-to-shell block surface, §11, emitted the same way.
+ *
+ * One file and no specifier of its own to resolve, so it needs none of the
+ * two-halves machinery above. It is emitted rather than read as source for the
+ * same reason: tsc's output is canonical, so a reformat or a docstring is not
+ * a change to the surface.
+ */
+export async function emitBlocks(): Promise<string> {
+  const dir = join(".contract-emit-blocks");
+  await rm(dir, { recursive: true, force: true });
+  await mkdir(dir, { recursive: true });
+
+  const config = {
+    extends: "../tsconfig.json",
+    compilerOptions: {
+      noEmit: false,
+      declaration: true,
+      emitDeclarationOnly: true,
+      removeComments: true,
+      outDir: ".",
+      rootDir: "../src/server",
+      allowImportingTsExtensions: false,
+    },
+    include: [],
+    files: ["../src/server/blocks.ts"],
+  };
+  const configPath = join(dir, "tsconfig.json");
+  await Bun.write(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  const result = await runTsc(configPath);
+  if (!result.ok) {
+    await rm(dir, { recursive: true, force: true });
+    throw new Error(`could not emit the block surface:\n${result.output}`);
+  }
+  const text = normalise(await Bun.file(join(dir, "blocks.d.ts")).text());
+  await rm(dir, { recursive: true, force: true });
+  if (!text.trim()) throw new Error("blocks.d.ts came out empty");
+  return text;
+}
+
 /** Trailing whitespace and line endings are not part of a type surface. */
 function normalise(text: string): string {
   return `${text
@@ -142,6 +183,24 @@ function normalise(text: string): string {
     .map((l) => l.trimEnd())
     .join("\n")
     .trim()}\n`;
+}
+
+/**
+ * One half's identity, on its own.
+ *
+ * The full hash cannot say WHICH half moved, and the two halves are gated
+ * differently: `shell.d.ts` is gated member by member, on what a sub-app
+ * actually uses, and `subapp.d.ts` is all-or-nothing because the shell requires
+ * the whole of it. So the sub-app half needs an identity the shell half's churn
+ * does not disturb - three contracts that changed only `api.ts` share one of
+ * these, and a unit built against any of them is interchangeable on this half.
+ */
+export function hashHalf(surface: Surface, file: keyof Surface): string {
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(file);
+  hasher.update("\0");
+  hasher.update(surface[file]);
+  return hasher.digest("hex").slice(0, 7);
 }
 
 /**
@@ -245,7 +304,7 @@ export function majorOf(version: string): string {
 const MATRIX_WORK = ".contract-matrix";
 
 /** What each unit compiles: its own sources plus its conformance adapter. */
-function filesFor(unit: Unit): string[] {
+export function filesFor(unit: Unit): string[] {
   const shared = ["src/web/globals.d.ts", "src/web/css-modules.d.ts"];
   if (unit === "shell") {
     return [...shared, "src/web/shell/contract.ts", "src/web/shell/index.tsx"];
@@ -253,11 +312,22 @@ function filesFor(unit: Unit): string[] {
   return [...shared, `src/web/apps/${unit}/contract.ts`];
 }
 
-async function cell(unit: Unit, contract: ContractRecord, verbose: boolean): Promise<boolean> {
-  const dir = join(MATRIX_WORK, `${unit}-${contract.hash}`);
-  await mkdir(dir, { recursive: true });
+/**
+ * Compiles one unit with the contract specifiers re-pointed at a directory
+ * holding a `shell.d.ts` and a `subapp.d.ts`.
+ *
+ * The matrix points this at a retained contract. The member reading in
+ * members.ts points it at the same surface with one declaration cut out, which
+ * is the same question asked of one member instead of the whole surface.
+ */
+export async function compileAgainst(
+  unit: Unit,
+  surfaceDir: string,
+  workDir: string,
+): Promise<{ ok: boolean; output: string }> {
+  await mkdir(workDir, { recursive: true });
 
-  const cdir = resolve(contractDir(contract));
+  const sdir = resolve(surfaceDir);
   const config = {
     extends: resolve("tsconfig.json"),
     compilerOptions: {
@@ -266,16 +336,27 @@ async function cell(unit: Unit, contract: ContractRecord, verbose: boolean): Pro
       // contract's declarations rather than against the sources at HEAD.
       baseUrl: resolve("."),
       paths: {
-        "@pointer/shell": [join(cdir, "shell.d.ts")],
-        "@pointer/subapp": [join(cdir, "subapp.d.ts")],
+        "@pointer/shell": [join(sdir, "shell.d.ts")],
+        "@pointer/subapp": [join(sdir, "subapp.d.ts")],
+        // NOT part of the contract, and resolved at HEAD like the vendor types
+        // are. It is the surface between the server and the shell, and §11's
+        // own member reading is what covers it - see src/server/blocks.ts.
+        "@pointer/blocks": [resolve("src/server/blocks.ts")],
       },
     },
     include: [],
     files: filesFor(unit).map((f) => resolve(f)),
   };
-  await Bun.write(join(dir, "tsconfig.json"), `${JSON.stringify(config, null, 2)}\n`);
+  await Bun.write(join(workDir, "tsconfig.json"), `${JSON.stringify(config, null, 2)}\n`);
+  return runTsc(join(workDir, "tsconfig.json"));
+}
 
-  const result = await runTsc(join(dir, "tsconfig.json"));
+async function cell(unit: Unit, contract: ContractRecord, verbose: boolean): Promise<boolean> {
+  const result = await compileAgainst(
+    unit,
+    contractDir(contract),
+    join(MATRIX_WORK, `${unit}-${contract.hash}`),
+  );
   if (!result.ok && verbose) {
     console.error(`\n--- ${unit} x ${contract.hash} ---\n${result.output}\n`);
   }
@@ -330,6 +411,155 @@ export function renderMatrix(result: MatrixResult): string {
   for (const unit of UNITS) {
     const row = result.contracts.map((c) => cellText(c.hash, result.sets[unit].includes(c.hash)));
     lines.push(`${unit.padEnd(width)}  ${row.join("  ")}`);
+  }
+  return lines.join("\n");
+}
+
+// -- the direction of a change ----------------------------------------------
+
+const DIRECTION_WORK = ".contract-direction";
+
+export type Half = "shell" | "subapp";
+
+export type HalfResult = { half: Half; ok: boolean; output: string };
+
+export type Direction = {
+  /** Both halves compile. Nothing published against the older surface breaks. */
+  additive: boolean;
+  halves: HalfResult[];
+  ms: number;
+};
+
+/** What each half breaking means, and for whom. */
+const WHO: Record<Half, string> = {
+  shell:
+    "the shell half. The new surface no longer provides what this contract " +
+    "declared, so every sub-app published against it consumes something that is gone",
+  subapp:
+    "the sub-app half. A sub-app published against this contract no longer " +
+    "satisfies SubApp, so the shell cannot render one",
+};
+
+/**
+ * Whether a newer surface is additive over an older one.
+ *
+ * The hash says a surface changed and says nothing about the direction. tsc
+ * answers it: two generated probes, compiled the way cell() compiles a matrix
+ * cell, with the contract specifiers re-pointed at the NEWER surface.
+ *
+ * The direction REVERSES between the halves, because a sub-app consumes the
+ * shell API and produces a SubApp:
+ *
+ *   shell    the newer module must still be assignable to the older module
+ *   subapp   an older SubApp must still be assignable to the newer type
+ *
+ * Trap, and it reproduced: subapp.d.ts exports a type and no value, so
+ * `typeof import(...)` gives an EMPTY module shape and a module-level probe
+ * passes on a SubApp that gained a required member. The sub-app half names the
+ * type, never the module.
+ *
+ * "@pointer/shell" resolves to the newer shell.d.ts in both probes, so the
+ * older subapp.d.ts - which imports ShellStore by specifier, as HEAD does -
+ * sees the store the shell would really hand it.
+ *
+ * skipLibCheck is turned OFF here, and the project has it on. A module shape
+ * carries VALUES only, so with it on a removed or renamed TYPE export read as
+ * additive: the resulting "no exported member" error sits inside a .d.ts and
+ * was skipped, and both SubApps degraded to something permissive. Measured on
+ * 2026-08-28: turning it off catches that case (TS2305, naming the type), adds
+ * no error from node_modules on this project's own contracts, and costs about
+ * 0.3 s to about 1.2 s per comparison.
+ *
+ * One consequence of both choices: a type the newer surface no longer names is
+ * reported by the SUB-APP half, because that is the file that imports it.
+ * tsc's output names the type.
+ */
+export async function directionFrom(older: Surface, newer: Surface): Promise<Direction> {
+  const dir = join(DIRECTION_WORK, `${hashSurface(older)}-${hashSurface(newer)}`);
+  await rm(dir, { recursive: true, force: true });
+  const started = Bun.nanoseconds();
+
+  for (const [side, surface] of [
+    ["old", older],
+    ["new", newer],
+  ] as const) {
+    for (const s of SURFACE) await Bun.write(join(dir, side, s.file), surface[s.file]);
+  }
+
+  const probes: Record<Half, string> = {
+    shell:
+      "// Sub-apps CONSUME this API, so the newer surface must provide at least\n" +
+      "// what the older one declared.\n" +
+      'import * as newer from "@pointer/shell";\n' +
+      'export const provides: typeof import("../old/shell") = newer;\n',
+    subapp:
+      "// A sub-app PRODUCES this, so one built against the older surface must\n" +
+      "// still satisfy the newer type. The TYPE is named: the module shape of\n" +
+      "// subapp.d.ts is empty, and every SubApp passes against an empty shape.\n" +
+      'import type { SubApp as Newer } from "@pointer/subapp";\n' +
+      'import type { SubApp as Older } from "../old/subapp";\n' +
+      "declare const built: Older;\n" +
+      "export const accepted: Newer = built;\n",
+  };
+
+  const halves = await Promise.all(
+    (Object.keys(probes) as Half[]).map(async (half) => {
+      await Bun.write(join(dir, "probe", `${half}.ts`), probes[half]);
+      const config = {
+        extends: resolve("tsconfig.json"),
+        compilerOptions: {
+          noEmit: true,
+          // See above. The type-only half of the surface is invisible without
+          // this, and nothing in node_modules objects to being checked.
+          skipLibCheck: false,
+          // A probe needs the lib types and whatever the two surfaces import.
+          // It needs no ambient package, and with skipLibCheck off, loading
+          // one means checking it.
+          types: [],
+          baseUrl: resolve("."),
+          paths: {
+            "@pointer/shell": [resolve(dir, "new", "shell.d.ts")],
+            "@pointer/subapp": [resolve(dir, "new", "subapp.d.ts")],
+          },
+        },
+        include: [],
+        files: [resolve(dir, "probe", `${half}.ts`)],
+      };
+      const configPath = join(dir, `tsconfig-${half}.json`);
+      await Bun.write(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      const result = await runTsc(configPath);
+      // The scratch path is noise in a reading a person has to act on, and it
+      // is a directory that no longer exists by the time they read it. What
+      // matters is which side each type came from, so leave "old/shell" and
+      // "new/subapp" and take the rest away.
+      const output = result.output.split(`${resolve(dir)}/`).join("").split(`${dir}/`).join("");
+      return { half, ok: result.ok, output };
+    }),
+  );
+
+  await rm(dir, { recursive: true, force: true });
+
+  return {
+    additive: halves.every((h) => h.ok),
+    halves,
+    ms: Math.round((Bun.nanoseconds() - started) / 1e6),
+  };
+}
+
+/**
+ * The reading, for a person.
+ *
+ * A warning and never a refusal. A breaking change is a legitimate thing to
+ * mint; the promote's intersection rule is what stops it reaching a channel.
+ */
+export function renderDirection(record: ContractRecord, direction: Direction): string {
+  const head = `${record.hash} ${record.name}`;
+  if (direction.additive) return `${head}: additive. Nothing published against it breaks.`;
+  const lines = [`${head}: NOT additive.`];
+  for (const half of direction.halves) {
+    if (half.ok) continue;
+    lines.push(`  ${WHO[half.half]}:`);
+    for (const l of half.output.split("\n")) lines.push(`    ${l}`);
   }
   return lines.join("\n");
 }

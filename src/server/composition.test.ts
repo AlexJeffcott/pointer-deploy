@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
   HISTORY_DEPTH,
+  blockRefusal,
   chooseContract,
   compose,
+  compositionRefusal,
   currentIds,
+  decidesMembers,
   historyUrl,
+  memberRefusal,
   optionsFor,
   parseHistory,
   refuseComposition,
   sharedContracts,
   type ChannelHistory,
+  type UnitSurface,
 } from "./composition.ts";
 import type { ComposedUnit, ManifestV3 } from "./manifest.ts";
 
@@ -235,6 +240,97 @@ describe("parseHistory", () => {
   });
 });
 
+// §11. The other boundary: the server writes three JSON blocks and the shell
+// reads part of them, and the two are separate deploys. Only a running server
+// can compare them, so this rule is not in `compositionRefusal`.
+describe("the block gate", () => {
+  const WRITES = {
+    "VersionOption.live": "l1",
+    "VersionOption.unitId": "u1",
+    "AppAssets.js": "j1",
+  };
+
+  test("a shell reading only what this server writes is served", () => {
+    expect(blockRefusal(WRITES, { blocks: { "VersionOption.live": "l1" } })).toBeNull();
+  });
+
+  test("a field this server does not write refuses, and names it", () => {
+    const refusal = blockRefusal(WRITES, { blocks: { "VersionOption.deployed": "d1" } });
+    expect(refusal).toContain("VersionOption.deployed");
+    expect(refusal).toContain("does not write");
+  });
+
+  test("a field this server writes differently refuses", () => {
+    const refusal = blockRefusal(WRITES, { blocks: { "VersionOption.live": "l2" } });
+    expect(refusal).toContain("writes differently");
+  });
+
+  // Every shell published before §11, including the one whose rename
+  // demonstrated the problem. It cannot say what it reads, so nothing may be
+  // concluded - which is why the renamed field is still written.
+  test("a shell that records nothing cannot be judged", () => {
+    expect(blockRefusal(WRITES, {})).toBeUndefined();
+    expect(blockRefusal(WRITES, undefined)).toBeUndefined();
+  });
+
+  test("a server with no reading of its own judges nothing", () => {
+    expect(blockRefusal({}, { blocks: { "VersionOption.live": "l1" } })).toContain("does not write");
+    expect(blockRefusal({}, {})).toBeUndefined();
+  });
+
+  test("the switcher greys out a shell this server cannot feed", () => {
+    const history: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          { unit: unit("shell", "s2"), contracts: ["c1"], surface: { blocks: { "VersionOption.live": "l1" } } },
+          { unit: unit("shell", "s1"), contracts: ["c1"], surface: { blocks: { "VersionOption.deployed": "d1" } } },
+          { unit: unit("shell", "s0"), contracts: ["c1"] },
+        ],
+      },
+    };
+    const options = optionsFor(history, { shell: "s2" }, { shell: "s2" }, WRITES);
+    const by = (id: string) => options.shell!.find((o) => o.unitId === id)!;
+    expect(by("s2").disabled).toBe(false);
+    expect(by("s1").disabled).toBe(true);
+    // Records nothing, so it is offered: the append-only rule is what protects
+    // this one, and a guess would take away a rollback that works.
+    expect(by("s0").disabled).toBe(false);
+  });
+});
+
+describe("parseHistory carries the member reading", () => {
+  test("keeps a surface when the entry has one", () => {
+    const parsed = parseHistory({
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          {
+            unit: { unitId: "s1" },
+            contracts: ["c1"],
+            surface: { provides: { "ShellStore.user": "u1" }, subapps: ["sub1"] },
+          },
+        ],
+      },
+    });
+    expect(parsed.units.shell![0]!.surface).toEqual({
+      provides: { "ShellStore.user": "u1" },
+      subapps: ["sub1"],
+    });
+  });
+
+  test("leaves it absent when the entry has none", () => {
+    const parsed = parseHistory({
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: { shell: [{ unit: { unitId: "s1" }, contracts: ["c1"] }] },
+    });
+    expect(parsed.units.shell![0]!.surface).toBeUndefined();
+  });
+});
+
 describe("optionsFor", () => {
   test("marks what the page shows and what the channel serves now", () => {
     const options = optionsFor(history, served, served);
@@ -340,6 +436,154 @@ describe("refuseComposition", () => {
     expect(refuseComposition(history, { ...served, shell: "s0" })).toBe(
       "no contract is supported by every unit in that composition",
     );
+  });
+});
+
+
+// §9. The gate an operator actually needs: does this app need anything this
+// shell does not have. The contract sets below are DISJOINT throughout, which
+// is the state a published app reaches the moment a contract is minted after
+// it - and the old rule refused every one of these.
+describe("the member gate", () => {
+  const HALF = "sub1";
+
+  const shell = (provides: Record<string, string>, subapps = [HALF]): UnitSurface => ({
+    provides,
+    subapps,
+  });
+  const app = (uses: Record<string, string>, subapps = [HALF]): UnitSurface => ({ uses, subapps });
+
+  /** Eight members, of which alpha calls three and bravo calls four. */
+  const FULL = {
+    "ShellStore.user": "u1",
+    "ShellStore.register": "r1",
+    "ShellStore.increment": "i1",
+    "ShellStore.countOf": "c1",
+    "ShellStore.reset": "x1",
+    "ShellStore.setName": "n1",
+    "ShellStore.setColour": "o1",
+    "ShellStore.snapshot": "s1",
+  };
+  const ALPHA = { "ShellStore.user": "u1", "ShellStore.register": "r1", "ShellStore.increment": "i1" };
+  const BRAVO = { ...ALPHA, "ShellStore.reset": "x1" };
+
+  const DISJOINT = { shell: ["c9"], alpha: ["c1"], bravo: ["c1"] };
+  const surfaces = (provides: Record<string, string>) => ({
+    shell: shell(provides),
+    alpha: app(ALPHA),
+    bravo: app(BRAVO),
+  });
+
+  test("a member added changes nothing", () => {
+    const grown = { ...FULL, "ShellStore.clear": "z1" };
+    expect(compositionRefusal(DISJOINT, surfaces(grown))).toBeNull();
+  });
+
+  test("a member removed that no app uses changes nothing", () => {
+    const { "ShellStore.setName": _gone, ...smaller } = FULL;
+    expect(compositionRefusal(DISJOINT, surfaces(smaller))).toBeNull();
+  });
+
+  test("a member removed that one app uses refuses, and names both", () => {
+    const { "ShellStore.reset": _gone, ...smaller } = FULL;
+    const refusal = compositionRefusal(DISJOINT, surfaces(smaller));
+    expect(refusal).toContain("bravo");
+    expect(refusal).toContain("ShellStore.reset");
+    expect(refusal).not.toContain("alpha");
+  });
+
+  // The case a list of member NAMES would miss. A narrowed parameter keeps the
+  // name and changes the declaration, so the digest moves.
+  test("a re-declared member refuses only the apps that name it", () => {
+    const narrowed = { ...FULL, "ShellStore.reset": "x2" };
+    const refusal = compositionRefusal(DISJOINT, surfaces(narrowed));
+    expect(refusal).toContain("bravo");
+    expect(refusal).toContain("declares differently");
+    expect(refusal).not.toContain("alpha");
+  });
+
+  test("a re-declared member no app uses changes nothing", () => {
+    expect(compositionRefusal(DISJOINT, surfaces({ ...FULL, "ShellStore.setName": "n2" }))).toBeNull();
+  });
+
+  // The half a sub-app PRODUCES. Nothing about `uses` can see it, because the
+  // shell requires all of it rather than part of it.
+  test("a different SubApp half refuses even when every member fits", () => {
+    const refusal = compositionRefusal(DISJOINT, {
+      shell: shell(FULL, ["sub2"]),
+      alpha: app(ALPHA),
+      bravo: app(BRAVO),
+    });
+    expect(refusal).toContain("alpha");
+    expect(refusal).toContain("SubApp");
+  });
+
+  test("the contract sets decide when the shell carries no reading", () => {
+    expect(compositionRefusal(DISJOINT, { shell: {}, alpha: app(ALPHA), bravo: app(BRAVO) })).toBe(
+      "no contract is supported by every unit in that composition",
+    );
+  });
+
+  // Rolling back onto a unit published before any of this existed has to go on
+  // working, and it is judged the only way it can be.
+  test("an app with no reading falls back to the contract sets", () => {
+    const mixed = { shell: shell(FULL), alpha: app(ALPHA), bravo: undefined };
+    expect(compositionRefusal({ shell: ["c9"], alpha: ["c1"], bravo: ["c9"] }, mixed)).toBeNull();
+    expect(compositionRefusal(DISJOINT, mixed)).toBe(
+      "no contract is supported by every unit in that composition",
+    );
+  });
+
+  test("memberRefusal cannot answer without both sides", () => {
+    expect(memberRefusal({ shell: shell(FULL) })).toBeUndefined();
+    expect(memberRefusal({ shell: {}, alpha: app(ALPHA) })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), alpha: app(ALPHA) })).toBeNull();
+  });
+
+  test("decidesMembers needs all four fields", () => {
+    expect(decidesMembers(shell(FULL), app(ALPHA))).toBe(true);
+    expect(decidesMembers({ provides: FULL }, app(ALPHA))).toBe(false);
+    expect(decidesMembers(shell(FULL), { uses: ALPHA })).toBe(false);
+    expect(decidesMembers(undefined, app(ALPHA))).toBe(false);
+  });
+
+  // The switcher greys an option out with the rule `promote` refuses on. If the
+  // two ever part, the control lies about what an operator could deploy.
+  test("the switcher offers what promote would allow", () => {
+    const { "ShellStore.setName": _gone, ...smaller } = FULL;
+    const withSurfaces: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          { unit: unit("shell", "s2"), contracts: ["c9"], surface: shell(smaller) },
+          { unit: unit("shell", "s1"), contracts: ["c1"], surface: shell(FULL) },
+        ],
+        bravo: [{ unit: unit("bravo", "b0"), contracts: ["c1"], surface: app(BRAVO) }],
+      },
+    };
+    const options = optionsFor(withSurfaces, { shell: "s2", bravo: "b0" }, { shell: "s2", bravo: "b0" });
+    // b0 uses reset, s2 still has it, and their contract sets share nothing.
+    expect(options.shell!.find((o) => o.unitId === "s2")!.disabled).toBe(false);
+    expect(options.shell!.find((o) => o.unitId === "s1")!.disabled).toBe(false);
+  });
+
+  test("the switcher greys out a shell that dropped a member in use", () => {
+    const { "ShellStore.reset": _gone, ...noReset } = FULL;
+    const withSurfaces: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          { unit: unit("shell", "s2"), contracts: ["c9"], surface: shell(noReset) },
+          { unit: unit("shell", "s1"), contracts: ["c9"], surface: shell(FULL) },
+        ],
+        bravo: [{ unit: unit("bravo", "b0"), contracts: ["c9"], surface: app(BRAVO) }],
+      },
+    };
+    const options = optionsFor(withSurfaces, { shell: "s1", bravo: "b0" }, { shell: "s1", bravo: "b0" });
+    expect(options.shell!.find((o) => o.unitId === "s2")!.disabled).toBe(true);
+    expect(options.shell!.find((o) => o.unitId === "s1")!.disabled).toBe(false);
   });
 });
 
