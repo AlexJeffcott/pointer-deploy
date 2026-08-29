@@ -226,6 +226,16 @@ describe("what a browser needs before it hands over a body", () => {
   });
 });
 
+// The document and the routes are one fact, not two. A service that advertised
+// v2 and went on answering v1 would make the server's gate judge a claim, and
+// the page would work while the gate said it could not.
+test("the routes it answers are exactly the versions it advertises", async () => {
+  for (const v of SERVES) {
+    expect((await handle(get(`/${v}/user`), createState())).status).toBe(200);
+  }
+  expect((await handle(get("/v0/user"), createState())).status).toBe(404);
+});
+
 test("a path this service does not answer is a 404, not a guess", async () => {
   const res = await handle(get("/v2/user"), createState());
   expect(res.status).toBe(404);

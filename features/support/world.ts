@@ -205,6 +205,9 @@ export class PointerWorld {
   stub: StubStore | null = null;
   server: ReturnType<typeof Bun.spawn> | null = null;
   serverPort = 0;
+  /** §13. The service this scenario started, and where it is listening. */
+  service: ReturnType<typeof Bun.spawn> | null = null;
+  serviceBase = "";
   /** True while this process is serving the real store on 127.0.0.1. */
   localServer = false;
 
@@ -235,6 +238,50 @@ export class PointerWorld {
       MANIFEST_TTL_MS: String(LOCAL_TTL_MS),
       MANIFEST_TIMEOUT_MS: "3000",
     });
+  }
+
+  /**
+   * The real service, started here, answering the versions named. §13.
+   *
+   * The service itself and not a stub: what is being demonstrated is a party
+   * with its own deploy schedule, and a stand-in written in this repository
+   * would be a party with THIS one's. Which versions it answers comes from its
+   * environment, which is how a deploy expresses that anyway.
+   *
+   * The server is then restarted pointing at it, because a server reads
+   * API_BASE once at startup - like the image it is.
+   */
+  async startServiceAndServer(serves: string): Promise<void> {
+    const proc = Bun.spawn(["bun", "api/index.ts"], {
+      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", PORT: "0", API_SERVES: serves },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    this.service = proc;
+
+    const reader = proc.stdout.getReader();
+    const deadline = Date.now() + 10_000;
+    let buffered = "";
+    while (Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffered += new TextDecoder().decode(value);
+      const m = /listening on http:\/\/[^:]+:(\d+)/.exec(buffered);
+      if (m) {
+        this.serviceBase = `http://127.0.0.1:${m[1]}`;
+        reader.releaseLock();
+        this.server?.kill();
+        this.stub ??= await startStubStore();
+        await this.spawnServer({
+          MANIFEST_BASE: this.stub.manifestBase,
+          MANIFEST_TTL_MS: String(LOCAL_TTL_MS),
+          MANIFEST_TIMEOUT_MS: "3000",
+          API_BASE: this.serviceBase,
+        });
+        return;
+      }
+    }
+    throw new Error(`the service did not start. Output so far:\n${buffered}`);
   }
 
   /**
@@ -299,8 +346,11 @@ export class PointerWorld {
 
   async stopLocal(): Promise<void> {
     this.server?.kill();
+    this.service?.kill();
     await this.stub?.stop();
     this.server = null;
+    this.service = null;
+    this.serviceBase = "";
     this.stub = null;
     this.localServer = false;
   }

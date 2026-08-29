@@ -11,8 +11,21 @@
 // a service that stored nothing still deploys on its own schedule, which is the
 // dimension being added.
 
-/** Every version of the API this build answers. The service's own surface. */
-export const SERVES = ["v1"] as const;
+/**
+ * Every version this deploy answers. The service's own surface.
+ *
+ * From the environment, because which versions a service answers is a property
+ * of the DEPLOY rather than of the source: dropping v1 is a thing an operator
+ * does on a Tuesday, and the shells in a channel's history were published long
+ * before that Tuesday. That is the whole fourth schedule, in one variable.
+ *
+ * The routes below are gated on this list, so the discovery document cannot
+ * claim one thing while the service answers another.
+ */
+export const SERVES: string[] = (Bun.env.API_SERVES ?? "v1")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
 
 export type ApiUser = { name: string; colour: string };
 export type ApiState = { user: ApiUser; counters: Record<string, number> };
@@ -78,7 +91,15 @@ export async function handle(req: Request, state: ApiState): Promise<Response> {
   // behind a version.
   if (pathname === "/versions") return json({ serves: [...SERVES] });
 
-  if (pathname === "/v1/user") {
+  // Every route below belongs to one version, and a version this deploy does
+  // not answer is not a route here at all. Without this the document could say
+  // v2 while the service went on answering v1, and the gate that reads the
+  // document would be judging a claim rather than the service.
+  const route = /^\/([^/]+)\/(.*)$/.exec(pathname);
+  if (!route || !SERVES.includes(route[1]!)) return json({ error: "not found" }, 404);
+  const rest = `/${route[2]}`;
+
+  if (rest === "/user") {
     if (req.method === "GET") return json(state.user);
     if (req.method === "POST") {
       const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -96,12 +117,12 @@ export async function handle(req: Request, state: ApiState): Promise<Response> {
     return json({ error: "method not allowed" }, 405);
   }
 
-  if (pathname === "/v1/counters") {
+  if (rest === "/counters") {
     if (req.method === "GET") return json(state.counters);
     return json({ error: "method not allowed" }, 405);
   }
 
-  const counter = /^\/v1\/counters\/([^/]+)$/.exec(pathname);
+  const counter = /^\/counters\/([^/]+)$/.exec(rest);
   if (counter) {
     const ns = decodeURIComponent(counter[1]!);
     if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
