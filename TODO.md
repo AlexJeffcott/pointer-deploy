@@ -231,6 +231,17 @@ during the 2026-08-28 occurrence. So this is a mechanism that existed and
 produced exactly that reading, and not a diagnosis of that failure. The item
 stays open, and it closes on the next occurrence rather than on this change.
 
+**Deployed, and the run after it is green.** Image version 12 on 2026-08-29 at
+10:59Z, then `verify:live` 36 of 36 in 10.3 min, propagation 8634 and 7808 ms of
+15000. The machine logged no failed refresh.
+
+The attempt before that one is NOT evidence, and it must not be read as this
+item's intermittent. Five scenarios failed on THIS machine's resolver:
+`curl: (28) Resolving timed out`, with name lookup here measuring 169 ms a
+minute later and every origin answering `refresh: ok` at an age of 129 ms and
+346 ms. That run was also killed at 12 minutes, before Playwright printed its
+failure detail, so no other cause was ever named.
+
 The in-flight reading the item asked for is NOT being built. With the deadline
 in place no entry can stay in flight past 2 x `timeoutMs`, so a "refresh in
 flight since" header could only ever report a number under 6 s, and the age
