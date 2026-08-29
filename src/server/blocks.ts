@@ -64,6 +64,16 @@ export type BuildInfo = {
   /** Schema 3 only. Every unit in the composition, and the contract it ran at. */
   units?: Record<string, { unitId: string; commit: string; marker: string }>;
   contract?: string;
+  /**
+   * Where the service lives, §13. Absent when this server is configured with
+   * none, and the page then runs on its own values.
+   *
+   * This is the field that made `BuildInfo` a block the SHELL reads. Every
+   * other field here is read by a person or by the harness, so the shell used
+   * to record nothing about this block at all - and adding it is what puts
+   * `BuildInfo` under the same serve-time gate the other two blocks are under.
+   */
+  apiBase?: string;
 };
 
 /** What the shell's loader is told about one sub-app. */

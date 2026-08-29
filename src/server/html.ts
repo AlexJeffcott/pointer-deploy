@@ -8,9 +8,13 @@ import type { Target } from "./origins.ts";
 // Re-exported so the shape has one declaration and its readers keep one import.
 export type { AppAssets, BuildInfo } from "@pointer/blocks";
 
-export function buildInfo(m: Manifest, target: Target): BuildInfo {
+export function buildInfo(m: Manifest, target: Target, apiBase = ""): BuildInfo {
+  // Absent rather than empty. A field carrying "" would still be a field the
+  // shell reads, and a server with no service configured writes nothing.
+  const api = apiBase ? { apiBase } : {};
   if (m.schema === 3) {
     return {
+      ...api,
       buildId: m.shell.unitId,
       commit: m.shell.commit,
       publishedAt: m.composedAt,
@@ -26,6 +30,7 @@ export function buildInfo(m: Manifest, target: Target): BuildInfo {
     };
   }
   return {
+    ...api,
     buildId: m.buildId,
     commit: m.commit,
     publishedAt: m.publishedAt,
@@ -312,6 +317,8 @@ export function renderShell(
   m: Manifest,
   target: Target,
   versions?: Record<string, VersionOption[]>,
+  /** §13. Where the page finds the service, or "" for a server with none. */
+  apiBase = "",
 ): string {
   const { js, css } = assetUrls(m);
   const apps = appUrls(m);
@@ -343,7 +350,7 @@ export function renderShell(
   </head>
   <body>
     <div id="app"></div>
-    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target))}</script>${appsTag}${versionsTag}
+    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target, apiBase))}</script>${appsTag}${versionsTag}
     <script type="module" src="${attr(js)}"${sri(digest.js)}></script>${preloadLinks(m)}
   </body>
 </html>
@@ -354,8 +361,9 @@ export function shellResponse(
   m: Manifest,
   target: Target,
   versions?: Record<string, VersionOption[]>,
+  apiBase = "",
 ): Response {
-  return new Response(renderShell(m, target, versions), {
+  return new Response(renderShell(m, target, versions, apiBase), {
     headers: {
       "content-type": "text/html; charset=utf-8",
       // Not optional. An edge cache that stores this serves one visitor's

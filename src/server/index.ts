@@ -24,6 +24,9 @@ import { blocksWritten } from "./provides.ts";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const MANIFEST_BASE = Bun.env.MANIFEST_BASE ?? "";
+// §13. The service is a separate deploy and this server only tells the page
+// where it is. Unset is a working state: the page then runs on its own values.
+const API_BASE = Bun.env.API_BASE ?? "";
 const IS_PRODUCTION = Bun.env.NODE_ENV === "production";
 
 if (!MANIFEST_BASE) {
@@ -143,7 +146,7 @@ const server = Bun.serve({
     // that is one TTL behind from one that has stopped being refreshed, and
     // the refresh line names the store's own error when there is one.
     const state = manifests.stateOf(url);
-    const res = shellResponse(served, target, versions);
+    const res = shellResponse(served, target, versions, API_BASE);
     res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));
     res.headers.set("x-manifest-refresh", state.lastError ?? "ok");
     // §11. An OVERRIDE this server cannot feed is refused above. The channel's

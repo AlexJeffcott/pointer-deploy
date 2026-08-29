@@ -22,6 +22,7 @@
 //      it arrives. A service that is slow, unreachable or absent costs a
 //      DIFFERENT page, never a blank one.
 
+import type { BuildInfo } from "@pointer/blocks";
 import type { ShellStore } from "./api.ts";
 
 export type ApiUser = { name: string; colour: string };
@@ -67,6 +68,27 @@ export function parseVersions(input: unknown): string[] {
 
 /** The API version this shell is written against. One string, in one place. */
 export const API_VERSION = "v1";
+
+/**
+ * Where the server says the service is, or "" when it named none.
+ *
+ * The ONE field this shell reads out of `__BUILD__`. Every other field in that
+ * block is for a person or for the harness, so before §13 the shell recorded
+ * nothing about it at all - and reading this one is what puts `BuildInfo` under
+ * the same serve-time gate the other two blocks are under.
+ *
+ * An absent block, an unparseable one, or a server with no service configured
+ * are the same answer: the page runs on its own values.
+ */
+export function readApiBase(): string {
+  const el = document.getElementById("__BUILD__");
+  if (!el?.textContent) return "";
+  try {
+    return (JSON.parse(el.textContent) as BuildInfo).apiBase ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export type ServiceClient = {
   user(): Promise<ApiUser>;
