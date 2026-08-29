@@ -106,6 +106,27 @@ const MUTATIONS: Mutation[] = [
     scenario: "A manifest the server cannot trust does not replace a good one",
   },
   {
+    // §13. The third gate, and the only one comparing strings rather than
+    // digests. Removing it serves a shell against a service that cannot answer
+    // the version it calls: the page renders, hydration 404s, and the values
+    // silently come from nowhere. A unit test, not a scenario - reproducing it
+    // live means deploying a service that answers a different version.
+    name: "the API version gate is removed",
+    file: "src/server/composition.ts",
+    find: "  const api = apiRefusal(serves, surfaces.shell);\n  if (typeof api === \"string\") return api;",
+    replace: "  apiRefusal(serves, surfaces.shell);",
+    unitTest: "refuseComposition refuses a chosen shell the service cannot feed",
+  },
+  {
+    // The gate present but blind. It has to compare the SETS, not merely have
+    // been called - and a filter that finds nothing missing allows everything.
+    name: "every version counts as answered",
+    file: "src/server/composition.ts",
+    find: "  const missing = needs.filter((v) => !serves.includes(v));",
+    replace: "  const missing: string[] = [];",
+    unitTest: "the API gate",
+  },
+  {
     // Rule 11. A fetch that answers neither the request nor its own abort
     // leaves the refresh promise pending for the life of the process, so
     // e.inflight stays set and every later request takes the stale path -

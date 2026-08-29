@@ -59,14 +59,14 @@ export function parseCounters(input: unknown): ApiCounters {
   return out;
 }
 
-/** Which versions the service says it answers. */
-export function parseVersions(input: unknown): string[] {
-  const v = obj("versions", input);
-  if (!Array.isArray(v.serves)) field("versions.serves", "is not an array");
-  return (v.serves as unknown[]).map((s, i) => str(`versions.serves[${i}]`, s));
-}
-
-/** The API version this shell is written against. One string, in one place. */
+/**
+ * The API version this shell is written against. One string, in one place.
+ *
+ * `build.ts` reads THIS constant into the shell's `unit.json`, and the running
+ * server compares what is recorded there against what the deployed service says
+ * it answers. The discovery document is parsed by the server rather than here:
+ * the page does not need it, and one reader means one parser.
+ */
 export const API_VERSION = "v1";
 
 /**

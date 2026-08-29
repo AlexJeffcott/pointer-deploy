@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   HISTORY_DEPTH,
+  apiRefusal,
   blockRefusal,
   chooseContract,
   compose,
@@ -340,6 +341,99 @@ describe("the block gate", () => {
     // Records nothing, so it is offered: the append-only rule is what protects
     // this one, and a guess would take away a rollback that works.
     expect(by("s0").disabled).toBe(false);
+  });
+});
+
+// The third gate, §13, and the only one with no compiler behind it. What it
+// compares is version STRINGS: the service's surface is not a TypeScript file,
+// so there is no declaration to take a digest of.
+describe("the API gate", () => {
+  const shell = (api: string[]) => ({ api });
+
+  test("a shell calling a version the service answers is served", () => {
+    expect(apiRefusal(["v1"], shell(["v1"]))).toBeNull();
+    expect(apiRefusal(["v1", "v2"], shell(["v1"]))).toBeNull();
+  });
+
+  test("a version the service does not answer refuses, and names it", () => {
+    expect(apiRefusal(["v2"], shell(["v1"]))).toBe(
+      "that shell calls API v1, which the service does not answer",
+    );
+  });
+
+  test("every version missing is named, not just the first", () => {
+    expect(apiRefusal(["v9"], shell(["v1", "v2"]))).toContain("v1, v2");
+  });
+
+  // A service that answers nothing is a reading and not an absence. Treating it
+  // as undecidable would serve a shell against a service that cannot feed it.
+  test("a service answering no version at all still decides", () => {
+    expect(apiRefusal([], shell(["v1"]))).toContain("does not answer");
+  });
+
+  // Three states that are all "nothing to compare": a shell published before
+  // §13, a server with no service configured, and a discovery document this
+  // process has not read yet. None of them is a refusal.
+  test("nothing can be decided without both sides", () => {
+    expect(apiRefusal(["v1"], {})).toBeUndefined();
+    expect(apiRefusal(["v1"], undefined)).toBeUndefined();
+    expect(apiRefusal(undefined, shell(["v1"]))).toBeUndefined();
+    expect(apiRefusal(undefined, undefined)).toBeUndefined();
+  });
+
+  test("the switcher greys out a shell the service cannot feed", () => {
+    const h: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [
+          { unit: unit("shell", "s2"), contracts: ["c1"], surface: { api: ["v1"] } },
+          { unit: unit("shell", "s1"), contracts: ["c1"], surface: { api: ["v0"] } },
+          { unit: unit("shell", "s0"), contracts: ["c1"] },
+        ],
+      },
+    };
+    const options = optionsFor(h, { shell: "s2" }, { shell: "s2" }, {}, ["v1"]);
+    const by = (id: string) => options.shell!.find((o) => o.unitId === id)!;
+    expect(by("s2").disabled).toBe(false);
+    expect(by("s1").disabled).toBe(true);
+    // Records nothing, so it is offered. The same rule as the block gate: a
+    // guess would take away a rollback that works.
+    expect(by("s0").disabled).toBe(false);
+  });
+
+  // A sub-app never calls the service, so a version reading on one is not this
+  // server's business - and judging it would grey out an option a promote
+  // would allow.
+  test("only the shell is judged on the API", () => {
+    const h: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [{ unit: unit("shell", "s1"), contracts: ["c1"], surface: { api: ["v1"] } }],
+        alpha: [{ unit: unit("alpha", "a1"), contracts: ["c1"], surface: { api: ["v9"] } }],
+      },
+    };
+    const chosen = { shell: "s1", alpha: "a1" };
+    const options = optionsFor(h, chosen, chosen, {}, ["v1"]);
+    expect(options.shell![0]!.disabled).toBe(false);
+    expect(options.alpha![0]!.disabled).toBe(false);
+  });
+
+  test("refuseComposition refuses a chosen shell the service cannot feed", () => {
+    const h: ChannelHistory = {
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: {
+        shell: [{ unit: unit("shell", "s1"), contracts: ["c1"], surface: { api: ["v1"] } }],
+      },
+    };
+    expect(refuseComposition(h, { shell: "s1" }, {}, ["v2"])).toBe(
+      "that shell calls API v1, which the service does not answer",
+    );
+    expect(refuseComposition(h, { shell: "s1" }, {}, ["v1"])).toBeNull();
+    // No reading of the service at all, so this half decides nothing.
+    expect(refuseComposition(h, { shell: "s1" }, {})).toBeNull();
   });
 });
 

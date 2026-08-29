@@ -45,6 +45,15 @@ export type UnitSurface = {
    */
   subapps?: string[];
   /**
+   * The shell: which versions of the external API it calls, §13.
+   *
+   * A SET, like `contracts`, and coarse on purpose: the service's surface is
+   * not a TypeScript file, so there is no declaration to take a digest of. What
+   * can be compared is which versions the shell was written against and which
+   * the deployed service answers.
+   */
+  api?: string[];
+  /**
    * The shell: which fields of the server's JSON blocks it reads, §11.
    *
    * Not part of `memberRefusal`. The other side of this one is the running
@@ -199,6 +208,31 @@ export function blockRefusal(
     else if (held !== digest) problems.push(`that shell reads ${path}, which this server writes differently`);
   }
   return problems.length ? problems.join("; ") : null;
+}
+
+/**
+ * Why this SERVICE cannot feed that shell, or null if it can. §13.
+ *
+ * The third gate, and the one with no compiler behind it. `memberRefusal`
+ * compares digests of declarations because both sides were compiled from one
+ * commit; this compares version STRINGS, because the other party is a service
+ * whose surface no compiler here owns.
+ *
+ * `undefined` when nothing can be decided: a shell published before §13 records
+ * no versions, and a server with no service configured - or one whose first
+ * read of the discovery document has not landed - has nothing to compare with.
+ * Undecidable is not a refusal. The page then runs on its own values, which is
+ * exactly what it did before any of this existed.
+ */
+export function apiRefusal(
+  serves: string[] | undefined,
+  shell: UnitSurface | undefined,
+): string | null | undefined {
+  const needs = shell?.api;
+  if (!needs || !serves) return undefined;
+  const missing = needs.filter((v) => !serves.includes(v));
+  if (missing.length === 0) return null;
+  return `that shell calls API ${missing.join(", ")}, which the service does not answer`;
 }
 
 /** Whether the pair carries enough for the member gate to answer at all. */
@@ -369,6 +403,8 @@ export function optionsFor(
   live: Record<string, string>,
   /** What THIS server writes into its blocks. Absent means the shell half is not judged. */
   provided: Record<string, string> = {},
+  /** §13. What the service answers, or nothing when it could not be read. */
+  serves?: string[],
 ): Record<string, VersionOption[]> {
   const chosenContracts = contractsChosen(history, chosen);
   const chosenSurfaces = surfacesChosen(history, chosen);
@@ -380,6 +416,9 @@ export function optionsFor(
         // §11, and only for the shell: choosing a shell this server cannot feed
         // renders a page whose controls quietly do the wrong thing.
         const blocks = unit === "shell" ? blockRefusal(provided, e.surface) : null;
+        // §13, and shell-only for the same reason: a sub-app never calls the
+        // service, so a version reading on one is not this server's business.
+        const api = unit === "shell" ? apiRefusal(serves, e.surface) : null;
         return {
         unitId: e.unit.unitId,
         marker: e.unit.marker ?? "",
@@ -390,6 +429,7 @@ export function optionsFor(
         // switcher greys out that a promote would allow is the switcher lying.
         disabled:
           typeof blocks === "string" ||
+          typeof api === "string" ||
           compositionRefusal(
             { ...chosenContracts, [unit]: e.contracts },
             { ...chosenSurfaces, [unit]: e.surface },
@@ -406,6 +446,8 @@ export function refuseComposition(
   chosen: Record<string, string>,
   /** What THIS server writes into its blocks. Absent means the shell half is not judged. */
   provided: Record<string, string> = {},
+  /** §13. What the service answers. Absent means that half is not judged. */
+  serves?: string[],
 ): string | null {
   for (const [unit, id] of Object.entries(chosen)) {
     const known = history.units[unit]?.some((e) => e.unit.unitId === id);
@@ -416,6 +458,8 @@ export function refuseComposition(
   const surfaces = surfacesChosen(history, chosen);
   const blocks = blockRefusal(provided, surfaces.shell);
   if (typeof blocks === "string") return blocks;
+  const api = apiRefusal(serves, surfaces.shell);
+  if (typeof api === "string") return api;
   return compositionRefusal(contractsChosen(history, chosen), surfaces);
 }
 

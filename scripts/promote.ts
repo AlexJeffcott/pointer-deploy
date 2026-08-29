@@ -317,7 +317,10 @@ const contractsByUnit: Record<string, string[]> = Object.fromEntries(
 const surfacesByUnit: Record<string, UnitSurface | undefined> = Object.fromEntries(
   UNITS.map((u) => {
     const m = manifests.get(u)!;
-    return [u, { provides: m.provides, uses: m.uses, subapps: m.subapps, blocks: m.blocks }];
+    return [
+      u,
+      { provides: m.provides, uses: m.uses, subapps: m.subapps, blocks: m.blocks, api: m.api },
+    ];
   }),
 );
 

@@ -42,6 +42,7 @@ import {
 import { readBlockMembers, readMembers, renderMembers } from "./scripts/members.ts";
 import { PROVIDES_FILE, blocksProvided, sameProvided } from "./scripts/blocks.ts";
 import { currentSource, type Source } from "./scripts/source.ts";
+import { API_VERSION } from "./src/web/shell/service.ts";
 import { placementProblems } from "./src/web/shell/views.ts";
 
 const OUTDIR = "dist";
@@ -393,6 +394,15 @@ export type UnitRecord = {
    */
   subapps?: string[];
   /**
+   * The shell only: which versions of the external API it calls, §13.
+   *
+   * Declared, not measured. There is nothing to measure against: the service's
+   * surface is not a TypeScript file, so no removal probe can ask the compiler
+   * which parts of it this shell needs. What can be recorded is the version the
+   * shell was written against, and `API_VERSION` is the one place it is named.
+   */
+  api?: string[];
+  /**
    * The shell only: which fields of the server's JSON blocks it reads.
    *
    * Measured by removal, like `uses`. What it is FOR is different: the party on
@@ -433,6 +443,7 @@ const units: Record<string, UnitRecord> = {
     provides: members.provides,
     subapps: subappsOf(matrix.sets.shell),
     blocks: blocksUsed,
+    api: [API_VERSION],
     shared: versions,
     marker: markerFor("shell"),
   },

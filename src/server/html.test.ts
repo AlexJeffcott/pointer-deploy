@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { contentSecurityPolicy, moduleIntegrity, renderShell, shellResponse } from "./html.ts";
+import {
+  buildInfo,
+  contentSecurityPolicy,
+  moduleIntegrity,
+  renderShell,
+  shellResponse,
+} from "./html.ts";
 import type { Manifest, ManifestV3 } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
@@ -67,6 +73,38 @@ describe("a shell manifest", () => {
   test("identifies the build", () => {
     const build = JSON.parse(/id="__BUILD__">(.*?)<\/script>/s.exec(html)![1]!);
     expect(build).toMatchObject({ buildId: "b1", channel: "qa", region: "eu" });
+  });
+});
+
+// §13. The one field of this block the SHELL reads, which is what puts the
+// block under the serve-time gate at all.
+describe("where the page is told the service is", () => {
+  const buildBlock = (page: string) =>
+    JSON.parse(/id="__BUILD__">(.*?)<\/script>/s.exec(page)![1]!) as Record<string, unknown>;
+
+  test("a server with no service configured writes no field", () => {
+    // Absent, not empty. A field carrying "" is still a field the shell reads,
+    // and a shell that read it would call a service at the current origin.
+    expect(buildBlock(renderShell(v2, TARGET))).not.toHaveProperty("apiBase");
+    expect(buildBlock(renderShell(v1, TARGET))).not.toHaveProperty("apiBase");
+    expect(buildInfo(v2, TARGET)).not.toHaveProperty("apiBase");
+  });
+
+  test("a server that names one writes it, under both schemas", () => {
+    expect(buildBlock(renderShell(v2, TARGET, undefined, "https://api.test"))).toMatchObject({
+      apiBase: "https://api.test",
+    });
+    expect(buildBlock(renderShell(v1, TARGET, undefined, "https://api.test"))).toMatchObject({
+      apiBase: "https://api.test",
+    });
+  });
+
+  // The response is what the server actually hands out. renderShell being right
+  // and shellResponse dropping the argument would be invisible above.
+  test("the response carries what the page was rendered with", async () => {
+    const page = await shellResponse(v2, TARGET, undefined, "https://api.test").text();
+    expect(buildBlock(page)).toMatchObject({ apiBase: "https://api.test" });
+    expect(buildBlock(await shellResponse(v2, TARGET).text())).not.toHaveProperty("apiBase");
   });
 });
 

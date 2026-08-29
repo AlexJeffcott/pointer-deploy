@@ -6,6 +6,7 @@
 // application changes.
 
 import {
+  apiRefusal,
   blockRefusal,
   compose,
   currentIds,
@@ -21,6 +22,7 @@ import { createDocumentStore, createManifestStore, manifestUrl } from "./manifes
 import { hostTable, resolveRegion, resolveTarget } from "./origins.ts";
 import { shellResponse } from "./html.ts";
 import { blocksWritten } from "./provides.ts";
+import { apiVersionsUrl, parseApiVersions } from "./apiversions.ts";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const MANIFEST_BASE = Bun.env.MANIFEST_BASE ?? "";
@@ -45,6 +47,14 @@ const histories = createDocumentStore<ChannelHistory>(parseHistory, { label: "hi
 // §11. Read once at startup: it is a property of this image and cannot change
 // while it runs.
 const BLOCKS = await blocksWritten();
+
+// §13, and the opposite case: what the service answers is a property of ANOTHER
+// deploy, so it can change while this process runs and has to be re-read. The
+// same document rules as the manifest - a visitor waits for neither, and an
+// outage costs neither its last good value.
+const apiVersions = API_BASE
+  ? createDocumentStore<string[]>(parseApiVersions, { label: "api versions" })
+  : null;
 
 const text = (body: string, status: number) =>
   new Response(body, {
@@ -103,6 +113,11 @@ const server = Bun.serve({
     // §11. What the shell being served says it reads out of this server's
     // blocks, when the history recorded it.
     let shellSurface: UnitSurface | undefined;
+    // §13. peek, for the reason the history is peeked: a cold read must not
+    // make a visitor wait on a fourth deploy. Nothing yet read is `undefined`,
+    // which every gate below treats as "cannot decide" rather than as a
+    // refusal.
+    const serves = (API_BASE ? apiVersions?.peek(apiVersionsUrl(API_BASE)) : null) ?? undefined;
     if (manifest.schema === 3) {
       // peek, never get. A cold history must not make a visitor wait for the
       // store: without it the page renders exactly as it did before the
@@ -127,11 +142,11 @@ const server = Bun.serve({
         // Validated only when something was actually asked for. A visitor who
         // asked for nothing must never be refused, however stale the history.
         if (overridden) {
-          const refusal = refuseComposition(history, chosen, BLOCKS);
+          const refusal = refuseComposition(history, chosen, BLOCKS, serves);
           if (refusal) return text(`that composition cannot be served: ${refusal}`, 400);
           served = compose(manifest, history, chosen);
         }
-        versions = optionsFor(history, chosen, ids, BLOCKS);
+        versions = optionsFor(history, chosen, ids, BLOCKS, serves);
         shellSurface = surfaceOf(history, "shell", chosen.shell ?? ids.shell ?? "");
       }
     }
@@ -156,6 +171,12 @@ const server = Bun.serve({
     // renaming `deployed` to `live` broke a shell the switcher still offers.
     const blocks = blockRefusal(BLOCKS, shellSurface);
     res.headers.set("x-shell-blocks", blocks === undefined ? "unread" : (blocks ?? "ok"));
+    // §13, in the same idiom again. "unread" here covers three states a reader
+    // has to be able to tell apart from a fit: no service configured, a shell
+    // published before §13, and a discovery document this process has not
+    // managed to read yet.
+    const api = apiRefusal(serves, shellSurface);
+    res.headers.set("x-shell-api", api === undefined ? "unread" : (api ?? "ok"));
     return res;
   },
 
@@ -167,5 +188,5 @@ const server = Bun.serve({
 
 console.log(
   `pointer-deploy listening on http://${server.hostname}:${server.port} ` +
-    `region=${REGION} manifests=${MANIFEST_BASE}`,
+    `region=${REGION} manifests=${MANIFEST_BASE} api=${API_BASE || "none"}`,
 );

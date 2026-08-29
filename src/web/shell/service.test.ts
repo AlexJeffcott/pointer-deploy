@@ -6,7 +6,6 @@ import {
   hydrate,
   parseCounters,
   parseUser,
-  parseVersions,
   serviceBacked,
   type ServiceClient,
 } from "./service.ts";
@@ -61,13 +60,6 @@ describe("what the service sends is checked, not assumed", () => {
     rejects(parseCounters, { alpha: 1, bravo: null }, "counters.bravo");
   });
 
-  test("the discovery document is a list of strings", () => {
-    expect(parseVersions({ serves: ["v1", "v2"] })).toEqual(["v1", "v2"]);
-    expect(parseVersions({ serves: [] })).toEqual([]);
-    rejects(parseVersions, { serves: "v1" }, "versions.serves");
-    rejects(parseVersions, { serves: [1] }, "versions.serves[0]");
-    rejects(parseVersions, {}, "versions.serves");
-  });
 });
 
 describe("the client", () => {

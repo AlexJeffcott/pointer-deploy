@@ -33,6 +33,7 @@ type UnitRecord = {
   uses?: Record<string, string>;
   subapps?: string[];
   blocks?: Record<string, string>;
+  api?: string[];
   shared: Record<string, string>;
   marker: string;
 };
@@ -78,6 +79,14 @@ export type UnitManifest = {
    * the other side is a deployed image rather than a published unit.
    */
   blocks?: Record<string, string>;
+  /**
+   * The shell: which versions of the external API it calls, §13.
+   *
+   * Compared by the running server too, and for a third reason: the party on
+   * the other side is neither an image nor a unit but a separate deploy whose
+   * surface no compiler here owns.
+   */
+  api?: string[];
   shared: Record<string, string>;
   marker: string;
 };
@@ -154,6 +163,7 @@ for (const unit of wanted) {
     ...(built.uses ? { uses: built.uses } : {}),
     ...(built.subapps ? { subapps: built.subapps } : {}),
     ...(built.blocks ? { blocks: built.blocks } : {}),
+    ...(built.api ? { api: built.api } : {}),
     shared: built.shared,
     marker: built.marker,
   };
@@ -189,6 +199,7 @@ for (const unit of wanted) {
       canon(existing.provides) === canon(manifest.provides) &&
       canon(existing.uses) === canon(manifest.uses) &&
       canon(existing.blocks) === canon(manifest.blocks) &&
+      list(existing.api) === list(manifest.api) &&
       list(existing.subapps) === list(manifest.subapps);
     if (sameSet && sameDigests && sameMembers && !upgrade) {
       console.error(`  ${unit.padEnd(width)} ${built.id}  unchanged`);
