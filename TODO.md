@@ -66,8 +66,10 @@ floor before it runs on a schedule.
 
 ### 6. `verify:live` fails intermittently in a full run
 
-Both leads are refuted by measurement, and the lagging hop is named. What is
-left is one unrun experiment.
+Both leads are refuted by measurement, and the lagging hop is named. The
+experiment the item ended on has been run, and it found a mechanism that
+produces exactly the reading the last occurrence gave. The item stays open
+because the next live occurrence, not this fix, is what closes it.
 
 **The store is not the lagging hop.** Overwriting a key and reading it back:
 the new bytes reached a signed GET in 151 ms, a public GET in 305 ms and a
@@ -202,12 +204,37 @@ so `e.inflight` stayed non-null and every later request took the
 stale-while-revalidate path and returned at once - silently, and with `ok`
 beside it, because nothing failed.
 
-The next experiment, and it needs no live failure: make `doFetch` hang past its
-own abort in a unit test and assert the entry still expires. If `e.inflight`
-survives an abort that never rejects, that is the fault and it is fixable here.
-A second reading worth having on the origin: whether a refresh is in flight, and
-since when. `x-manifest-age` cannot say it - `checkedAt` and `fetchedAt` are
-different clocks and the header only carries one.
+**The experiment was run on 2026-08-29, and the mechanism is real.** Three unit
+tests in `src/server/manifest.test.ts`, driving a `fetchImpl` that answers
+neither the request nor its own abort. All three failed against the code as it
+stood:
+
+| What was asserted | What happened |
+| --- | --- |
+| a later read starts a new refresh | it made no request at all, and served the old document |
+| the state names the stuck refresh | `lastError` stayed null |
+| a cold read gives up | it never returned. The test needs a race to fail rather than hang |
+
+So `e.inflight` does survive a fetch that never settles, and one hung request
+freezes an entry for the life of the process with nothing to show for it.
+
+**The fix is a deadline the fetch cannot decline.** `bounded` in `manifest.ts`
+races the whole attempt - the body read and the parse included - against a timer
+at twice `timeoutMs`, which is 6000 ms deployed. The loser is abandoned, never
+cancelled: a late answer is dropped rather than written, because a newer attempt
+owns the entry by then. `AbortSignal.timeout` keeps its job, and at twice the
+budget a fetch that honours it always reports its own error rather than this
+one. Rule 11 in the header, three unit tests and a falsify mutation hold it.
+
+**What this does NOT prove.** Nothing recorded whether a refresh was in flight
+during the 2026-08-28 occurrence. So this is a mechanism that existed and
+produced exactly that reading, and not a diagnosis of that failure. The item
+stays open, and it closes on the next occurrence rather than on this change.
+
+The in-flight reading the item asked for is NOT being built. With the deadline
+in place no entry can stay in flight past 2 x `timeoutMs`, so a "refresh in
+flight since" header could only ever report a number under 6 s, and the age
+beside `lastError` already separates the three causes.
 
 The next failure says which hop it is without another investigation. Every
 shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
@@ -218,6 +245,10 @@ quotes both beside what the store holds:
 | age under the TTL, wrong composition | the store answered with the old document |
 | age far above the TTL, refresh `ok` | the origin stopped refreshing. Rule 9 |
 | a named error | the refresh is failing and the last good build is being kept |
+
+Row 2 is narrower than it was. A refresh that never settles now names itself at
+6 s, so an age far above the TTL with `ok` beside it means the clock and
+nothing else.
 
 Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
 not reproduce and is not explained. Its assertion now carries publish's whole
@@ -260,6 +291,29 @@ moves with the copied bytes. The three ways:
 §9's member gate narrows the question: a member's digest covers the text of its
 declaration, so the vendor gap is now scoped to the members that name a vendor
 type, which is `SubApp` alone.
+
+### 22. Twenty-eight surviving mutants in the newest server code
+
+`bun run mutate` on 2026-08-29: 757 mutants, 729 killed, 28 survived. Two files
+are at 100% and the survivors are all in what the member gate and the blocks
+reading added.
+
+| File | Killed | Survived | Where |
+| --- | --- | --- | --- |
+| `composition.ts` | 251 | 23 | lines 145-234 and 287-402 |
+| `provides.ts` | 0 | 3 | the whole file |
+| `html.ts` | 172 | 2 | lines 288 and 300 |
+
+`provides.ts` is the sharp one. 0 killed of 3 is a file no test reaches at all,
+rather than a file whose tests are weak. It reads
+`src/server/blocks.provides.json`, so a mutant that names the wrong file or
+turns a parse failure into `{}` would make the running server judge every shell
+against an empty set - and the blocks gate would then allow exactly what it was
+built to refuse.
+
+Each of the other 25 has to be read to know which of the README's three kinds it
+is. Only the first kind is chased; the other two are excluded in place, with the
+reason on the line above them.
 
 ### 10. A deprecation dynamic
 

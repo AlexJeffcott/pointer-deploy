@@ -436,6 +436,10 @@ describe("failure", () => {
     });
 
     expect(await store.get(URL_QA)).toBeNull();
+    // Ended by its OWN abort, and not by rule 11's backstop. Without this the
+    // signal can be dropped from the request and nothing notices: the deadline
+    // catches the hang one timeout later and the read still answers null.
+    expect(store.stateOf(URL_QA).lastError).toBe("aborted");
   });
 
   // Rule 6. Without this a dead store is hit once per request.
@@ -453,6 +457,96 @@ describe("failure", () => {
     h.tick(11_000);
     await h.store.get(URL_QA);
     expect(h.state.calls).toBe(2);
+  });
+});
+
+// Rule 11. `AbortSignal.timeout` is the only thing that ends a slow request,
+// and a fetch that does not honour it leaves the refresh promise pending for
+// as long as the process lives. Nothing failed, so `lastError` stays null and
+// `checkedAt` never advances: every later request finds `e.inflight` set,
+// takes the stale path and returns at once. The origin then serves a
+// superseded composition and reports its last refresh ok, which is the state a
+// live origin was read in on 2026-08-28 - 27464 ms behind its channel against
+// a 10 s TTL, with `lastError` null.
+describe("a refresh that never settles", () => {
+  /**
+   * A store whose fetch answers neither the request nor its own abort while
+   * `hang` is set.
+   *
+   * The clock stays fake, because the TTL is measured on it. The deadline is
+   * measured on the REAL one, so every wait below is a real sleep.
+   */
+  function stuck(timeoutMs = 20) {
+    const state = { clock: 1_000_000, calls: 0, hang: false, id: "alpha" };
+    const store = createManifestStore({
+      ttlMs: 10_000,
+      timeoutMs,
+      now: () => state.clock,
+      onWarn: () => {},
+      fetchImpl: (async () => {
+        state.calls++;
+        if (state.hang) return new Promise<Response>(() => {});
+        return Response.json(doc(state.id));
+      }) as unknown as typeof fetch,
+    });
+    return { store, state, tick: (ms: number) => (state.clock += ms) };
+  }
+
+  // The fault itself, in the one form that is observable: how many times the
+  // store goes to the network. Without the deadline the third read makes no
+  // request at all and the entry keeps serving alpha for ever.
+  test("the entry is refreshed again once the deadline has passed", async () => {
+    const h = stuck();
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(1);
+
+    h.state.hang = true;
+    h.tick(11_000);
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha"); // Rule 2.
+    expect(h.state.calls).toBe(2);
+
+    await Bun.sleep(60); // Past 2 x timeoutMs, on the clock the deadline uses.
+
+    h.state.hang = false;
+    h.state.id = "bravo";
+    h.tick(11_000);
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha"); // Still rule 2.
+    expect(h.state.calls).toBe(3);
+    await settle();
+    expect(idOf(await h.store.get(URL_QA))).toBe("bravo");
+  });
+
+  // Rule 10, on the entry this rule exists for. An operator reading the
+  // response gets the mechanism named rather than a green refresh beside a
+  // wrong page.
+  test("the abandoned refresh is named, and the age goes on growing", async () => {
+    const h = stuck();
+    await h.store.get(URL_QA);
+
+    h.state.hang = true;
+    h.tick(11_000);
+    await h.store.get(URL_QA);
+    // In flight. Nothing has failed yet, and reporting a failure here would
+    // name every slow refresh a broken one.
+    expect(h.store.stateOf(URL_QA).lastError).toBeNull();
+
+    await Bun.sleep(60);
+    const state = h.store.stateOf(URL_QA);
+    expect(state.lastError).toContain("did not answer");
+    expect(state.ageMs).toBe(11_000);
+  });
+
+  // Rule 3, for the fetch a rejecting one cannot stand in for. The race is
+  // what makes a regression FAIL here: without it the read never returns and
+  // the runner hangs on its own timeout with nothing named.
+  test("a cold read gives up even when the abort is ignored", async () => {
+    const h = stuck();
+    h.state.hang = true;
+    const answer = await Promise.race([
+      h.store.get(URL_QA),
+      Bun.sleep(500).then(() => "still waiting" as const),
+    ]);
+    expect(answer).toBeNull();
   });
 });
 

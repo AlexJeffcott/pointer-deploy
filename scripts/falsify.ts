@@ -101,9 +101,21 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/manifest.ts",
     // The cache is generic over its parser now, so the mutation drops the
     // parser rather than naming one.
-    find: "      e.value = parse(await res.json());",
-    replace: "      e.value = (await res.json()) as T;",
+    find: "    return parse(await res.json());",
+    replace: "    return (await res.json()) as T;",
     scenario: "A manifest the server cannot trust does not replace a good one",
+  },
+  {
+    // Rule 11. A fetch that answers neither the request nor its own abort
+    // leaves the refresh promise pending for the life of the process, so
+    // e.inflight stays set and every later request takes the stale path -
+    // silently, with the last refresh still stamped ok. A unit test, not a
+    // scenario: no store can be made to hang and ignore an abort on demand.
+    name: "the refresh deadline is removed",
+    file: "src/server/manifest.ts",
+    find: "  const deadlineMs = timeoutMs * 2;",
+    replace: "  const deadlineMs = 2_147_483_647;",
+    unitTest: "never settles",
   },
   {
     // The TTL over a wall clock. A machine resumed from a snapshot can come

@@ -679,6 +679,18 @@ comparison; the reading is what makes it diagnosable next time.
 
 `scripts/probe-resume-skew.ts` measures both, and suspends the machine to do it.
 
+The second row had a second cause, and it was found by making the fetch hang
+rather than by waiting for the fault. `refresh` awaits `doFetch` under
+`AbortSignal.timeout`, and a fetch that does not honour its abort never settles:
+`e.inflight` stays set, every later request finds a refresh already in flight,
+takes the stale path and returns at once. The entry is then frozen for the life
+of the process - and nothing failed, so `x-manifest-refresh` still reads `ok`.
+`bounded` is the backstop: the whole attempt races a timer at twice the
+timeout, 6 s deployed, after which it is abandoned and `lastError` names it.
+Whether the live occurrence on 2026-08-28 had this cause is NOT established -
+nothing recorded whether a refresh was in flight - so what is fixed is a
+mechanism that produced exactly that reading.
+
 ## Choosing which build the page runs
 
 An operator can run an older unit on a channel without promoting it, and see
@@ -932,12 +944,25 @@ because each answers a question the other cannot. Measured, not argued: making
 reddens the @test-channel copies and leaves the deployed copies green.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
-mutates operators and literals in the pure logic — 417 mutants, 0 survivors,
-across all three files. It found a real gap: every entry in `FLY_TO_REGION`
+mutates operators and literals in the pure logic. It found a real gap: every entry in `FLY_TO_REGION`
 returned `"eu"`, the same as the fallback, so deleting the lookup left every
 test green. **`falsify.ts`** makes the architectural changes Stryker cannot
 generate — removing single-flight, making the health check read the manifest,
 unsharing the store. Neither replaces the other.
+
+Measured on 2026-08-29, `bun run mutate`, 757 mutants, 729 killed:
+
+| File | Killed | Survived |
+| --- | --- | --- |
+| `manifest.ts` | 264 | 0 |
+| `origins.ts` | 42 | 0 |
+| `html.ts` | 172 | 2 |
+| `composition.ts` | 251 | 23 |
+| `provides.ts` | 0 | 3 |
+
+This section used to claim 0 survivors across all files. That was true of three
+files at 417 mutants, and the member gate and the blocks reading were written
+after it. TODO's §22 carries the 28.
 
 A survivor is one of three things, and only the first is chased:
 

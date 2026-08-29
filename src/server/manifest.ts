@@ -19,6 +19,8 @@
 //  10. Every entry can say how old its manifest is and what its last refresh
 //      said, so an origin serving a superseded composition can be read as
 //      doing so rather than guessed at.
+//  11. A refresh that never settles is abandoned, so a fetch that answers
+//      neither the request nor its own abort cannot freeze an entry.
 
 type Common = {
   buildId: string;
@@ -312,6 +314,33 @@ export function createManifestStore(options: StoreOptions = {}): ManifestStore {
   return createDocumentStore(parseManifest, options);
 }
 
+/**
+ * `p`, or a rejection at `ms`, whichever comes first. Rule 11.
+ *
+ * The backstop for a promise that never settles. `AbortSignal.timeout` is the
+ * mechanism that ends a slow request; this is what ends one the mechanism did
+ * not. A refresh left pending keeps `e.inflight` set for the life of the
+ * process, so every later request takes the stale path and returns at once -
+ * the entry frozen, its last refresh still stamped ok, and nothing failing.
+ *
+ * The loser is abandoned, never cancelled. A late answer is dropped rather
+ * than written, because by then a newer attempt owns the entry - and it needs
+ * no catch of its own: `Promise.race` subscribes to both arguments, so a
+ * rejection arriving after the race has settled is already handled and cannot
+ * reach the process as an unhandled one.
+ */
+function bounded<V>(p: Promise<V>, ms: number, message: string): Promise<V> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bell = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  // Stryker disable next-line ArrowFunction: housekeeping, and unreachable by a
+  // test. An uncleared timer fires late and rejects a promise the race is
+  // already subscribed to and has already settled, so nothing observable
+  // changes - only that the process holds one timer per refresh until it fires.
+  return Promise.race([p, bell]).finally(() => clearTimeout(timer));
+}
+
 export function createDocumentStore<T>(
   parse: (input: unknown) => T,
   options: StoreOptions = {},
@@ -319,6 +348,13 @@ export function createDocumentStore<T>(
   const label = options.label ?? "manifest";
   const ttlMs = options.ttlMs ?? Number(Bun.env.MANIFEST_TTL_MS ?? 10_000);
   const timeoutMs = options.timeoutMs ?? Number(Bun.env.MANIFEST_TIMEOUT_MS ?? 3_000);
+  // Rule 11's budget. Twice the timeout, so a fetch that DOES honour its abort
+  // always reports its own error and this one names only the case it exists
+  // for. Any multiplier at or above one keeps every rule; two is a choice.
+  // Stryker disable next-line ArithmeticOperator: the number is not behaviour.
+  // That the attempt is bounded at all is, and "a refresh that never settles"
+  // holds it.
+  const deadlineMs = timeoutMs * 2;
   const doFetch = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   // Stryker disable next-line ArrowFunction: the default sink is console. Which
@@ -336,19 +372,30 @@ export function createDocumentStore<T>(
     return e;
   };
 
+  /** One attempt, request to parsed document. Bounded by its caller, not here. */
+  async function fetchDocument(url: string): Promise<T> {
+    const res = await doFetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      // Stryker disable next-line ObjectLiteral,StringLiteral: courtesy.
+      // The store serves one representation and negotiates nothing, so no
+      // reading of this system changes when the header does.
+      headers: { accept: "application/json" },
+    });
+    // Stryker disable next-line StringLiteral: log wording. The status check
+    // itself is held next door; only the sentence is here.
+    if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
+    return parse(await res.json());
+  }
+
   async function refresh(url: string, e: Entry<T>): Promise<void> {
     try {
-      const res = await doFetch(url, {
-        signal: AbortSignal.timeout(timeoutMs),
-        // Stryker disable next-line ObjectLiteral,StringLiteral: courtesy.
-        // The store serves one representation and negotiates nothing, so no
-        // reading of this system changes when the header does.
-        headers: { accept: "application/json" },
-      });
-      // Stryker disable next-line StringLiteral: log wording. The status check
-      // itself is held next door; only the sentence is here.
-      if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
-      e.value = parse(await res.json());
+      // The whole attempt is bounded, the body read included: an abort that is
+      // not honoured on the connection will not be honoured on the stream.
+      e.value = await bounded(
+        fetchDocument(url),
+        deadlineMs,
+        `GET ${url} did not answer within ${deadlineMs} ms`,
+      );
       e.fetchedAt = now();
       e.lastError = null;
     } catch (err) {
