@@ -3,8 +3,15 @@
   "_comment": "Mutation testing for the server's pure logic. See README: this complements scripts/falsify.ts, it does not replace it.",
   "packageManager": "npm",
   "testRunner": "command",
-  "commandRunner": { "command": "bun test src/server" },
-  "mutate": ["src/server/*.ts", "!src/server/*.test.ts", "!src/server/index.ts"],
+  "commandRunner": { "command": "bun test src/server api" },
+  "mutate": [
+    "src/server/*.ts",
+    "!src/server/*.test.ts",
+    "!src/server/index.ts",
+    "api/*.ts",
+    "!api/*.test.ts",
+    "!api/index.ts"
+  ],
   "coverageAnalysis": "off",
   "reporters": ["clear-text", "progress"],
   "concurrency": 4,

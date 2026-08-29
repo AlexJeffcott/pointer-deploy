@@ -1,0 +1,33 @@
+# Deployed from the repository root, so the build context carries package.json:
+#
+#   fly deploy -c api/fly.toml
+#
+# Its own app, its own version number and its own deploy. `fly status` on this
+# app and on `pointer-deploy` move independently, which is the fourth schedule
+# TODO's item 13 is about.
+
+app = "pointer-deploy-api"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  # Not "suspend", and not zero machines. The state is in memory, so a machine
+  # that stopped would answer the next request with a default name and no
+  # counters - a data loss dressed as a cold start.
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
+    method = "GET"
+    path = "/healthz"
