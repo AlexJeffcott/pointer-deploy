@@ -81,3 +81,24 @@ Then(
     expect(run.stderr).toContain("Nothing was changed");
   },
 );
+
+// -- the machines themselves ------------------------------------------------
+
+When(
+  "a visitor loads the {word} origin through the {string} region",
+  async function (this: PointerWorld, channel: string, flyRegion: string) {
+    this.routedTo = flyRegion;
+    this.regionsSeen = await this.regionsServedFrom(channel as Channel, flyRegion);
+  },
+);
+
+Then(
+  "that machine says it served the {string} region",
+  function (this: PointerWorld, region: string) {
+    // What the machine read, not what it served. Both regions hold the same
+    // composition, so the units on the page cannot tell one machine from the
+    // other; the region a response was counted under names the POINTER the
+    // machine that answered was reading.
+    expect(this.regionsSeen, `reached through ${this.routedTo}`).toEqual([region]);
+  },
+);

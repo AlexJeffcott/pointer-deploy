@@ -64,11 +64,16 @@ const CURL_ATTEMPTS = 3;
  * silence reads afterwards as a run that worked first time, which is the
  * reason to have a suite at all.
  */
-export async function curlGet(url: string, host: string): Promise<Response> {
-  const what = `${url} (Host: ${host})`;
+export async function curlGet(
+  url: string,
+  host: string,
+  extra: Record<string, string> = {},
+): Promise<Response> {
+  const headers = Object.entries(extra).flatMap(([name, value]) => ["-H", `${name}: ${value}`]);
+  const what = `${url} (Host: ${host}${headers.length ? `, ${Object.keys(extra).join(", ")}` : ""})`;
   let last = "";
   for (let attempt = 1; attempt <= CURL_ATTEMPTS; attempt++) {
-    const r = await run(["curl", "-sS", "-D", "-", "-o", "-", "-H", `Host: ${host}`, url]);
+    const r = await run(["curl", "-sS", "-D", "-", "-o", "-", "-H", `Host: ${host}`, ...headers, url]);
     if (r.code === 0) {
       if (attempt > 1) console.log(`    curl ${what}: answered on attempt ${attempt}`);
       return responseFromCurl(r.stdout, what);

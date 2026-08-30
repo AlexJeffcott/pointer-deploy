@@ -44,3 +44,18 @@ Feature: Pointing every region at one composition
     When the "us" region alone is moved to build "beta" on the qa channel
     Then the "us" region's pointer names build "beta" on the qa channel
     And the "eu" region's pointer names build "alpha" on the qa channel
+
+  # The machine, not the pointer. Both regions hold the same composition, so
+  # nothing on the page can tell one machine from the other - what separates
+  # them is which manifest each READ, and `/compositions` is where a process
+  # records that against every shell it handed out.
+  #
+  # `fly scale count 1 --region iad` on 2026-08-30 created the second machine.
+  # Without one there, Fly routes the request to the machine that exists and
+  # this scenario fails rather than passing quietly.
+  @live
+  Scenario: Each region's machine reads its own region's manifest
+    When a visitor loads the qa origin through the "ams" region
+    Then that machine says it served the "eu" region
+    When a visitor loads the qa origin through the "iad" region
+    Then that machine says it served the "us" region

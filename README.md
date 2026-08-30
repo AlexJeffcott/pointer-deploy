@@ -1040,9 +1040,19 @@ The scenario now reads the whole pointer from every region and requires the
 bytes to match, `composedAt` included, which only one promote writing both can
 produce.
 
-Checked by three `@live` scenarios in `features/serving-from-two-regions.feature`
-against the real store and the real script, three `falsify` mutations bound to
-them, and 12 unit tests over the two readings. `manifests/us/qa.json` and
+**The machine, read from the machine.** Both regions hold the same composition,
+so nothing on the page tells one machine from the other. What separates them is
+which manifest each READ, and `/compositions` records that against every shell a
+process hands out. Forced onto `8654506f5e9018` in `iad`: rows with
+`region: "us"`. The ams machine: `eu`. The control matters as much - asking for
+`Fly-Prefer-Region: syd`, where there is no machine, is answered from `ams` and
+reports `eu`, so a region with no machine fails the scenario rather than passing
+quietly.
+
+Checked by four `@live` scenarios in `features/serving-from-two-regions.feature`
+against the real store, the real script and the deployed machines, three
+`falsify` mutations bound to the first three, and 12 unit tests over the two
+readings. `manifests/us/qa.json` and
 `manifests/us/prod.json` were bootstrapped on 2026-08-30 by promoting each
 channel's current composition, which rewrote `eu` with the same bytes and
 created `us`.
@@ -1109,7 +1119,7 @@ bun run verify             # 29 @local scenarios, stub store, ~9 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
 bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
-bun run verify:live        # 41 @live scenarios against Fly and Tigris, ~14 min
+bun run verify:live        # 42 @live scenarios against Fly and Tigris, ~11 min
 bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
 bun run falsify            # 76 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the twenty-two that need the real store

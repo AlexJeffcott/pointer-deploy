@@ -475,6 +475,38 @@ export class PointerWorld {
     ]);
   }
 
+  /** The Fly region a scenario is asking its requests to be routed to, §3. */
+  routedTo: string | null = null;
+  /** The manifest regions the machine reached that way says it has served. */
+  regionsSeen: string[] = [];
+
+  /**
+   * Which manifest region a machine says it served, §3.
+   *
+   * `Fly-Prefer-Region` picks the machine; `/compositions` is that process's
+   * own record of the shells it handed out, and every row carries the region it
+   * resolved from its own FLY_REGION. So this reads which POINTER the machine
+   * that answered was reading - which is the whole claim a second region makes,
+   * and is not something the served composition can show while both regions
+   * hold the same one.
+   */
+  async regionsServedFrom(channel: Channel, flyRegion: string): Promise<string[]> {
+    const headers = { "fly-prefer-region": flyRegion };
+    await this.visit(channel, "/", headers);
+    const res = await this.visit(channel, "/compositions", headers);
+    if (res.status !== 200) {
+      throw new Error(`GET /compositions through ${flyRegion} answered ${res.status}`);
+    }
+    const reading = JSON.parse(this.lastBody) as ServedReading;
+    if (reading.compositions.length === 0) {
+      throw new Error(
+        `the machine reached through ${flyRegion} has handed out nothing since ` +
+          `${reading.since}, so it cannot say which region it serves.`,
+      );
+    }
+    return [...new Set(reading.compositions.map((c) => c.region))];
+  }
+
   /**
    * The exact bytes a region's pointer holds, §3.
    *
@@ -771,7 +803,11 @@ export class PointerWorld {
     return this.mode === "live" && this.hostFor(channel) !== new URL(LIVE_ADDRESS).host;
   }
 
-  async visit(channel: Channel, path = "/"): Promise<Response> {
+  async visit(
+    channel: Channel,
+    path = "/",
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
     const host = this.hostFor(channel);
     const url = `${this.originFor(channel)}${path}`;
     const started = Bun.nanoseconds();
@@ -781,8 +817,8 @@ export class PointerWorld {
     // apart, which is what a request carrying another Host looks like on the
     // wire.
     const res = this.needsCurl(channel)
-      ? await curlGet(url, host)
-      : await fetch(url, { headers: { host }, redirect: "manual" });
+      ? await curlGet(url, host, headers)
+      : await fetch(url, { headers: { host, ...headers }, redirect: "manual" });
 
     this.elapsedMs = (Bun.nanoseconds() - started) / 1e6;
     this.lastResponse = res;

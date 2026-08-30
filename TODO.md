@@ -39,55 +39,6 @@ that item moved to Done, not that anything was renumbered.
 Needs a domain and a certificate. The domain substitutes in three places:
 `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
-### 3. Second region
-
-**Everything but the machine is done, on 2026-08-30.** What is left is one
-command and the reading after it:
-
-```sh
-fly scale count 1 --region iad --app pointer-deploy -y
-```
-
-`manifests/us/qa.json` and `manifests/us/prod.json` exist, so a machine in iad
-serves rather than answering 503. They were created by promoting each channel's
-current composition, which rewrote `eu` with the same bytes.
-
-**A promote now writes every region.** One machine reads one region, so a
-promote that wrote one region would leave the other serving what it served
-before - correctly, from what that machine can see. `--region us` writes one
-region deliberately, and two regions that already serve different compositions
-refuse a promote that would flatten the difference. The window between the two
-pointer writes is smaller than `MANIFEST_TTL_MS`, and it is stated rather than
-hidden: two objects cannot be written as one.
-
-**The sweep reads every region.** A sweep that read one would see the other
-region's pointers and histories as naming nothing and delete the units a machine
-there is serving. `manifestKeys` is the one list both readers take.
-
-Checked by three `@live` scenarios in `features/serving-from-two-regions.feature`,
-three `falsify` mutations bound to them, and 12 unit tests over the two pure
-readings.
-
-**One of those scenarios was decoration until `falsify` said so.** "Every region
-names build alpha" stayed GREEN against a promote that wrote one region: the
-other region was already at alpha from an earlier run, because a build marker
-produces the same unit ids every time. It now compares the whole pointer
-document across regions, `composedAt` included, which only one promote writing
-both can produce.
-
-**What the reading after the command must be**: `curl -H "Fly-Prefer-Region: iad"
-https://pointer-deploy.fly.dev/` serves the composition `manifests/us/qa.json`
-names, and `/compositions` on that machine reports rows with `region: "us"`.
-Until that is measured, this item is open however green everything else is.
-
-Two things are unmeasured and worth knowing before the machine exists.
-`min_machines_running = 1` is one setting for the app, and whether it holds a
-machine up in EVERY region or only the primary is not established here - a US
-machine that suspends is the resumed-process state §6 looked for and never
-reached. And nothing yet reports WHICH machine answered a request, so a
-scenario asserting "the US machine served this" is asserting on
-`Fly-Prefer-Region` being honoured rather than on a reading from the machine.
-
 ### 4. CI
 
 `verify:live` needs live credentials, and a bucket write key is the
@@ -445,6 +396,47 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **A second region, and each machine reads its own.** Was §3, done on
+  2026-08-30. `fly scale count 1 --region iad` created machine
+  `8654506f5e9018`; `8325d5c7727318` in `ams` is unchanged. Both run image
+  version 14 and both pass their health check.
+
+  **Measured against the machines, not the code.** Forced onto the iad machine,
+  `/compositions` reports rows with `region: "us"` and a process that started at
+  14:41:41Z; the ams machine reports `eu`. Both serve `ff144709` with apps
+  `e34063ba 38a212eb 47c478c4 a8a66562` at contract `e0160a6`, which is what
+  `manifests/us/qa.json` and `manifests/eu/qa.json` hold.
+
+  **The control was run, so the scenario is not decoration.**
+  `Fly-Prefer-Region: syd` names a region with no machine, and Fly answered from
+  `ams`, which reported `eu`. So a missing machine in a region makes the
+  scenario fail rather than pass quietly - which is the reading that was
+  missing while §12's deployed-origin scenario was the only one of this kind.
+
+  **What changed in the code.** A promote writes every region and `--region <r>`
+  writes one; two regions that already serve different compositions refuse a
+  promote that would flatten the difference; the sweep reads every region
+  through `manifestKeys`, because a sweep that read one would delete the units a
+  machine in the other is serving. `REGIONS` lives in `origins.ts` beside the
+  `FLY_REGION` mapping, so a region this server resolves to and a region no
+  promote writes cannot drift apart.
+
+  **`falsify` caught a scenario that proved nothing.** "Every region names build
+  alpha" stayed green against a promote that wrote one region: the other was
+  already at alpha from an earlier run, because a build marker produces the same
+  unit ids every time. It compares the whole pointer document now, `composedAt`
+  included.
+
+  **Checked by** four `@live` scenarios in
+  `features/serving-from-two-regions.feature`, three `falsify` mutations bound
+  to them, and 12 unit tests. The fourth scenario reaches the deployed machines
+  and no source mutation can reach it, which is why the `syd` control exists.
+
+  **What is still not measured.** Whether `min_machines_running = 1` holds a
+  machine up in every region or only the primary. A US machine that suspends is
+  the resumed-process state §6 looked for and never reached, so the next
+  occurrence of §6 has a second place to come from.
 
 - **A superseded build is kept 90 days, and the sweep will not take it early.**
   Was §5, done on 2026-08-30. The policy is `scripts/retention.ts`, decided
