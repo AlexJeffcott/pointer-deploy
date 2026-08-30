@@ -303,6 +303,71 @@ moves with the copied bytes. The three ways:
 declaration, so the vendor gap is now scoped to the members that name a vendor
 type, which is `SubApp` alone.
 
+### 23. Compatibility rather than equality on the member gate
+
+From `amboss-mededu/ui-amboss#12771`, read on 2026-08-30. That PR loads
+self-contained React units, and its host-to-unit boundary declares what the UNIT
+NEEDS rather than what the host has: the host passes `Card: typeof Card`, the
+real design-system component, and the unit declares
+`Card: ComponentType<{ title?: string; children?: ReactNode }>`. The relation
+between the two is structural assignability.
+
+**It is stated and never computed.** The two declarations sit in workspaces that
+cannot import each other, and both files say so - "deliberately looser, so the
+two are not checked against each other anywhere" and "change one and change the
+other". That is §11's fault written down rather than reached by accident, so the
+PR is a source for the IDEA and not for a mechanism.
+
+**The idea lands on a real defect here.** `uses` records a member path to the
+digest of its declaration, and `memberRefusal` refuses when the digest moved. A
+digest cannot tell a widening from a narrowing:
+
+| Change to a member an app calls | Every caller still compiles | The gate today |
+| --- | --- | --- |
+| `increment(ns, by?)` becomes `increment(ns, by?, label?)` | yes | refused |
+| `increment(ns, by?)` becomes `increment(ns, by: number)` | no | refused |
+
+The first row is the whole item. A change every consumer survives is refused
+exactly as hard as one that breaks them, and the operator is told the same
+sentence for both.
+
+**What the fix costs**, and it is the same trade as §21 one layer down:
+
+| | Digest, today | Assignability |
+| --- | --- | --- |
+| `unit.json` per member | 7 characters | the declaration the app was built against |
+| `promote` | needs no compiler | needs a `tsc` run |
+| a widening change | refused | allowed |
+| a narrowing change | refused | refused |
+
+NOT obviously worth building. A widening change is rare here, and the cost is
+`promote` gaining a compiler it does not have - which is exactly the property
+that let §11 move the same kind of check into a RUNNING server, where no
+compiler exists at all. Decide before writing any of it.
+
+### 24. A runtime identity check on the shared runtime
+
+Also from `#12771`: `assertSingleReact(runtime)` throws when the unit's React is
+not the host's object, and names the import map entry to go and look at.
+
+`build.ts` already refuses a sub-app bundle that carries its own Preact, by
+reading the specifiers in the emitted bytes. What that cannot cover is the
+browser: an import map that resolves wrongly at serve time gives a second copy
+from a bundle which was clean when it was built. Measured on 2026-08-28, by
+removing the build guard: the panel reads
+`Cannot read properties of undefined (reading '__H')` with a Mount again
+button, and nothing names the cause.
+
+The store is handed to a sub-app as a prop, so its identity is already
+guaranteed. Preact's is not.
+
+**Why it is not free.** The only way a sub-app can compare is against something
+the shell hands it, so the shell would pass its own Preact - a VENDOR VALUE in
+a surface that deliberately holds types only. `api.ts` says why: a signal in
+the surface would put `@preact/signals` into the contract hash, and
+`ComponentType` in `subapp.ts` is already the one vendor type that costs §21.
+So this buys a named error for a cost §9 spent effort avoiding.
+
 ### 10. A deprecation dynamic
 
 `ContractRecord` in `scripts/contract.ts` is the one record per contract, so a
