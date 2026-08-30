@@ -23,7 +23,8 @@ const history = (
   channel: string,
   units: HistoryReading["units"],
   updatedAt = daysAgo(1),
-): HistoryReading => ({ channel, updatedAt, units });
+  region = "eu",
+): HistoryReading => ({ channel, region, updatedAt, units });
 
 const plan = (input: Partial<PlanInput>) =>
   retentionPlan({
@@ -103,7 +104,7 @@ describe("which files a sweep may remove", () => {
       "units/alpha/aaaa1111/index.js",
     ]);
     expect(result.historyDrops).toEqual([
-      { channel: "qa", unit: "alpha", unitId: "aaaa1111" },
+      { channel: "qa", region: "eu", unit: "alpha", unitId: "aaaa1111" },
     ]);
   });
 

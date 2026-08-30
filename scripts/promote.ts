@@ -36,6 +36,7 @@ import {
   type ChannelHistory,
   type UnitSurface,
 } from "../src/server/composition.ts";
+import { regionDrift, regionsFor, type Region } from "./regions.ts";
 import { currentSource, describeSource, type Source } from "./source.ts";
 import type { UnitManifest } from "./publish.ts";
 
@@ -82,11 +83,23 @@ export type Composition = {
 };
 
 const argv = process.argv.slice(2);
-const region = Bun.env.REGION ?? "eu";
+
+// §3. Every region, unless one is named. A machine reads the manifest for its
+// own region alone, so a promote that wrote one region would leave every other
+// region serving what it served before - correctly, from what that machine can
+// see, and not what the operator asked for. REGION in the environment names a
+// single region the same way, for the probes that set it.
+const chosen = regionsFor(Bun.env.REGION ? ["--region", Bun.env.REGION] : argv);
+if ("error" in chosen) {
+  console.error(chosen.error);
+  process.exit(1);
+}
+const regions: Region[] = chosen.regions;
 
 const usage = () => {
   console.error("usage: bun run promote <channel> [--shell <id>] [--app <name>=<id>]...");
   console.error("       bun run promote <channel> --from-build [--no-source-check]");
+  console.error("       --region <r> writes one region instead of all of them");
   console.error(`       channels: ${CHANNELS.join(", ")}`);
   console.error(`       apps:     ${APPS.join(", ")}`);
 };
@@ -124,6 +137,10 @@ for (let i = 1; i < argv.length; i++) {
       process.exit(1);
     }
     wanted.set(name as Unit, id);
+  } else if (arg === "--region") {
+    // Read by regionsFor above, and skipped here so its value is not taken for
+    // a stray argument. Validated there rather than twice.
+    i++;
   } else if (arg === "--from-build" || arg === "--no-warm" || arg === "--no-source-check") {
     // handled elsewhere
   } else {
@@ -237,20 +254,49 @@ if (wanted.size === 0) {
 }
 
 const cfg = configFromEnv();
-const pointer = `manifests/${region}/${channelArg}.json`;
+const pointerFor = (r: Region) => `manifests/${r}/${channelArg}.json`;
 
-// -- the current composition ------------------------------------------------
+// -- the current composition, in every region being written -----------------
 
-const currentText = await getObjectText(cfg, pointer);
-let current: Composition | null = null;
-if (currentText !== null) {
+const compositionIn = (text: string | null): Composition | null => {
+  if (text === null) return null;
   try {
-    const parsed = JSON.parse(currentText) as Composition;
-    if (parsed.schema === 3) current = parsed;
+    const parsed = JSON.parse(text) as Composition;
+    return parsed.schema === 3 ? parsed : null;
   } catch {
-    current = null;
+    return null;
   }
+};
+
+/** What a pointer names, for the comparison between regions. */
+const idsOf = (c: Composition | null): Record<string, string> | null =>
+  c === null
+    ? null
+    : {
+        shell: c.shell.unitId,
+        ...Object.fromEntries(APPS.filter((a) => c.apps[a]).map((a) => [a, c.apps[a]!.unitId])),
+      };
+
+const currentByRegion = new Map<Region, Composition | null>();
+for (const r of regions) {
+  currentByRegion.set(r, compositionIn(await getObjectText(cfg, pointerFor(r))));
 }
+
+// §3. Two regions already serving different compositions is a state a promote
+// must not flatten. The merge below reads ONE of them, so writing both would
+// replace the other with a composition nobody chose for it. A region with no
+// pointer at all is not a disagreement - it is what a first promote is for.
+const drift = regionDrift(
+  regions.map((r) => ({ region: r, ids: idsOf(currentByRegion.get(r) ?? null) })),
+);
+if (drift !== null) {
+  console.error(`${drift} Nothing was changed.`);
+  process.exit(1);
+}
+
+// The merge base. Every region that has one agrees, so the first is the answer.
+const current: Composition | null =
+  regions.map((r) => currentByRegion.get(r) ?? null).find((c) => c !== null) ?? null;
 
 const missing = UNITS.filter((u) => !wanted.has(u) && !(u === "shell" ? current?.shell : current?.apps[u]));
 if (missing.length) {
@@ -443,76 +489,84 @@ if (!argv.includes("--no-warm")) {
   }
 }
 
-// What this channel has served, for the version switcher to offer.
+// Every region gets the same composition and its own history, §3.
 //
-// Written BEFORE the pointer, and never allowed to stop the promote. The
-// pointer is the deploy and it is the commit point, the same way publish writes
-// unit.json last; an index of what a switcher may offer must not be able to
-// hold a deploy hostage. A failure here is loud and costs the switcher one
-// entry until the next promote.
-const historyKey = `manifests/${region}/${channelArg}.history.json`;
-try {
-  const previousText = await getObjectText(cfg, historyKey);
-  let previous: ChannelHistory | null = null;
-  if (previousText !== null) {
-    try {
-      previous = parseHistory(JSON.parse(previousText));
-    } catch (err) {
-      // Rebuilt from this promote rather than refused. A history nobody can
-      // parse is worth less than one that starts again from what is live.
-      console.error(`  WARNING ${historyKey} could not be read, rebuilding it: ${String(err)}`);
+// The writes cannot be one operation: two pointers are two objects, so between
+// them one region serves the new composition and the other the old. That window
+// is smaller than the manifest TTL every machine already reads through, and the
+// alternative - one region ahead of another until somebody notices - is the
+// state this loop exists to prevent.
+//
+// The history is written BEFORE its pointer, and is never allowed to stop the
+// promote. The pointer is the deploy and it is the commit point, the same way
+// publish writes unit.json last; an index of what a switcher may offer must not
+// be able to hold a deploy hostage. A failure there is loud and costs the
+// switcher one entry until the next promote.
+for (const r of regions) {
+  const historyKey = `manifests/${r}/${channelArg}.history.json`;
+  try {
+    const previousText = await getObjectText(cfg, historyKey);
+    let previous: ChannelHistory | null = null;
+    if (previousText !== null) {
+      try {
+        previous = parseHistory(JSON.parse(previousText));
+      } catch (err) {
+        // Rebuilt from this promote rather than refused. A history nobody can
+        // parse is worth less than one that starts again from what is live.
+        console.error(`  WARNING ${historyKey} could not be read, rebuilding it: ${String(err)}`);
+      }
     }
+
+    const history: ChannelHistory = {
+      schema: 1,
+      updatedAt: new Date().toISOString(),
+      units: {},
+    };
+    const supersededAt = composition.composedAt;
+    for (const unit of UNITS) {
+      const served = unit === "shell" ? composition.shell : composition.apps[unit]!;
+      // §5. The entry that WAS the head stops being served at this promote, and
+      // this is the only moment anything knows that. An entry that already
+      // carries a stamp keeps it: it stopped being served at the promote that
+      // displaced it, not at this one. An entry coming back to the head loses its
+      // stamp, because the head is built fresh below and is being served again.
+      const older = (previous?.units[unit] ?? [])
+        .filter((e) => e.unit.unitId !== served.unitId)
+        .map((e) => (e.supersededAt ? e : { ...e, supersededAt }));
+      // The id being served goes to the head, so the depth cap prunes from the
+      // tail and can never take what this channel is about to serve.
+      history.units[unit] = [
+        {
+          unit: served,
+          contracts: manifests.get(unit)!.contracts ?? [],
+          // The switcher applies the same gate as this script, so it needs the
+          // same reading. Without it every option would fall back to the contract
+          // sets and be greyed out for the reason §9 removed.
+          surface: surfacesByUnit[unit] ?? {},
+        },
+        ...older,
+      ].slice(0, HISTORY_DEPTH);
+    }
+
+    await putObject(cfg, historyKey, new TextEncoder().encode(`${JSON.stringify(history, null, 2)}\n`), {
+      contentType: "application/json; charset=utf-8",
+      cacheControl: CACHE_POINTER,
+    });
+  } catch (err) {
+    console.error(
+      `  WARNING the ${r} version history was not written: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error(`  The deploy is unaffected. The switcher will not offer this build until the next promote.`);
   }
 
-  const history: ChannelHistory = {
-    schema: 1,
-    updatedAt: new Date().toISOString(),
-    units: {},
-  };
-  const supersededAt = composition.composedAt;
-  for (const unit of UNITS) {
-    const served = unit === "shell" ? composition.shell : composition.apps[unit]!;
-    // §5. The entry that WAS the head stops being served at this promote, and
-    // this is the only moment anything knows that. An entry that already
-    // carries a stamp keeps it: it stopped being served at the promote that
-    // displaced it, not at this one. An entry coming back to the head loses its
-    // stamp, because the head is built fresh below and is being served again.
-    const older = (previous?.units[unit] ?? [])
-      .filter((e) => e.unit.unitId !== served.unitId)
-      .map((e) => (e.supersededAt ? e : { ...e, supersededAt }));
-    // The id being served goes to the head, so the depth cap prunes from the
-    // tail and can never take what this channel is about to serve.
-    history.units[unit] = [
-      {
-        unit: served,
-        contracts: manifests.get(unit)!.contracts ?? [],
-        // The switcher applies the same gate as this script, so it needs the
-        // same reading. Without it every option would fall back to the contract
-        // sets and be greyed out for the reason §9 removed.
-        surface: surfacesByUnit[unit] ?? {},
-      },
-      ...older,
-    ].slice(0, HISTORY_DEPTH);
-  }
-
-  await putObject(cfg, historyKey, new TextEncoder().encode(`${JSON.stringify(history, null, 2)}\n`), {
+  await putObject(cfg, pointerFor(r), new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`), {
     contentType: "application/json; charset=utf-8",
     cacheControl: CACHE_POINTER,
   });
-} catch (err) {
-  console.error(
-    `  WARNING the version history was not written: ${err instanceof Error ? err.message : String(err)}`,
-  );
-  console.error(`  The deploy is unaffected. The switcher will not offer this build until the next promote.`);
 }
 
-await putObject(cfg, pointer, new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`), {
-  contentType: "application/json; charset=utf-8",
-  cacheControl: CACHE_POINTER,
-});
-
 const width = Math.max(...UNITS.map((u) => u.length));
-console.error(`${channelArg} (${region}) at contract ${contract}:`);
+console.error(`${channelArg} (${regions.join(", ")}) at contract ${contract}:`);
 for (const unit of UNITS) {
   const now = unit === "shell" ? composition.shell : composition.apps[unit]!;
   const before = unit === "shell" ? current?.shell : current?.apps[unit];

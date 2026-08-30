@@ -283,6 +283,61 @@ const MUTATIONS: Mutation[] = [
     unitTest: "the deprecation is named under the table",
   },
 
+  // --- §3, the second region ----------------------------------------------
+
+  {
+    // The whole item. A promote that writes one region leaves every other
+    // region serving what it served before - correctly, from what that machine
+    // can see, which is why nothing else catches it.
+    name: "a promote writes one region and leaves the rest",
+    file: "scripts/promote.ts",
+    find: "for (const r of regions) {\n  const historyKey =",
+    replace: "for (const r of regions.slice(0, 1)) {\n  const historyKey =",
+    scenario: "One promote points every region at the same composition",
+    live: true,
+  },
+  {
+    // Flattening a difference nobody asked to flatten. The merge reads one
+    // region, so the other is overwritten with a composition nobody chose.
+    name: "a promote flattens a difference between the regions",
+    file: "scripts/promote.ts",
+    find: "if (drift !== null) {",
+    replace: "if (false) {",
+    scenario: "A promote refuses to flatten a difference between the regions",
+    live: true,
+  },
+  {
+    name: "--region is ignored and every region is written",
+    file: "scripts/regions.ts",
+    find: "  if (i === -1) return { regions: [...REGIONS] };",
+    replace: "  return { regions: [...REGIONS] };\n  if (i === -1) return { regions: [...REGIONS] };",
+    scenario: "Naming one region writes that region and no other",
+    live: true,
+  },
+  {
+    // The sweep reading one region would see the other region's pointers as
+    // naming nothing, and delete the units a machine there is serving.
+    name: "a reader looks at one region's manifests",
+    file: "scripts/regions.ts",
+    find: "  return REGIONS.flatMap((region) =>",
+    replace: "  return [REGIONS[0]!].flatMap((region) =>",
+    unitTest: "covers every region, not only the one this machine is in",
+  },
+  {
+    name: "an unknown region is ignored rather than refused",
+    file: "scripts/regions.ts",
+    find: "  if (!(REGIONS as readonly string[]).includes(named)) {",
+    replace: "  if (false) {",
+    unitTest: "a region that does not exist is refused, not ignored",
+  },
+  {
+    name: "two regions that differ are read as agreeing",
+    file: "scripts/regions.ts",
+    find: "    if (differing.length === 0) continue;",
+    replace: "    continue;",
+    unitTest: "two compositions that differ stop the promote and name the units",
+  },
+
   // --- §5, the retention floor --------------------------------------------
   //
   // Unit tests, because what these break is a decision about deleting files

@@ -11,7 +11,18 @@
 // Pure. No I/O, no clock. The unit test is the point of this file.
 
 export type Channel = "prod" | "qa" | "test-prod" | "test-qa";
-export type Region = "eu" | "us";
+
+/**
+ * Every manifest region there is.
+ *
+ * A server reads exactly one of these - the one its own Fly region maps to -
+ * and an operator writes all of them, because a channel names one composition
+ * wherever it is served. The list lives here rather than in the scripts so that
+ * the two readings cannot drift: a region this server would resolve to and a
+ * region no promote writes is a machine that answers 503.
+ */
+export const REGIONS = ["eu", "us"] as const;
+export type Region = (typeof REGIONS)[number];
 
 export type Target = { region: Region; channel: Channel };
 

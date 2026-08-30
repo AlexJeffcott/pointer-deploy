@@ -36,11 +36,14 @@ import {
   putObject,
 } from "./store.ts";
 import { readRegistry } from "./contract.ts";
+import { manifestKeys } from "./regions.ts";
 import { FLOOR_DAYS, heldByReason, retentionPlan, type HistoryReading } from "./retention.ts";
 
 type Entry = { unit: { unitId: string }; contracts?: string[]; supersededAt?: string };
 
-const REGION = Bun.env.STORE_REGION ?? "eu";
+// §3. Every region, and this is not a detail. A sweep that read one region
+// would see the other region's pointers and histories as naming nothing, and
+// would delete the units a machine there is serving right now.
 const CHANNELS = ["qa", "prod", "test-qa", "test-prod"];
 const argv = process.argv.slice(2);
 const DELETE = argv.includes("--delete");
@@ -71,21 +74,20 @@ const pointed = new Set<string>();
 const histories: HistoryReading[] = [];
 /** The raw documents, so a rewrite keeps every field this script does not read. */
 const docs = new Map<string, { units: Record<string, Entry[]> } & Record<string, unknown>>();
-
-for (const ch of CHANNELS) {
-  const pointer = await getObjectText(cfg, `manifests/${REGION}/${ch}.json`);
+for (const { region, channel, pointer: pointerKey, history: key } of manifestKeys(CHANNELS)) {
+  const pointer = await getObjectText(cfg, pointerKey);
   if (pointer) {
     for (const m of pointer.matchAll(/units\/([a-z]+)\/([0-9a-f]+)\//g)) {
       pointed.add(`units/${m[1]}/${m[2]}`);
     }
   }
-  const key = `manifests/${REGION}/${ch}.history.json`;
   const text = await getObjectText(cfg, key);
   if (!text) continue;
   const doc = JSON.parse(text) as { units: Record<string, Entry[]> } & Record<string, unknown>;
-  docs.set(ch, doc);
+  docs.set(key, doc);
   histories.push({
-    channel: ch,
+    channel,
+    region,
     updatedAt: typeof doc.updatedAt === "string" ? doc.updatedAt : new Date().toISOString(),
     units: Object.fromEntries(
       Object.entries(doc.units).map(([unit, entries]) => [
@@ -146,8 +148,10 @@ if (!DELETE) {
 
 // -- carry it out -----------------------------------------------------------
 
-for (const [ch, doc] of docs) {
-  const drops = plan.historyDrops.filter((d) => d.channel === ch);
+for (const [key, doc] of docs) {
+  const drops = plan.historyDrops.filter(
+    (d) => `manifests/${d.region}/${d.channel}.history.json` === key,
+  );
   if (drops.length === 0) continue;
   for (const [unit, entries] of Object.entries(doc.units)) {
     doc.units[unit] = entries.filter(
@@ -155,11 +159,11 @@ for (const [ch, doc] of docs) {
     );
   }
   doc.updatedAt = new Date().toISOString();
-  await putObject(cfg, `manifests/${REGION}/${ch}.history.json`, new TextEncoder().encode(JSON.stringify(doc)), {
+  await putObject(cfg, key, new TextEncoder().encode(JSON.stringify(doc)), {
     contentType: "application/json",
     cacheControl: CACHE_POINTER,
   });
-  console.error(`${ch}: ${drops.length} history entries dropped`);
+  console.error(`${key}: ${drops.length} history entries dropped`);
 }
 
 let done = 0;

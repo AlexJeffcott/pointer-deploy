@@ -556,7 +556,8 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 
 | Path | What it is |
 | --- | --- |
-| `src/server/origins.ts` | `Host` → channel, `FLY_REGION` → region. Pure |
+| `src/server/origins.ts` | `Host` → channel, `FLY_REGION` → region, and the list of regions there are. Pure |
+| `scripts/regions.ts` | Which regions a promote writes, when two of them disagree, and every manifest key a reader has to look at |
 | `src/server/manifest.ts` | Cached fetch: 10 s TTL, stale-while-revalidate, single-flight |
 | `src/server/html.ts` | The shell template |
 | `src/server/index.ts` | Three routes and nothing else |
@@ -586,7 +587,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 70 ways; each break must turn one check red, and a `find` that names more than one place is refused |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 76 ways; each break must turn one check red, and a `find` that names more than one place is refused |
 | `scripts/measure-preload.ts` | What warming a sub-app's files buys, in a real Chrome, with a control |
 | `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve and the retention floor allows |
 | `scripts/retention.ts` | The floor itself: how long a superseded build is kept, decided against a clock the caller passes in |
@@ -990,6 +991,62 @@ marks the predecessor, and reads what `contract:matrix` and `promote` actually
 print - then restores `api.ts`, the registry and `test-qa`. The pure readings
 underneath it are held by 16 unit tests and four `falsify` mutations.
 
+## A second region
+
+A machine reads exactly one region's manifest, chosen by its own `FLY_REGION`
+through `resolveRegion`. So the question a second region asks is not "how are
+the files copied" - they are not - but "what writes the other pointer".
+
+| Per region | One copy, everywhere |
+| --- | --- |
+| `manifests/<region>/<channel>.json`, the pointer | every unit's files, reached by an absolute URL |
+| `manifests/<region>/<channel>.history.json`, what the switcher offers | `units/<name>/<id>/unit.json`, the contract registry |
+
+**One promote writes every region.** A promote that wrote one would leave the
+other serving what it served before - correctly, from what that machine can see,
+which is exactly why nothing else would catch it. `--region us` writes one
+region on purpose, and that is the only way to make the regions differ.
+
+**Two regions that already differ stop a promote.** The merge that makes "deploy
+alpha, leave bravo where it was" possible reads ONE region, so writing both
+would replace the other with a composition nobody chose for it. The refusal
+names the units that differ and the flag that resolves it. A region with no
+pointer at all is not a difference - it is what a first promote is for, and
+refusing it would leave a new region reachable only by hand.
+
+**The two writes are not one operation.** Two pointers are two objects, so
+between them one region serves the new composition and the other the old. That
+window is smaller than the `MANIFEST_TTL_MS` every machine already reads
+through, and the alternative - one region ahead of another until somebody
+notices - is the state the loop exists to prevent.
+
+**The sweep reads every region, and this is not a detail.** A sweep that read
+one region would see the other region's pointers and histories as naming
+nothing, and would delete the units a machine there is serving. `manifestKeys`
+in `scripts/regions.ts` is the one list both readers take, so a region this
+server would resolve to and a region no sweep looks at cannot drift apart.
+
+```sh
+bun run promote qa --shell <id>              # every region
+bun run promote qa --shell <id> --region us  # one region, deliberately
+fly scale count 1 --region iad               # the machine that reads manifests/us
+```
+
+**The scenario that proves it had to compare documents, not ids.** "Every region
+names build alpha" passed against a promote that wrote one region: the other was
+already at alpha from an earlier run, because a build marker produces the same
+unit ids every time. `falsify` is what found that - the mutation stayed green.
+The scenario now reads the whole pointer from every region and requires the
+bytes to match, `composedAt` included, which only one promote writing both can
+produce.
+
+Checked by three `@live` scenarios in `features/serving-from-two-regions.feature`
+against the real store and the real script, three `falsify` mutations bound to
+them, and 12 unit tests over the two readings. `manifests/us/qa.json` and
+`manifests/us/prod.json` were bootstrapped on 2026-08-30 by promoting each
+channel's current composition, which rewrote `eu` with the same bytes and
+created `us`.
+
 ## How long a superseded build is kept
 
 `bun run sweep` removes what no channel can serve. On its own that is a reading
@@ -1047,14 +1104,14 @@ under it reaches the delete set.
 ## Verifying
 
 ```sh
-bun test                   # 371 unit tests: src/server, src/web, scripts, features/support, ~20 s
+bun test                   # 383 unit tests: src/server, src/web, scripts, features/support, ~20 s
 bun run verify             # 29 @local scenarios, stub store, ~9 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
 bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
-bun run verify:live        # 38 @live scenarios against Fly and Tigris, ~6 min
+bun run verify:live        # 41 @live scenarios against Fly and Tigris, ~14 min
 bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
-bun run falsify            # 70 architectural mutations, each must turn a check red
+bun run falsify            # 76 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the twenty-two that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run e2e:members        # drop a member, and refuse only the app that used it
@@ -1546,6 +1603,7 @@ Do not rediscover these.
 | A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
 | `integrity` on a cross-origin tag with no `crossorigin` | The browser refuses the file rather than checking it. The stylesheet never applies and the page renders unstyled, while every other check stays green |
 | `BuildArtifact.hash` read as an SRI digest | It is an 8-character content hash for `[hash]` in a file name. An `integrity` attribute holding one is refused by every browser |
+| A scenario asserting two regions name the same build | It passes when one region was already there. A build marker produces the same unit ids every run, so the assertion is satisfied by history rather than by the promote. Compare the whole document: `composedAt` moves every time |
 | An in-memory count read as a population | It counts what this process handed OUT since it started. Tabs already open, other machines, and this one before its last replacement are all outside it. The limits ship inside the document, because the number is one somebody acts on |
 | A deprecation folded into the contract hash | The identity would move under every unit that already claimed that contract. A decision taken after the mint belongs beside the hash, never inside it |
 | A digest on the tags alone | The tags name two files. The shared chunks and every sub-app are fetched by the module loader, which reads no tag, so the import map's `integrity` section is the only place they can be declared |

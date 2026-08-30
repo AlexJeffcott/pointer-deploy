@@ -31,6 +31,8 @@ export type StoredObject = { key: string; lastModified: string };
 /** One channel's history, flattened to what a retention decision needs. */
 export type HistoryReading = {
   channel: string;
+  /** §3. Which region's history this is. Each region keeps its own. */
+  region: string;
   /** When the history was last written. The last promote on that channel. */
   updatedAt: string;
   /** Unit name to its entries, newest first, exactly as the switcher offers them. */
@@ -58,7 +60,7 @@ export type Held = {
   at?: string;
 };
 
-export type HistoryDrop = { channel: string; unit: string; unitId: string };
+export type HistoryDrop = { channel: string; region: string; unit: string; unitId: string };
 
 export type RetentionPlan = {
   /** Keys to delete. Everything else in `objects` is held, and says why. */
@@ -162,7 +164,12 @@ export function retentionPlan(input: PlanInput): RetentionPlan {
     for (const [unit, entries] of Object.entries(history.units)) {
       for (const entry of entries) {
         if (doomed.has(`units/${unit}/${entry.unitId}`)) {
-          historyDrops.push({ channel: history.channel, unit, unitId: entry.unitId });
+          historyDrops.push({
+            channel: history.channel,
+            region: history.region,
+            unit,
+            unitId: entry.unitId,
+          });
         }
       }
     }

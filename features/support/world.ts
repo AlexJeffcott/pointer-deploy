@@ -476,6 +476,85 @@ export class PointerWorld {
   }
 
   /**
+   * The exact bytes a region's pointer holds, §3.
+   *
+   * The ids alone cannot say that THIS promote wrote a region. Two regions can
+   * name the same build because a promote wrote both, or because one of them
+   * was already there from an earlier run - and a scenario that cannot tell
+   * those apart proves nothing about the promote. The whole document can:
+   * every region is written the same composition, `composedAt` included, so
+   * identical bytes mean one promote wrote both.
+   */
+  async pointerTextInRegion(channel: Channel, region: string): Promise<string | null> {
+    const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${this.storeChannel(channel)}.json`;
+    const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+    return res.ok ? await res.text() : null;
+  }
+
+  /**
+   * Move ONE region to a build, leaving every other region where it was, §3.
+   *
+   * The only way to make two regions disagree, which is the state a promote has
+   * to refuse. What it creates is put back by `restoreRegionParity` after the
+   * scenario: a channel left with its regions apart would refuse every promote
+   * that followed, including the ones belonging to other scenarios.
+   */
+  async moveRegionAlone(channel: Channel, name: string, region: string): Promise<Run> {
+    if (this.mode !== "live") {
+      throw new Error("moveRegionAlone is @live only; the stub store models one region");
+    }
+    const ids = this.idsOf(name);
+    const result = await run([
+      "bun", "run", "--silent", "scripts/promote.ts", this.targetChannel(channel),
+      "--region", region,
+      "--shell", ids.shell,
+      ...APPS.flatMap((a) => ["--app", `${a}=${ids[a]}`]),
+    ]);
+    // Recorded only when the region actually moved. A restore that runs after a
+    // refusal reports a difference nobody created, which is a false alarm in
+    // the one place this suite must be believed.
+    if (result.code === 0) this.regionMoved = { channel, region };
+    return result;
+  }
+
+  /** Set when a scenario moved one region alone, so the After can put it back. */
+  private regionMoved: { channel: Channel; region: string } | null = null;
+
+  /**
+   * Put a region a scenario moved alone back beside the others.
+   *
+   * Loud on failure, unlike the real-channel guard, and for the opposite
+   * reason: this drift is the suite's own doing, and leaving it would refuse
+   * every promote in every scenario that runs after it.
+   */
+  async restoreRegionParity(): Promise<void> {
+    const moved = this.regionMoved;
+    this.regionMoved = null;
+    if (!moved || this.mode !== "live") return;
+
+    const base = await this.compositionInRegion(moved.channel, REGION);
+    const flags = Object.entries(base).flatMap(([unit, id]) =>
+      unit === "shell" ? ["--shell", id] : ["--app", `${unit}=${id}`],
+    );
+    if (flags.length === 0) {
+      throw new Error(
+        `${moved.region} was moved alone and the ${REGION} pointer names nothing to put it ` +
+          `back to. ${moved.channel} now refuses every promote until it is fixed by hand.`,
+      );
+    }
+    const result = await run([
+      "bun", "run", "--silent", "scripts/promote.ts", this.targetChannel(moved.channel),
+      "--region", moved.region, ...flags,
+    ]);
+    if (result.code !== 0) {
+      throw new Error(
+        `${moved.region} was left holding a different composition from ${REGION}: ` +
+          `${result.stderr}`,
+      );
+    }
+  }
+
+  /**
    * Promote ONE unit, leaving the rest of the channel's composition alone.
    *
    * This is the operation the whole feature exists for, so the suite runs the
@@ -493,7 +572,21 @@ export class PointerWorld {
 
   /** What the channel's pointer names right now, straight from the store. */
   async compositionOf(channel: Channel): Promise<Partial<Record<Unit, string>>> {
-    const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${this.storeChannel(channel)}.json`;
+    return this.compositionInRegion(channel, REGION);
+  }
+
+  /**
+   * The same reading, in a region named by the scenario, §3.
+   *
+   * `compositionOf` reads the one region the suite runs against. A promote
+   * writes every region, and the only way to see that is to ask for another by
+   * name.
+   */
+  async compositionInRegion(
+    channel: Channel,
+    region: string,
+  ): Promise<Partial<Record<Unit, string>>> {
+    const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${this.storeChannel(channel)}.json`;
     const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
     if (!res.ok) return {};
     const doc = (await res.json()) as {

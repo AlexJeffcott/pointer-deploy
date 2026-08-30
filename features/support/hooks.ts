@@ -113,4 +113,7 @@ After(async function (this: PointerWorld) {
   // history left holding one offers a build that cannot be served.
   await this.restorePointer();
   await this.restoreHistory();
+  // §3. A region a scenario moved on its own. Left alone it would refuse every
+  // promote that came after it, in this scenario's file and in every other.
+  await this.restoreRegionParity();
 });
