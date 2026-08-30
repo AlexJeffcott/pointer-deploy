@@ -78,6 +78,15 @@ export type HistoryEntry = {
   contracts: string[];
   /** Absent for a unit published before the member gate existed. */
   surface?: UnitSurface;
+  /**
+   * When this entry stopped being the id the channel serves, §5.
+   *
+   * Absent on the head, which is being served now, and on any entry written
+   * before `promote` recorded it. The server reads none of this: it is here
+   * because the retention floor needs to know how long a build has been out of
+   * use, and the promote that displaced it is the only party that knows.
+   */
+  supersededAt?: string;
 };
 
 /**
@@ -335,6 +344,10 @@ export function parseHistory(input: unknown): ChannelHistory {
         // that one option rather than the whole switcher. An absent one is the
         // ordinary case for a unit published before the gate existed.
         ...(e.surface && typeof e.surface === "object" ? { surface: e.surface as UnitSurface } : {}),
+        // Carried rather than validated, and for the retention floor rather
+        // than for anything this server does. Dropping it here would erase it
+        // at the next promote, which reads the history through this parser.
+        ...(typeof e.supersededAt === "string" ? { supersededAt: e.supersededAt } : {}),
       };
     });
   }

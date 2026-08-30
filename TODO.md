@@ -50,20 +50,6 @@ or the US machine answers 503.
 production-origin execution key. Needs a second Tigris key scoped to non-prod
 paths first.
 
-### 5. Asset retention
-
-Nothing is deleted, so nothing dangles. If a policy is added, keep every build
-90 days, or a tab opened before a deploy breaks on its next lazy fetch. Exempt
-`legacy/schema-2/`: the rollback scenarios point a channel at what is there,
-and a retention sweep would delete the fixture rather than expire it.
-
-`scripts/sweep-superseded.ts` (`bun run sweep`) is half of this already: it
-lists what no channel can serve, refuses to run if anything under `legacy/`
-reaches the delete set, and changes nothing without `--delete`. What it does NOT
-have is a policy - it removes what is superseded now, with no 90-day floor, so a
-tab opened before the last promote would break on its next lazy fetch. Add the
-floor before it runs on a schedule.
-
 ### 6. `verify:live` fails intermittently in a full run
 
 Both leads are refuted by measurement, and the lagging hop is named. The
@@ -409,6 +395,49 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **A superseded build is kept 90 days, and the sweep will not take it early.**
+  Was §5, done on 2026-08-30. The policy is `scripts/retention.ts`, decided
+  against a clock the caller passes in; `sweep-superseded.ts` reads the store,
+  prints the plan and carries it out.
+
+  **Two clocks, and both have to allow a delete.** The object's own age catches
+  a unit published yesterday and superseded today. When a channel STOPPED
+  serving it catches a unit published a year ago and served until yesterday -
+  which is the one an age-since-publish rule gets wrong, and the state where it
+  bites is ordinary: un-retaining a contract drops every history entry that
+  named it, and the units behind them become deletable in the same sweep.
+
+  **The second clock had to be recorded before it could be read.** Only the
+  promote that displaces a build knows when it stopped being served, so
+  `promote` now stamps `supersededAt` on the entry it moves off the head, keeps
+  a stamp an entry already carries, and leaves the head unstamped. Measured on
+  `test-qa`: rolling `alpha` back stamped `e34063ba` at 12:54:12Z, and rolling
+  forward again cleared it and stamped `d6c9f501`. An entry written before the
+  stamp existed counts as the last time its history was written - the latest
+  moment it could have stopped being served - and the first promote after this
+  change freezes that inference onto the entry instead of re-making it forever.
+
+  **A history entry is now dropped only for a unit actually being deleted.** The
+  drop exists so the switcher cannot offer a build whose files are gone;
+  dropping one whose files stay would retire a build the floor is keeping. That
+  reordering is why the plan is computed before anything is written.
+
+  **Measured against the real store on 2026-08-30**, minutes after an e2e run
+  published and superseded five units. At 90 days: 0 objects to remove, 0
+  history entries dropped. At `--floor-days 0`, which is the rule without the
+  floor: 459 objects and 3 entries - every one of them serving traffic within
+  the hour. That is the before-and-after, on the same store, one minute apart.
+
+  **Checked by** 14 unit tests in `scripts/retention.test.ts` and four `falsify`
+  mutations. The promote-side stamp is read live rather than mutated, because it
+  fails SAFE: with no stamp the floor falls back to the last promote on that
+  channel, which keeps a unit longer rather than shorter.
+
+  **What it is still not.** Nothing runs it on a timer, and the day something
+  does, it needs a key that can delete - the production-origin key §4 already
+  refuses to give CI. `legacy/` stays exempt and the sweep still refuses if
+  anything under it reaches the delete set.
 
 - **A contract can be marked as going away, and nothing is refused for it.**
   Was §10, done on 2026-08-30. `deprecated` on the registry record - a reason,

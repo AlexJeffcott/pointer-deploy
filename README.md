@@ -586,9 +586,10 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 52 ways; each break must turn one check red, and a `find` that names more than one place is refused |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 70 ways; each break must turn one check red, and a `find` that names more than one place is refused |
 | `scripts/measure-preload.ts` | What warming a sub-app's files buys, in a real Chrome, with a control |
-| `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve |
+| `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve and the retention floor allows |
+| `scripts/retention.ts` | The floor itself: how long a superseded build is kept, decided against a clock the caller passes in |
 | `stryker.config.json` | Mutation testing over the server logic |
 | `features/` | The specification and the acceptance suite, in one artefact |
 | `TODO.md` | Open items and what is done. Read it first after a context clear |
@@ -989,17 +990,71 @@ marks the predecessor, and reads what `contract:matrix` and `promote` actually
 print - then restores `api.ts`, the registry and `test-qa`. The pure readings
 underneath it are held by 16 unit tests and four `falsify` mutations.
 
+## How long a superseded build is kept
+
+`bun run sweep` removes what no channel can serve. On its own that is a reading
+about the STORE, and the thing at risk is a BROWSER: a tab opened before a
+promote keeps its composition and fetches a sub-app's files the moment somebody
+opens that view - minutes or days later, from a page nothing can reach to tell
+it otherwise. So there is a floor, and two clocks feed it.
+
+| The reading | What it catches |
+| --- | --- |
+| the object's own age | a unit published yesterday and superseded today is a day old, whatever a history says |
+| when a channel stopped serving it | a unit published a year ago and served until yesterday is a day out of use |
+
+Both must be past 90 days. The second is the one an age-since-publish rule gets
+wrong, and the state where that bites is not exotic: un-retaining a contract
+drops every history entry that named it, and the units behind them become
+deletable in the same sweep.
+
+**The second clock had to be written down first.** Nothing knew when a build
+stopped being served, because only the promote that displaces it knows.
+`promote` now stamps `supersededAt` on the entry it moves off the head, keeps
+the stamp an entry already carries, and leaves the head unstamped - a rollback
+puts an id back at the head and it is being served again. Measured on
+`test-qa`, 2026-08-30: rolling `alpha` back stamped `e34063ba` at the second the
+promote ran, and rolling forward again cleared it and stamped `d6c9f501`.
+
+An entry written before the stamp existed counts as the last time that history
+was written, which is the latest moment it could have stopped being served. The
+first promote after this change freezes that inference onto the entry rather
+than leaving it to be re-made every sweep.
+
+**A history entry is dropped only for a unit that is actually deleted.** The
+drop exists so the switcher cannot offer a build whose files are gone; dropping
+one whose files stay would retire a build the floor is deliberately keeping.
+
+```sh
+bun run sweep                  # what it would remove, and what the floor holds
+bun run sweep --floor-days 0   # the control: the rule without the floor
+bun run sweep --delete         # irreversible
+```
+
+Measured against the real store on 2026-08-30, minutes after an e2e run
+published and superseded five units:
+
+| Floor | Objects it would remove | History entries dropped |
+| --- | --- | --- |
+| 90 days | 0 | 0 |
+| 0 days | 459 | 3 |
+
+Those 459 are the reason the floor exists rather than a number to tidy away: at
+the moment of the reading every one of them had been serving traffic within the
+hour. `legacy/` stays exempt and the sweep still refuses to run if anything
+under it reaches the delete set.
+
 ## Verifying
 
 ```sh
-bun test                   # 357 unit tests: src/server, src/web, scripts, features/support, ~20 s
+bun test                   # 371 unit tests: src/server, src/web, scripts, features/support, ~20 s
 bun run verify             # 29 @local scenarios, stub store, ~9 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
 bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
 bun run verify:live        # 38 @live scenarios against Fly and Tigris, ~6 min
 bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
-bun run falsify            # 66 architectural mutations, each must turn a check red
+bun run falsify            # 70 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the twenty-two that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run e2e:members        # drop a member, and refuse only the app that used it
@@ -1447,7 +1502,7 @@ far impossible, which is the operation the whole design exists for.
 | --- | --- |
 | A browser-reachable `prod` URL | Needs a domain pointed at Fly and a certificate. The channel itself works; see above |
 | Second region | `fly scale count 1 --region iad`. The region is already in the manifest path |
-| Asset retention | `bun run sweep` lists what no channel can serve and deletes it with `--delete`; it has no 90-day floor yet, so it must not run on a schedule |
+| Asset retention on a schedule | `bun run sweep` has the 90-day floor and still runs by hand. Nothing calls it on a timer, and the day it does it needs a key that can delete - which is the same production-origin key the CI item refuses to give CI |
 | Contract pruning | `contracts/registry.json` retains by hand. Pruning is a decision, never automatic |
 | Concurrent promotes | `promote` is a read-modify-write with no compare-and-set, so two at once can lose one. One operator. Tigris conditional writes are unchecked; an `If-Match` on the ETag would close it |
 | A count of what is still RUNNING | `GET /compositions` counts what was handed out. The other half needs a route that accepts a write and a production bucket key; see the CI item in `TODO.md` |

@@ -469,9 +469,17 @@ try {
     updatedAt: new Date().toISOString(),
     units: {},
   };
+  const supersededAt = composition.composedAt;
   for (const unit of UNITS) {
     const served = unit === "shell" ? composition.shell : composition.apps[unit]!;
-    const older = (previous?.units[unit] ?? []).filter((e) => e.unit.unitId !== served.unitId);
+    // §5. The entry that WAS the head stops being served at this promote, and
+    // this is the only moment anything knows that. An entry that already
+    // carries a stamp keeps it: it stopped being served at the promote that
+    // displaced it, not at this one. An entry coming back to the head loses its
+    // stamp, because the head is built fresh below and is being served again.
+    const older = (previous?.units[unit] ?? [])
+      .filter((e) => e.unit.unitId !== served.unitId)
+      .map((e) => (e.supersededAt ? e : { ...e, supersededAt }));
     // The id being served goes to the head, so the depth cap prunes from the
     // tail and can never take what this channel is about to serve.
     history.units[unit] = [

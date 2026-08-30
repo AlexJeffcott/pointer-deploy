@@ -283,6 +283,50 @@ const MUTATIONS: Mutation[] = [
     unitTest: "the deprecation is named under the table",
   },
 
+  // --- §5, the retention floor --------------------------------------------
+  //
+  // Unit tests, because what these break is a decision about deleting files
+  // and the reading is made against a clock the test owns. The wiring - promote
+  // stamping an entry it displaces - fails SAFE: with no stamp the floor falls
+  // back to the last promote on that channel, which keeps a unit longer rather
+  // than shorter, so it is read live rather than mutated here.
+
+  {
+    // The floor's first half. Without it a unit published an hour ago is
+    // deletable the moment the next promote supersedes it.
+    name: "the floor ignores how old the files are",
+    file: "scripts/retention.ts",
+    find: "    if (written > cutoff) {",
+    replace: "    if (false) {",
+    unitTest: "a unit written inside the floor stays",
+  },
+  {
+    // The half an age-since-publish rule gets wrong: a year-old unit that was
+    // serving traffic yesterday is a day out of use, not a year.
+    name: "the floor ignores when a channel stopped serving it",
+    file: "scripts/retention.ts",
+    find: "    if (last !== undefined && last > cutoff) {",
+    replace: "    if (false) {",
+    unitTest: "an old unit a channel stopped serving inside the floor stays",
+  },
+  {
+    name: "an entry with no stamp is treated as ancient",
+    file: "scripts/retention.ts",
+    find: "        const at = Date.parse(entry.supersededAt ?? history.updatedAt);",
+    replace: '        const at = Date.parse(entry.supersededAt ?? "1970-01-01T00:00:00.000Z");',
+    unitTest: "an entry with no stamp counts as the last promote on its channel",
+  },
+  {
+    // A history entry dropped for a unit that STAYS retires a build the floor
+    // is deliberately keeping - the switcher stops offering something whose
+    // files are still there.
+    name: "history entries are dropped whether or not the unit goes",
+    file: "scripts/retention.ts",
+    find: "        if (doomed.has(`units/${unit}/${entry.unitId}`)) {",
+    replace: "        if (true) {",
+    unitTest: "a history entry is kept when the floor keeps its unit",
+  },
+
   // --- the composition ----------------------------------------------------
   //
   // Everything below is @live, because what these break is what publish.ts and

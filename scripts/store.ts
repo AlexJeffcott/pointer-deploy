@@ -224,7 +224,25 @@ export async function objectExists(cfg: StoreConfig, key: string): Promise<boole
  * only two this project needs.
  */
 export async function listObjects(cfg: StoreConfig, prefix: string): Promise<string[]> {
-  const keys: string[] = [];
+  return (await listObjectDetails(cfg, prefix)).map((o) => o.key);
+}
+
+/** One listed object. `lastModified` is the store's own ISO timestamp. */
+export type ListedObject = { key: string; lastModified: string };
+
+/**
+ * The listing with each object's age, for the retention floor, §5.
+ *
+ * Read per <Contents> block rather than by two separate scans for <Key> and
+ * <LastModified>: the two lists could only be paired by position, and a
+ * response missing one field anywhere would shift every date onto the wrong
+ * key - silently, and in the direction of deleting something young.
+ */
+export async function listObjectDetails(
+  cfg: StoreConfig,
+  prefix: string,
+): Promise<ListedObject[]> {
+  const objects: ListedObject[] = [];
   let token: string | undefined;
   do {
     const query: Record<string, string> = { "list-type": "2", prefix, "max-keys": "1000" };
@@ -235,13 +253,19 @@ export async function listObjects(cfg: StoreConfig, prefix: string): Promise<str
       throw new Error(`LIST ${prefix} responded ${res.status}: ${(await res.text()).slice(0, 400)}`);
     }
     const xml = await res.text();
-    for (const m of xml.matchAll(/<Key>([^<]*)<\/Key>/g)) {
-      keys.push(m[1]!.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+    for (const block of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const body = block[1]!;
+      const key = /<Key>([^<]*)<\/Key>/.exec(body)?.[1];
+      if (key === undefined) continue;
+      objects.push({
+        key: key.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"),
+        lastModified: /<LastModified>([^<]*)<\/LastModified>/.exec(body)?.[1] ?? "",
+      });
     }
     const next = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml);
     token = /<IsTruncated>true<\/IsTruncated>/.test(xml) && next ? next[1] : undefined;
   } while (token);
-  return keys;
+  return objects;
 }
 
 /**
