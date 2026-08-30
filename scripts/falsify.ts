@@ -242,6 +242,47 @@ const MUTATIONS: Mutation[] = [
     live: true,
   },
 
+  // --- §10, a contract that is going away ---------------------------------
+  //
+  // Unit tests rather than scenarios, and the reason is the item's own: a
+  // deprecation is read by an operator at a command line, not by a visitor. The
+  // WIRING - promote printing it, and contract:matrix refusing a deprecation on
+  // the surface at HEAD - is held by `bun run e2e:deprecation`, which mints a
+  // successor against the real store because nothing smaller can produce the
+  // state at all.
+
+  {
+    name: "a deprecation may name a replacement nobody retains",
+    file: "scripts/contract.ts",
+    find: "    } else if (!registry.retained.includes(target.hash)) {",
+    replace: "    } else if (false) {",
+    unitTest: "a deprecation naming a replacement nobody retains is refused",
+  },
+  {
+    name: "a deprecation need not say why",
+    file: "scripts/contract.ts",
+    find: '    if (typeof d.reason !== "string" || d.reason.trim() === "") {',
+    replace: "    if (false) {",
+    unitTest: "a deprecation that does not say why is refused",
+  },
+  {
+    // The line an operator acts on. Told only that the contract is going away,
+    // they move to the successor; told that this promote has no other option,
+    // they know the composition has to be rebuilt before it can.
+    name: "a promote with no other option is not told so",
+    file: "scripts/contract.ts",
+    find: "      : `  Every contract this composition shares is deprecated, so a promote has no other option.`,",
+    replace: "      : ``,",
+    unitTest: "that a promote with no other option has none",
+  },
+  {
+    name: "the matrix stops naming a contract that is going away",
+    file: "scripts/contract.ts",
+    find: "  for (const contract of result.contracts) {\n    const d = contract.deprecated;",
+    replace: "  for (const contract of [] as ContractRecord[]) {\n    const d = contract.deprecated;",
+    unitTest: "the deprecation is named under the table",
+  },
+
   // --- the composition ----------------------------------------------------
   //
   // Everything below is @live, because what these break is what publish.ts and

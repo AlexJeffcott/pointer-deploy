@@ -11,6 +11,7 @@
     "contract:mint": "bun run scripts/contract-mint.ts",
     "contract:matrix": "bun run scripts/contract-matrix.ts",
     "contract:members": "bun run scripts/contract-members.ts",
+    "contract:deprecate": "bun run scripts/contract-deprecate.ts",
     "blocks:record": "bun run scripts/blocks-record.ts",
     "test": "bun test src/server src/web scripts api features/support",
     "publish": "bun run scripts/publish.ts",
@@ -27,7 +28,8 @@
     "verify:browser": "HARNESS=live bun node_modules/playwright-bdd/dist/cli/index.js test --tags @browser && HARNESS=live bun node_modules/@playwright/test/cli.js test",
     "sweep": "bun run scripts/sweep-superseded.ts",
     "measure:preload": "bun run scripts/measure-preload.ts",
-    "e2e:api": "bun run scripts/e2e-api-gate.ts"
+    "e2e:api": "bun run scripts/e2e-api-gate.ts",
+    "e2e:deprecation": "bun run scripts/e2e-deprecation.ts"
   },
   "dependencies": {
     "preact": "^10.27.2",

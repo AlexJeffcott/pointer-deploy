@@ -368,31 +368,11 @@ the surface would put `@preact/signals` into the contract hash, and
 `ComponentType` in `subapp.ts` is already the one vendor type that costs §21.
 So this buys a named error for a cost §9 spent effort avoiding.
 
-### 10. A deprecation dynamic
-
-`ContractRecord` in `scripts/contract.ts` is the one record per contract, so a
-`deprecated` field on it — a reason and a date — is the smallest version.
-`contract:matrix` prints it; `promote` warns when the contract it chose carries
-one, and names what to move to. A promote whose ONLY option is deprecated is
-the state the warning exists to prevent.
-
-A FIELD is the harder half and the hash cannot express it: one identity over
-the whole surface has no room for "this member is going away". `@deprecated` in
-a docstring is the obvious carrier and `emitSurface` strips comments on
-purpose — `removeComments: true`, so a docstring edit does not mint a
-contract. Invisible to the hash by design, which is right; invisible to the
-consumer too, which is not. Deciding what carries it is most of the work.
-
-Nothing can actually be REMOVED without a reading of what is still in use.
-§12 is now under Done and answers half of it: what this origin has HANDED OUT
-since the process started. What is still running in a tab opened before a
-promote is the half that is still missing, and it waits on §4.
-
 ## Open questions
 
-One left. What was scoped became §7 to §19 above; §8, §12, §13, §14, §15, §17
-and §19 are now under Done, §14 and §15 having been answered by reading what the
-code already does, and §16 was a defect that reading found.
+One left. What was scoped became §7 to §19 above; §8, §10, §12, §13, §14, §15,
+§17 and §19 are now under Done, §14 and §15 having been answered by reading what
+the code already does, and §16 was a defect that reading found.
 
 ### Do apps need migrations?
 
@@ -429,6 +409,58 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **A contract can be marked as going away, and nothing is refused for it.**
+  Was §10, done on 2026-08-30. `deprecated` on the registry record - a reason,
+  the date it was recorded, and the contract to move to. `contract:deprecate`
+  writes it, `contract:matrix` prints it under the table, and `promote` warns
+  when the composition it is about to write resolved at it.
+
+  **Not in the hash, and it must not be.** A deprecation is decided long after
+  the mint, so folding it into the identity would move the hash under every unit
+  that already claimed it - the one thing a content hash exists to prevent. It
+  sits on the record beside the hash, and `verifyRegistry` checks its shape
+  rather than its bytes, so a hand edit is caught where every other registry
+  fault is.
+
+  **A warning and never a refusal**, for the reason the vendor-version mismatch
+  is one: a deprecated contract is still what published units were built
+  against, and refusing it would make rolling back onto them impossible.
+  Deprecating does not un-retain either.
+
+  **Three states ARE refused**, because each names a move nobody can make:
+  deprecating the contract at HEAD, which everything built from now on is built
+  against; `--instead` naming a contract that is not retained, which nothing can
+  be promoted against; and `--instead` naming a contract that is itself
+  deprecated. The first is checked twice - by the command before it writes, and
+  by `contract:matrix` against the registry however it got that way.
+
+  **The FIELD half is still not built, and the item was right about why.** One
+  hash over the whole surface has no room for "this member is going away", and
+  `@deprecated` in a docstring is invisible to it by design - `emitSurface`
+  strips comments so a docstring edit does not mint a contract. Deciding what
+  carries it is most of the work and none of it was done here. What §9 changed
+  is the other half: `uses` records which sub-app names which member, so the
+  consumers of a deprecated member can be LISTED rather than guessed at once a
+  carrier exists.
+
+  **Checked by** 16 unit tests in `scripts/deprecation.test.ts`, four `falsify`
+  mutations on the readings, and `bun run e2e:deprecation` against the real
+  store. Nothing smaller can reach the state: a deprecation on HEAD's contract
+  is refused, so showing one needs a successor minted first, and the promote
+  warning needs published units whose contract set names the old one. Measured
+  on 2026-08-30 - the matrix printed `e0160a6 (injected-store-2026-08) is
+  deprecated as of 2026-08-30`, and the promote printed `WARNING contract
+  e0160a6 ... Move to b09aa39 ... Every contract this composition shares is
+  deprecated, so a promote has no other option`, then wrote the composition
+  unchanged.
+
+  **What it is still not.** `promote` reads the registry from the WORKING TREE,
+  so the warning is exactly as current as the tree the operator promotes from -
+  the same assumption `--from-build` already makes about the source. And a
+  deprecation still cannot be closed by a reading: §12 says what this origin has
+  handed out, and what is still RUNNING in a tab opened before a promote waits
+  on §4.
 
 - **A reading of which compositions are being handed out.** Was §12, done on
   2026-08-30. `GET /compositions`, in memory, on the origin that already decides

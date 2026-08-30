@@ -61,6 +61,36 @@ export type ContractRecord = {
   hash: string;
   firstSeenCommit: string;
   firstSeenAt: string;
+  /** §10. Recorded after the mint, and never part of the hash. */
+  deprecated?: Deprecation;
+};
+
+/**
+ * A contract that is going away, §10.
+ *
+ * It is NOT in the hash and must not be. A deprecation is decided after the
+ * contract is minted, so folding it into the identity would move the hash under
+ * every unit that already claimed it - the one thing a content hash exists to
+ * prevent. It sits on the record beside the hash instead, and `verifyRegistry`
+ * checks its shape rather than its bytes.
+ *
+ * Deprecating does not un-retain. A retained contract is what a rollback
+ * promotes against, so dropping it from `retained` would break the operation
+ * this whole project exists for. "Going away" is a warning, not a refusal.
+ */
+export type Deprecation = {
+  /** Why, in the operator's words. Printed wherever the contract is named. */
+  reason: string;
+  /** When the decision was recorded. Not when the contract was minted. */
+  at: string;
+  /**
+   * The contract to move to, or null when there is not one yet.
+   *
+   * Checked here and at every verify: a replacement that is not retained
+   * cannot be promoted against, so naming one would send an operator somewhere
+   * they cannot go.
+   */
+  instead: string | null;
 };
 
 export type Registry = {
@@ -272,7 +302,106 @@ export async function verifyRegistry(registry: Registry): Promise<string[]> {
       problems.push(`retained hash ${hash} names no contract`);
     }
   }
+  problems.push(...deprecationProblems(registry));
   return problems;
+}
+
+// -- deprecation, §10 -------------------------------------------------------
+
+/** The deprecation on a hash, or null. */
+export function deprecationOf(registry: Registry, hash: string): Deprecation | null {
+  return registry.contracts.find((c) => c.hash === hash)?.deprecated ?? null;
+}
+
+/**
+ * What is wrong with the deprecations in a registry.
+ *
+ * Read by `verifyRegistry`, so every command that touches the registry applies
+ * it. The field is written by `contract:deprecate` and lifted by hand - the
+ * retained list is maintained the same way - so a hand edit has to be caught
+ * where every other registry fault is, rather than surfacing as a warning that
+ * names a contract nobody can move to.
+ */
+export function deprecationProblems(registry: Registry): string[] {
+  const problems: string[] = [];
+  for (const record of registry.contracts) {
+    const d = record.deprecated;
+    if (d === undefined) continue;
+    if (d === null || typeof d !== "object") {
+      problems.push(`${record.name}: deprecated is not a record`);
+      continue;
+    }
+    if (typeof d.reason !== "string" || d.reason.trim() === "") {
+      problems.push(`${record.name}: a deprecation has to say why`);
+    }
+    if (typeof d.at !== "string" || Number.isNaN(Date.parse(d.at))) {
+      problems.push(`${record.name}: deprecated.at is not a date`);
+    }
+    if (d.instead === null) continue;
+    if (typeof d.instead !== "string") {
+      problems.push(`${record.name}: deprecated.instead has to be a hash or null`);
+      continue;
+    }
+    const target = registry.contracts.find((c) => c.hash === d.instead);
+    if (!target) {
+      problems.push(`${record.name}: it says to move to ${d.instead}, which is not a contract here`);
+    } else if (!registry.retained.includes(target.hash)) {
+      problems.push(
+        `${record.name}: it says to move to ${target.hash}, which is not retained. ` +
+          `Nothing can be promoted against it.`,
+      );
+    } else if (target.deprecated) {
+      problems.push(
+        `${record.name}: it says to move to ${target.hash}, which is deprecated too.`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * What an operator is told when the contract a promote resolved at is going
+ * away, §10.
+ *
+ * `chosen` is what the composition resolved at and `shared` is every contract
+ * it could have resolved at. Both are needed: the second says whether this
+ * promote has any option that is not deprecated, and a promote whose only
+ * option is deprecated is the state the whole warning exists to prevent.
+ *
+ * A warning and never a refusal, for the reason the vendor-version mismatch is
+ * one: a deprecated contract is still the contract a published unit was built
+ * against, and refusing it would make a rollback onto that unit impossible.
+ */
+export function deprecationWarnings(
+  registry: Registry,
+  chosen: string,
+  shared: string[],
+): string[] {
+  const deprecation = deprecationOf(registry, chosen);
+  if (!deprecation) return [];
+
+  const nameOf = (hash: string) => {
+    const record = registry.contracts.find((c) => c.hash === hash);
+    return record ? `${hash} (${record.name})` : hash;
+  };
+
+  const lines = [
+    `  WARNING contract ${nameOf(chosen)} was deprecated on ${deprecation.at.slice(0, 10)}: ` +
+      `${deprecation.reason}`,
+  ];
+  lines.push(
+    deprecation.instead
+      ? `  Move to ${nameOf(deprecation.instead)}: rebuild and republish every unit in this composition.`
+      : `  Nothing is named to move to, so this contract is going away with no successor recorded.`,
+  );
+
+  const live = shared.filter((hash) => hash !== chosen && !deprecationOf(registry, hash));
+  lines.push(
+    live.length
+      ? `  This composition also shares ${live.join(", ")}, which ${live.length === 1 ? "is" : "are"} not deprecated.`
+      : `  Every contract this composition shares is deprecated, so a promote has no other option.`,
+  );
+  return lines;
 }
 
 export function retainedContracts(registry: Registry): ContractRecord[] {
@@ -411,6 +540,21 @@ export function renderMatrix(result: MatrixResult): string {
   for (const unit of UNITS) {
     const row = result.contracts.map((c) => cellText(c.hash, result.sets[unit].includes(c.hash)));
     lines.push(`${unit.padEnd(width)}  ${row.join("  ")}`);
+  }
+  // §10. Below the table rather than in the header: a cell is padded to the
+  // width of its hash, so a marked column would move every row under it. A
+  // contract that is going away still passes or fails exactly as it did.
+  for (const contract of result.contracts) {
+    const d = contract.deprecated;
+    if (!d) continue;
+    const instead = d.instead
+      ? `Move to ${d.instead}.`
+      : `Nothing is named to move to.`;
+    lines.push(
+      `\n${contract.hash} (${contract.name}) is deprecated as of ${d.at.slice(0, 10)}: ` +
+        `${d.reason}\n  ${instead} It is still retained, so a rollback onto a unit built ` +
+        `against it still promotes.`,
+    );
   }
   return lines.join("\n");
 }

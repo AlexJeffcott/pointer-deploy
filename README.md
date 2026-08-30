@@ -923,20 +923,87 @@ it. `SERVED_CAPACITY` is 200, and the map is re-inserted on every hit, so what
 is dropped is always the least recently served. The composition a promote just
 started handing out is the newest row and can never be the one dropped.
 
+## Marking a contract as going away
+
+A contract is retired in two steps, and the first one is a sentence somebody
+writes down.
+
+```sh
+bun run contract:mint --name injected-store-2026-08          # the successor
+bun run contract:deprecate --hash 9e79879 \
+  --reason "the store is injected now" --instead e0160a6     # the predecessor
+```
+
+That writes a `deprecated` record - a reason, the date it was recorded, and the
+contract to move to - onto the registry entry beside the hash.
+
+**It is not in the hash, and it must not be.** A deprecation is decided long
+after the mint. Folding it into the identity would move the hash under every
+unit that already claimed it, which is the one thing a content hash exists to
+prevent. So it sits on the record, and `verifyRegistry` checks its shape instead
+of its bytes - every command that reads the registry applies that check, because
+the field can also be written by hand.
+
+**It warns and never refuses.** A deprecated contract is still the contract
+published units were built against, so refusing it would make rolling back onto
+them impossible - the operation this whole project exists for. Deprecating does
+not un-retain either, for the same reason.
+
+| Where | What is said |
+| --- | --- |
+| `bun run contract:matrix` | a line under the table: the reason, the date, what to move to, and that it is still retained |
+| `bun run promote` | a `WARNING` when the composition resolved at it, naming the same three things |
+| a promote with no other option | one more line. Every contract the composition shares is deprecated, so there is nothing to move to without rebuilding |
+
+**Three states are refused rather than warned about**, because each one names a
+move nobody can make:
+
+| Refused | Why |
+| --- | --- |
+| deprecating the contract at HEAD | everything built from now on is built against it. Mint the successor first - that is what makes HEAD something else |
+| `--instead` naming a contract that is not retained | nothing can be promoted against it |
+| `--instead` naming a contract that is itself deprecated | a move that lands on a deprecation is not a move |
+
+The first is checked twice: by `contract:deprecate` before it writes, and by
+`contract:matrix` against the registry however it came to be that way.
+
+**Lifting one is a hand edit** to `contracts/registry.json`, exactly as
+retention already is. Deprecating is a decision, and so is changing your mind
+about it; neither is something a script should do quietly.
+
+**The half this does NOT do: a FIELD.** One hash covers the whole surface, so
+there is no room in it for "this member is going away". `@deprecated` in a
+docstring is the obvious carrier and `emitSurface` strips comments on purpose -
+`removeComments: true`, so a docstring edit does not mint a contract. That is
+right for the hash and wrong for the consumer, and deciding what carries it is
+most of the work. What §9's member gate gives is the missing half of the
+reading: `uses` already records which sub-app names which member, so when a
+carrier is chosen, the consumers of a deprecated member can be listed rather
+than guessed at.
+
+**Proved by `bun run e2e:deprecation`**, against the real store. Nothing smaller
+can produce the state: a deprecation on the contract at HEAD is refused, so
+showing one needs a successor minted first, and the promote warning needs
+published units whose contract set names the old one. So the artefact mints,
+marks the predecessor, and reads what `contract:matrix` and `promote` actually
+print - then restores `api.ts`, the registry and `test-qa`. The pure readings
+underneath it are held by 16 unit tests and four `falsify` mutations.
+
 ## Verifying
 
 ```sh
-bun test                   # 341 unit tests: src/server, src/web, scripts, features/support, ~19 s
+bun test                   # 357 unit tests: src/server, src/web, scripts, features/support, ~20 s
 bun run verify             # 29 @local scenarios, stub store, ~9 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
 bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
 bun run verify:live        # 38 @live scenarios against Fly and Tigris, ~6 min
 bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
-bun run falsify            # 62 architectural mutations, each must turn a check red
-FALSIFY_LIVE=1 bun run falsify   # including the eighteen that need the real store
+bun run falsify            # 66 architectural mutations, each must turn a check red
+FALSIFY_LIVE=1 bun run falsify   # including the twenty-two that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run e2e:members        # drop a member, and refuse only the app that used it
+bun run e2e:deprecation    # mint a successor, mark the old contract, read what both commands say
 bun run measure:preload    # what warming a sub-app's files buys, with a control
 bun run scripts/e2e-version-switcher.ts   # drive the switcher on the LIVE site
 bun run mutate             # Stryker over the server logic
@@ -1425,6 +1492,7 @@ Do not rediscover these.
 | `integrity` on a cross-origin tag with no `crossorigin` | The browser refuses the file rather than checking it. The stylesheet never applies and the page renders unstyled, while every other check stays green |
 | `BuildArtifact.hash` read as an SRI digest | It is an 8-character content hash for `[hash]` in a file name. An `integrity` attribute holding one is refused by every browser |
 | An in-memory count read as a population | It counts what this process handed OUT since it started. Tabs already open, other machines, and this one before its last replacement are all outside it. The limits ship inside the document, because the number is one somebody acts on |
+| A deprecation folded into the contract hash | The identity would move under every unit that already claimed that contract. A decision taken after the mint belongs beside the hash, never inside it |
 | A digest on the tags alone | The tags name two files. The shared chunks and every sub-app are fetched by the module loader, which reads no tag, so the import map's `integrity` section is the only place they can be declared |
 
 ## Conventions

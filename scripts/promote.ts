@@ -25,13 +25,14 @@ import {
   urlsInManifest,
   warmUrls,
 } from "./store.ts";
-import { APPS, UNITS, majorOf, type Unit } from "./contract.ts";
+import { APPS, UNITS, deprecationWarnings, majorOf, readRegistry, type Unit } from "./contract.ts";
 import {
   HISTORY_DEPTH,
   chooseContract,
   compositionRefusal,
   decidesMembers,
   parseHistory,
+  sharedContracts,
   type ChannelHistory,
   type UnitSurface,
 } from "../src/server/composition.ts";
@@ -374,6 +375,24 @@ if (undigested.length) {
     `  WARNING ${undigested.join(", ")} carry no digests, so the browser will check ` +
       `nothing they load. Republish them to record some.`,
   );
+}
+
+// §10. The contract this composition resolved at may be one that is going away.
+// A warning and never a refusal, for the reason the vendor mismatch above is
+// one: it is the contract these published units were built against, and
+// refusing it would make rolling back onto them impossible - the operation this
+// script exists for.
+//
+// The registry is read from THIS working tree, so the reading is exactly as
+// current as the tree the operator promotes from. That is the assumption
+// --from-build already makes about the source, and the same one that makes
+// `bun run contract:matrix` worth running beside this.
+for (const line of deprecationWarnings(
+  await readRegistry(),
+  contract,
+  sharedContracts(contractsByUnit),
+)) {
+  console.error(line);
 }
 
 // -- compose ----------------------------------------------------------------

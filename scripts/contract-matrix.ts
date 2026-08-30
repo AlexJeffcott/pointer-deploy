@@ -35,10 +35,27 @@ if (retained.length === 0) {
 // The surface at HEAD must be one of them, or the sets this produces describe
 // a shell nobody can publish.
 const headHash = hashSurface(await emitSurface());
-if (!retained.some((c) => c.hash === headHash)) {
+const head = retained.find((c) => c.hash === headHash);
+if (!head) {
   console.error(
     `the surface at HEAD is contract ${headHash}, which is not retained.\n` +
       `  bun run contract:mint --name <name>`,
+  );
+  process.exit(1);
+}
+
+// §10. `contract:deprecate` refuses to deprecate HEAD's contract, and this is
+// the same rule applied to the registry however it got that way - a hand edit,
+// or a surface change that landed back on a contract deprecated earlier.
+// Everything built from now on is built against HEAD, so a deprecation on it
+// warns every promote about the only thing an operator can do.
+if (head.deprecated) {
+  console.error(
+    `the surface at HEAD is contract ${headHash} (${head.name}), which is deprecated: ` +
+      `${head.deprecated.reason}\n` +
+      `  Everything built now is built against it, so the warning names a move nobody can ` +
+      `make.\n` +
+      `  Mint the replacement, or lift the deprecation in contracts/registry.json.`,
   );
   process.exit(1);
 }
