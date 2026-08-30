@@ -67,3 +67,13 @@ Feature: Choosing which build the page runs
     When a visitor picks build "one"'s "alpha" unit from the switcher
     Then the page runs build "one"'s "alpha" unit
     And both sub-apps still render
+
+  # §12. The reading a sunset is made on counts what was HANDED OUT, and an
+  # operator working through this switcher is not visitors still being served an
+  # old unit. Counted apart, or the reading says the opposite of what happened
+  # and the unit stays because of the traffic that was checking on it.
+  @live @test-channel
+  Scenario: An operator's own choice is not counted as a visitor's
+    When a visitor asks the qa origin for build "one"'s "alpha" unit
+    And the qa origin is asked what it has served
+    Then that composition is counted as an operator's override, and nothing else is

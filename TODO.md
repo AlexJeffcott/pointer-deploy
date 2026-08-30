@@ -383,38 +383,16 @@ purpose — `removeComments: true`, so a docstring edit does not mint a
 contract. Invisible to the hash by design, which is right; invisible to the
 consumer too, which is not. Deciding what carries it is most of the work.
 
-Nothing can actually be REMOVED without §12.
-
-### 12. A reading of which compositions are in use
-
-Two readings, and only one is free.
-
-**What is handed out.** The server already knows: every response names its
-composition, and the shell is `no-store`, so every navigation reaches the
-origin. A counter on the read path in `src/server/index.ts` needs no new route.
-
-**What is still running.** A tab opened before a promote keeps its composition
-and never asks again — exactly the population a sunset has to worry about.
-Only the page can say, and that needs a route that accepts a write.
-
-The second breaks two rules the server holds now: `index.ts` refuses every
-method that is not GET or HEAD, and the image holds no state. A beacon needs a
-store write, and a bucket write key on the production origin is the same key
-§4 already refuses to give CI.
-
-So the smallest honest version is the read-path count, in memory, on a route
-the suite can read — with what it does not answer written beside it. A durable
-reading waits on §4.
-
-Trap: `min_machines_running = 1` holds one machine up, but an in-memory count
-is lost whenever the machine is replaced. Good enough for a reading of live
-traffic, not for a sunset decision.
+Nothing can actually be REMOVED without a reading of what is still in use.
+§12 is now under Done and answers half of it: what this origin has HANDED OUT
+since the process started. What is still running in a tab opened before a
+promote is the half that is still missing, and it waits on §4.
 
 ## Open questions
 
-One left. What was scoped became §7 to §19 above; §8, §13, §14, §15, §17 and
-§19 are now under Done, §14 and §15 having been answered by reading what the code
-already does, and §16 was a defect that reading found.
+One left. What was scoped became §7 to §19 above; §8, §12, §13, §14, §15, §17
+and §19 are now under Done, §14 and §15 having been answered by reading what the
+code already does, and §16 was a defect that reading found.
 
 ### Do apps need migrations?
 
@@ -451,6 +429,58 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **A reading of which compositions are being handed out.** Was §12, done on
+  2026-08-30. `GET /compositions`, in memory, on the origin that already decides
+  the composition. No new route accepts a write and the server still refuses
+  every method that is not GET or HEAD.
+
+  **The free half, and it says which half it is.** The item said two readings
+  and only one is free, and that is what shipped. Every response names its
+  composition and the shell is `no-store`, so what is handed OUT costs one map
+  write on a path that already exists. What is still RUNNING - a tab opened
+  before a promote, which never asks again - is the population a sunset has to
+  worry about, and this origin never hears from it. The reading carries that in
+  its own `blindTo`, beside the machine it is lost with and the rows the cap
+  dropped. A partial reading that says so is worth having; the same numbers with
+  nothing beside them are how a unit gets removed out from under the tabs still
+  using it.
+
+  **An operator is not a visitor.** The switcher composes a page from the query
+  string, and those responses are counted apart in `overrides`. Without it one
+  operator working through the switcher reads as visitors still on an old unit,
+  which is the exact finding that would stop it being removed. Measured live:
+  the composition an override asked for showed 3 responses and 1 override,
+  because the promote in the same scenario polled this origin while the channel
+  was still serving it.
+
+  **The cap is a bound and not tidiness.** `refuseComposition` refuses an id the
+  channel has never served, so the reachable set is `HISTORY_DEPTH` to the power
+  of the unit count - walkable by anyone holding a link. 200 rows, re-inserted
+  on every hit, so what is dropped is always the least recently served and the
+  composition a promote just started handing out can never be it.
+
+  **Checked by** 5 `@local` scenarios in `features/counting-what-is-served.feature`,
+  6 `falsify` mutations on the wiring, and 100% of stryker's 41 mutants on
+  `src/server/served.ts`. The override split has no `@local` form - the stub
+  store holds no history, so the switcher is off and nothing there can make an
+  override happen - so it is one `@live @test-channel` scenario in
+  `choosing-a-version.feature`, against the real store and a real history, with
+  a seventh mutation aimed at it.
+
+  **And once against the deployed image.** The scenarios above run the entry
+  point here, which proves the code and not the deploy. One more `@live` one
+  loads `pointer-deploy.fly.dev` and reads what it says it handed out. It was
+  red before `fly deploy` on 2026-08-30, and the message names the reason: an
+  image that does not know a path renders the SHELL for it, so `/compositions`
+  answered `200 text/html` and not 404.
+
+  **What it is still not.** A durable reading waits on §4: an in-memory count is
+  lost whenever the machine is replaced, and `min_machines_running = 1` holds
+  one machine up rather than guaranteeing the same one. A beacon from the page
+  would answer the running half and needs a route that accepts a write plus a
+  bucket write key on the production origin - the key §4 already refuses to give
+  CI.
 
 - **The argument survives losing the compiler, and the fourth schedule is
   real.** Was §13, done on 2026-08-30. `pointer-deploy-api` is a second Fly app

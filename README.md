@@ -862,17 +862,78 @@ was built with, and the intersection stays non-empty.
 That last row used to read *refused, correctly*, and it was neither. See
 **Compatible, not identical**.
 
+## Which compositions are being handed out
+
+`GET /compositions` answers what this origin has served, in memory, since the
+process started. It reads: no route accepts a write, and the server still
+refuses every method that is not GET or HEAD.
+
+```sh
+curl -s https://pointer-deploy.fly.dev/compositions
+```
+
+| Field | Reading |
+| --- | --- |
+| `compositions[]` | one row per distinct composition, most recently served first: channel, region, the unit ids, and the contract it resolved at |
+| `responses` | how many shells that row was handed out in |
+| `overrides` | how many of those the query string composed, rather than the channel's pointer |
+| `evicted` | rows dropped once `capacity` was reached. Non-zero means the list is partial |
+| `since` | when this process started counting. Its own zero |
+| `answers`, `blindTo` | what the number means, and the three things it does not cover |
+
+**Why it exists.** Nothing can be REMOVED without it. A deprecation that names a
+date is a guess; a deprecation that names traffic is a decision. Both this and
+the `deprecated` field `TODO.md` §10 wants are the same half of one job, and
+this is the half that answers "is anybody still being served it".
+
+**Two readings, and only one is free.** What is handed OUT, the server already
+knows: every response names its composition and the shell is `no-store`, so
+every navigation reaches this origin and the count costs one map write. What is
+still RUNNING, it cannot know - a tab opened before a promote keeps its
+composition and never asks again, which is exactly the population a sunset has
+to worry about. Only the page can say, and a beacon needs a route that accepts
+a write plus a bucket write key on the production origin: the same key the CI
+item refuses to give CI. So this is the free half, and it carries its own limits
+in `blindTo` rather than leaving a reader to assume them.
+
+| It does not answer | Why |
+| --- | --- |
+| what is still running in an open tab | that page never asks again, so this origin never hears from it |
+| any other machine, or this one before it was replaced | the count is in memory. `min_machines_running = 1` holds one machine up; a replacement still starts at zero |
+| what the cap dropped | `evicted` says how many, and nothing says which |
+
+**An operator is not a visitor.** The version switcher composes a page from the
+query string, and those responses are marked in `overrides`. Without the split,
+one operator working through the switcher reads as visitors still being served
+an old unit - which is the exact finding that would stop it being removed.
+Measured live: the composition an override asked for had 3 responses and 1
+override, because the promote in the same scenario had polled this origin while
+the channel was still serving it.
+
+**Checked against the running image, not only the code.** One `@live` scenario
+in `features/counting-what-is-served.feature` loads the deployed origin and then
+reads what it says it handed out. It was seen red before the deploy that shipped
+the route, and the failure names why: an image that does not know a path renders
+the SHELL for it, so `/compositions` answered `200 text/html` rather than 404.
+
+**The cap is a bound, not tidiness.** The switcher refuses an id the channel has
+never served, so the reachable set is bounded by the history depth per unit -
+which is 20 to the power of the unit count, and anyone holding a link can walk
+it. `SERVED_CAPACITY` is 200, and the map is re-inserted on every hit, so what
+is dropped is always the least recently served. The composition a promote just
+started handing out is the newest row and can never be the one dropped.
+
 ## Verifying
 
 ```sh
-bun test                   # 235 unit tests: src/server, src/web, scripts, features/support, ~19 s
-bun run verify             # 21 @local scenarios, stub store, ~8 s
+bun test                   # 341 unit tests: src/server, src/web, scripts, features/support, ~19 s
+bun run verify             # 29 @local scenarios, stub store, ~9 s
 bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
 bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
 bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
-bun run verify:live        # 33 @live scenarios against Fly and Tigris, ~6 min
+bun run verify:live        # 38 @live scenarios against Fly and Tigris, ~6 min
 bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
-bun run falsify            # 52 architectural mutations, each must turn a check red
+bun run falsify            # 62 architectural mutations, each must turn a check red
 FALSIFY_LIVE=1 bun run falsify   # including the eighteen that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run e2e:members        # drop a member, and refuse only the app that used it
@@ -1116,7 +1177,7 @@ read the real `qa` channel — no browser can be made to send a `Host` header.
 They write nothing. Promote a build to `qa` before running them, or they check
 whatever was last deployed.
 
-The thirteen `@test-channel` scenarios do write, because what they are about is a
+The twenty `@test-channel` scenarios do write, because what they are about is a
 channel pointing somewhere no promote would put it. They take the same way out
 `e2e` does — `bun src/server/index.ts` locally against the real store, reached
 at `test-qa.localhost` — write `test-qa`, and put the exact bytes back
@@ -1322,6 +1383,7 @@ far impossible, which is the operation the whole design exists for.
 | Asset retention | `bun run sweep` lists what no channel can serve and deletes it with `--delete`; it has no 90-day floor yet, so it must not run on a schedule |
 | Contract pruning | `contracts/registry.json` retains by hand. Pruning is a decision, never automatic |
 | Concurrent promotes | `promote` is a read-modify-write with no compare-and-set, so two at once can lose one. One operator. Tigris conditional writes are unchecked; an `If-Match` on the ETag would close it |
+| A count of what is still RUNNING | `GET /compositions` counts what was handed out. The other half needs a route that accepts a write and a production bucket key; see the CI item in `TODO.md` |
 
 Whoever can write `manifests/eu/prod.json` can still point a channel at an older
 composition, and can still stop the page working. What they can no longer do is
@@ -1362,6 +1424,7 @@ Do not rediscover these.
 | A step that matches an asset by its directory | The directory belongs to the manifest schema, not the application. Schema 3 moved `apps/<name>-` to `units/<name>/<id>/`, and three steps silently matched nothing and counted 0 |
 | `integrity` on a cross-origin tag with no `crossorigin` | The browser refuses the file rather than checking it. The stylesheet never applies and the page renders unstyled, while every other check stays green |
 | `BuildArtifact.hash` read as an SRI digest | It is an 8-character content hash for `[hash]` in a file name. An `integrity` attribute holding one is refused by every browser |
+| An in-memory count read as a population | It counts what this process handed OUT since it started. Tabs already open, other machines, and this one before its last replacement are all outside it. The limits ship inside the document, because the number is one somebody acts on |
 | A digest on the tags alone | The tags name two files. The shared chunks and every sub-app are fetched by the module loader, which reads no tag, so the import map's `integrity` section is the only place they can be declared |
 
 ## Conventions

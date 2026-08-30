@@ -4,6 +4,7 @@ import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
 import type { BuildInfo } from "@pointer/blocks";
+import type { ServedComposition, ServedReading } from "../../src/server/served.ts";
 
 // The hooks are in hooks.ts and the bindings in bdd.ts. This file holds the
 // world and nothing that registers itself with the runner: bdd.ts imports the
@@ -223,6 +224,10 @@ export class PointerWorld {
 
   lastResponse: Response | null = null;
   lastBody = "";
+  /** §12. What the origin last said it had handed out. */
+  lastServed: ServedReading | null = null;
+  /** §12. The row a step last found in it, for the step that reads its count. */
+  lastNamed: ServedComposition | null = null;
   lastRun: Run | null = null;
   /** Temporary working directory a promote-refusal scenario runs from. */
   guardDir: string | null = null;
@@ -690,6 +695,30 @@ export class PointerWorld {
     this.lastResponse = res;
     this.lastBody = await res.text();
     return res;
+  }
+
+  /**
+   * What the origin says it has handed out, §12.
+   *
+   * Through `visit`, so the reading is fetched exactly the way a visitor's
+   * request reaches the same process - live, that is a Host the address does
+   * not match, and therefore curl rather than fetch.
+   */
+  async readServed(channel: Channel): Promise<ServedReading> {
+    const res = await this.visit(channel, "/compositions");
+    const type = res.headers.get("content-type") ?? "none";
+    // The content type as well as the status. A server that does not know this
+    // path renders the SHELL for it, so an image published before the reading
+    // existed answers 200 text/html - and without this the failure is a JSON
+    // parse error two lines further on, which names nothing.
+    if (res.status !== 200 || !type.includes("application/json")) {
+      throw new Error(
+        `GET /compositions answered ${res.status} ${type}, which is not a reading. ` +
+          `An image without one serves the shell for any path: ${this.lastBody.slice(0, 120)}`,
+      );
+    }
+    this.lastServed = JSON.parse(this.lastBody) as ServedReading;
+    return this.lastServed;
   }
 
   /**

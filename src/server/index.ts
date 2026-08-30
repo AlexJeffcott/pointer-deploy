@@ -22,6 +22,7 @@ import { createDocumentStore, createManifestStore, manifestUrl } from "./manifes
 import { hostTable, resolveRegion, resolveTarget } from "./origins.ts";
 import { shellResponse } from "./html.ts";
 import { blocksWritten } from "./provides.ts";
+import { createServedLog } from "./served.ts";
 import { apiVersionsUrl, parseApiVersions } from "./apiversions.ts";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
@@ -56,6 +57,22 @@ const apiVersions = API_BASE
   ? createDocumentStore<string[]>(parseApiVersions, { label: "api versions" })
   : null;
 
+// §12. A reading of which compositions this process is handing out. In
+// memory, so it is lost whenever the machine is replaced - which is a limit of
+// the reading and is written inside the reading itself.
+const handedOut = createServedLog();
+
+const json = (body: unknown) =>
+  new Response(JSON.stringify(body, null, 2), {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      // The counts change on every request, so a stored copy is a wrong reading
+      // rather than an old one.
+      "cache-control": "no-store",
+    },
+  });
+
 const text = (body: string, status: number) =>
   new Response(body, {
     status,
@@ -80,6 +97,13 @@ const server = Bun.serve({
     if (req.method !== "GET" && req.method !== "HEAD") {
       return text("method not allowed", 405);
     }
+
+    // §12. What this process has handed out, and what that does not answer.
+    // No target is resolved: the counts span every channel this machine serves,
+    // so a reader asking for them is not asking for a channel. It only READS -
+    // the whole of the item is that this half needs no write, and the server
+    // still refuses every method above.
+    if (pathname === "/compositions") return json(handedOut.read());
 
     // The server has no application files. Anything asking it for one is
     // asking the wrong host, and saying so beats serving a stale copy.
@@ -113,6 +137,10 @@ const server = Bun.serve({
     // §11. What the shell being served says it reads out of this server's
     // blocks, when the history recorded it.
     let shellSurface: UnitSurface | undefined;
+    // §12. Hoisted out of the switcher below, because the reading needs it: an
+    // operator working through the version switcher must not be counted as
+    // visitors still being served an old unit.
+    let overridden = false;
     // §13. peek, for the reason the history is peeked: a cold read must not
     // make a visitor wait on a fourth deploy. Nothing yet read is `undefined`,
     // which every gate below treats as "cannot decide" rather than as a
@@ -130,7 +158,6 @@ const server = Bun.serve({
         // parameter is left alone rather than refused: a page carrying somebody
         // else's tracking parameter must still render.
         const chosen: Record<string, string> = { ...ids };
-        let overridden = false;
         for (const unit of Object.keys(ids)) {
           const asked = wanted.get(unit);
           if (asked !== null && asked !== ids[unit]) {
@@ -177,6 +204,17 @@ const server = Bun.serve({
     // managed to read yet.
     const api = apiRefusal(serves, shellSurface);
     res.headers.set("x-shell-api", api === undefined ? "unread" : (api ?? "ok"));
+
+    // §12. Counted here, where the composition is already decided and a shell
+    // is actually being handed out. A refusal above reaches neither line.
+    handedOut.record({
+      channel: target.channel,
+      region: target.region,
+      buildId: served.schema === 3 ? served.shell.unitId : served.buildId,
+      units: served.schema === 3 ? currentIds(served) : {},
+      contract: served.schema === 3 ? served.contract : null,
+      overridden,
+    });
     return res;
   },
 

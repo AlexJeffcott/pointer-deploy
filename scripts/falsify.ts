@@ -168,6 +168,80 @@ const MUTATIONS: Mutation[] = [
     scenario: "An origin that could not refresh its manifest says so",
   },
 
+  // --- §12, the reading a sunset is made on ------------------------------
+  //
+  // The count itself is in src/server/served.ts and stryker mutates that. What
+  // stryker cannot see is index.ts, which is where the count is wired to the
+  // one request that hands a composition out - so the wiring is falsified here.
+
+  {
+    name: "the origin stops counting what it hands out",
+    file: "src/server/index.ts",
+    find: "    handedOut.record({\n      channel: target.channel,",
+    replace: "    if (false) handedOut.record({\n      channel: target.channel,",
+    scenario: "The origin counts the composition it handed out",
+  },
+  {
+    // The half a sunset would be wrong on. One operator working through the
+    // version switcher, counted as visitors, reads as an old unit still in use
+    // by people - which is exactly the finding that stops it being removed.
+    name: "every response is counted as an operator's override",
+    file: "src/server/index.ts",
+    find: "      overridden,\n    });",
+    replace: "      overridden: true,\n    });",
+    scenario: "The origin counts the composition it handed out",
+  },
+  {
+    name: "a repeat response starts the row again",
+    file: "src/server/served.ts",
+    find: "      const row = rows.get(key);",
+    replace: "      const row = undefined as ServedComposition | undefined;",
+    scenario: "Two visitors of one composition are one row, not two",
+  },
+  {
+    // A log holding only what is served NOW answers the question nobody has to
+    // ask. The reading exists for the composition the channel has moved off.
+    name: "the origin keeps only the composition it serves now",
+    file: "src/server/index.ts",
+    find: "const handedOut = createServedLog();",
+    replace: "const handedOut = createServedLog({ capacity: 1 });",
+    scenario: "A composition served before a promote is still named after it",
+  },
+  {
+    // A row no page corresponds to is worse than no row: an operator reads it
+    // as a composition somebody is running.
+    name: "a refused request is counted as a composition served",
+    file: "src/server/index.ts",
+    find: '    if (pathname === "/assets" || pathname.startsWith("/assets/")) {\n      return text("not found", 404);',
+    replace:
+      '    if (pathname === "/assets" || pathname.startsWith("/assets/")) {\n' +
+      '      handedOut.record({ channel: "qa", region: REGION, buildId: "none", units: {}, contract: null, overridden: false });\n' +
+      '      return text("not found", 404);',
+    scenario: "A request that was refused is not counted as a composition",
+  },
+  {
+    // The limits are the deliverable, not decoration on it. A count of what was
+    // handed out, read as a count of what is still running, is how a unit gets
+    // removed out from under the tabs still using it.
+    name: "the reading stops saying what it cannot see",
+    file: "src/server/served.ts",
+    find: "        blindTo: BLIND_TO,",
+    replace: "        blindTo: [],",
+    scenario: "The reading says which population it cannot see",
+  },
+  {
+    // The same wiring at the boundary the local scenarios cannot reach: the
+    // stub store holds no history, so nothing @local can make an override
+    // happen. @live, and it is the only check that an operator's own request
+    // is separated where a real history and a real switcher are involved.
+    name: "an operator's own choice is counted as a visitor's",
+    file: "src/server/index.ts",
+    find: "      overridden,\n    });",
+    replace: "      overridden: false,\n    });",
+    scenario: "An operator's own choice is not counted as a visitor's",
+    live: true,
+  },
+
   // --- the composition ----------------------------------------------------
   //
   // Everything below is @live, because what these break is what publish.ts and
