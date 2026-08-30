@@ -169,6 +169,12 @@ of seconds, rarely. That read was sampled once, at a quiet moment, and it was
 occurrence - an age under the TTL with the wrong composition is the store's
 answer, an age far above it is the origin.
 
+**A ninth run, on 2026-08-30 after §3: 41 of 41 green**, 10.8 min, 0 curl
+retries. Its whole output was kept. The run before it that day is NOT evidence
+and must not be counted: it failed one scenario with `ReferenceError: region is
+not defined`, which was an edit to `promote.ts` landing while the run was
+executing it.
+
 **Runs since the fixes: 7 of 7 green** - 196 scenarios, 0 curl retries fired,
 0 failed refreshes logged. Five of them ran back to back on 2026-08-27 between
 21:20 and 21:49 UTC, 4m35s to 6m33s each, with the propagation budgets used
