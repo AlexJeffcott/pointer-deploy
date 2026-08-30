@@ -345,37 +345,10 @@ Trap: `min_machines_running = 1` holds one machine up, but an in-memory count
 is lost whenever the machine is replaced. Good enough for a reading of live
 traffic, not for a sunset decision.
 
-### 13. A contract against an external API
-
-Stated under Open questions. Add a small REST API and drive the values already
-on the page from it — `user` and `counters` in `src/web/shell/api.ts` — so the
-hash-set argument can be tried against a service the units do not build
-alongside.
-
-What makes it different: both halves of the current contract are compiled from
-this repo at one commit, so `tsc` is the oracle and the matrix is complete. A
-service deploys on its own schedule and its surface is not a TypeScript file.
-The demonstration is whether the argument survives losing the compiler:
-
-- the response shape has to be checked at runtime, at the boundary, because
-  nothing compiles what the service actually returns;
-- the API versions a unit works against are a second set to intersect at
-  promote, beside the contract set;
-- the service is a fourth deploy schedule, so "which combinations were ever
-  tested" is the same question one dimension larger.
-
-Where it goes is a decision to make before writing any of it: `src/server` is
-copied into the runtime image by the Dockerfile and holds the shell's
-templating only. A second Fly app, or a second route here.
-
-The largest of these. §12 comes first — it says when a version can go. §8 is
-done, and the additive reading it gives is the shape to copy per API version,
-against a surface no compiler owns.
-
 ## Open questions
 
-One left. What was scoped became §7 to §19 above; §8, §14, §15, §17 and §19 are
-now under Done, §14 and §15 having been answered by reading what the code
+One left. What was scoped became §7 to §19 above; §8, §13, §14, §15, §17 and
+§19 are now under Done, §14 and §15 having been answered by reading what the code
 already does, and §16 was a defect that reading found.
 
 ### Do apps need migrations?
@@ -413,6 +386,67 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **The argument survives losing the compiler, and the fourth schedule is
+  real.** Was §13, done on 2026-08-30. `pointer-deploy-api` is a second Fly app
+  with its own image, its own `fly deploy` and its own version number. Nothing
+  in `api/` imports anything from `src/`, and neither image carries the other.
+
+  **What replaces `tsc`.** Every other surface here has both halves built from
+  one commit, so a mismatch is a build failure and the matrix enumerates every
+  pair. This one has none.
+
+  | | |
+  | --- | --- |
+  | the response shape | checked at the boundary by `src/web/shell/service.ts`, which DECLARES the types and never imports them from `api/`. Importing them would put the compiler back in the loop and prove nothing |
+  | the version set | the shell records `api: ["v1"]`, the service publishes `GET /versions`, and the two are intersected |
+  | a slow or absent service | the page renders from the store's defaults and hydrates afterwards. A different page, never a blank one |
+
+  **The item said "intersect at promote", and that is wrong** for §11's reason
+  one step further out: a promote runs in a working tree and cannot see which
+  service is deployed. The RUNNING server compares, reading the discovery
+  document through `createDocumentStore` - the same cache, the same peek-never-
+  wait rule, the same "nothing read yet is undecidable" answer. `x-shell-api`
+  reports `ok`, the version named, or `unread`.
+
+  **A version set is coarse and there is nothing better available.** The member
+  gate takes a digest of a declaration; a service has no declaration to take
+  one of. Saying that beats pretending otherwise.
+
+  **Which versions a deploy answers is `API_SERVES` in its environment**, and
+  the routes are gated on the same list - so the document cannot claim one thing
+  while the service answers another. Dropping v1 is a thing an operator does on
+  a Tuesday, to shells published long before that Tuesday.
+
+  **`bun run e2e:api` moves the fourth schedule and reads what this origin
+  says.** Two shells promoted to `test-qa`, then `API_SERVES=v2` on the other
+  app, with no unit rebuilt and no image deployed. 12 of 12:
+
+  ```
+  the origin names the version the service no longer answers
+  a visitor still receives the page
+  the switcher no longer lets either shell be chosen
+  choosing one of them is refused, naming the version
+  ```
+
+  Two shells, because only an OVERRIDE is refused. A channel's own pointer never
+  is: taking the site down over a fourth deploy is worse than the fault it would
+  be reporting. Both halves are asserted.
+
+  **Two faults the running found.** `fetch` with a `Host` header fails TLS
+  verification in Bun before the request leaves - "unknown certificate
+  verification error" - so every live check carrying one uses `curl`, which is
+  what the rest of the harness already did. And the first run left the deployed
+  service answering only v2 for 35 minutes: `fly secrets set` returned
+  `unauthorized` on a machine update and the restore in the `finally` hit the
+  same. The restore now retries, reads the live document before deciding, and
+  prints the command a person runs if it still fails.
+
+  Also found: the service was running two machines, which is wrong for state
+  held in memory - two machines hold two states. One now.
+
+  What this does NOT do: persistence (the deferred question below), a member-
+  level reading of the service's surface, and any check at promote time.
 
 - **The 28 surviving mutants are gone, and 23 of them were real.** Was §22,
   opened and closed on 2026-08-29. `bun run mutate` now reports 750 of 750

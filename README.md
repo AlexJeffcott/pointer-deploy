@@ -500,6 +500,45 @@ becoming `increment(ns, by: number)`. Normalisation is `tsc
 would give; a reformat that survives that would mint a contract everything still
 supports, which costs one registry entry and no false refusal.
 
+### The third surface: a service with no compiler behind it
+
+The two surfaces above have `tsc` for an oracle. Both halves are built from
+this repository at one commit, so a mismatch is a build failure and the matrix
+can enumerate every pair. `pointer-deploy-api` is not like that. It is a
+separate app with its own `fly deploy`, its surface is not a TypeScript file,
+and what it returns this afternoon is a fact about the running world.
+
+Three things replace the compiler.
+
+| | |
+| --- | --- |
+| A shape checked at the boundary | `src/web/shell/service.ts` declares the response types and never imports them from `api/`. Importing them would put the compiler back in the loop and prove nothing: the shell would agree with the service's source at this commit, and the question is what the service sends |
+| A version set compared at serve time | The shell records `api: ["v1"]`, the service publishes `GET /versions`, and the running server intersects them |
+| A page that never waits | The store has defaults, the shell renders from them, and `hydrate()` fills in what the service holds afterwards. A service that is slow, unreachable or gone costs a DIFFERENT page, never a blank one |
+
+The comparison happens in the SERVER and not in `promote`, for §11's reason one
+step further out: a promote runs in a working tree and cannot see which service
+is deployed. `x-shell-api` reports it — `ok`, the version named, or `unread`
+for the three states nothing can decide (a shell published before this existed,
+a server with no service configured, a discovery document not yet read).
+
+A version set is coarse, and deliberately so: there is no declaration to take a
+digest of. What the member gate does for `ShellStore` cannot be done here, and
+saying that is better than pretending otherwise.
+
+**Which versions a deploy answers is `API_SERVES` in its environment**, not a
+constant in its source. Dropping v1 is a thing an operator does on a Tuesday,
+to shells published long before that Tuesday. The routes are gated on the same
+list, so the discovery document cannot claim one thing while the service
+answers another.
+
+`bun run e2e:api` proves it against the real store and the deployed service:
+two shells promoted to `test-qa`, then `API_SERVES` moved to v2 with no unit
+rebuilt and no image deployed. 12 checks, and the two that matter most are that
+a visitor still receives the page and that only an OVERRIDE is refused. A gate
+that refused the channel's own pointer would take the site down over a fourth
+deploy, which is worse than the fault it would be reporting.
+
 ## Measured
 
 | | Value |

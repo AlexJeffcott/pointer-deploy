@@ -26,7 +26,8 @@
     "mutate": "stryker run",
     "verify:browser": "HARNESS=live bun node_modules/playwright-bdd/dist/cli/index.js test --tags @browser && HARNESS=live bun node_modules/@playwright/test/cli.js test",
     "sweep": "bun run scripts/sweep-superseded.ts",
-    "measure:preload": "bun run scripts/measure-preload.ts"
+    "measure:preload": "bun run scripts/measure-preload.ts",
+    "e2e:api": "bun run scripts/e2e-api-gate.ts"
   },
   "dependencies": {
     "preact": "^10.27.2",
