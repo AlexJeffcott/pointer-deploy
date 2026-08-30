@@ -9,6 +9,11 @@ primary_region = "ams"
   MANIFEST_BASE = "https://pointer-deploy-assets.fly.storage.tigris.dev/manifests"
   MANIFEST_TTL_MS = "10000"
   PORT = "8080"
+  # §13. Where the page is told to find the service. Configuration and not a
+  # credential - it is a public URL the browser calls directly - so it is
+  # recorded here rather than set as a secret, and the two deploys stay
+  # independent: this names the service, and the service knows nothing of this.
+  API_BASE = "https://pointer-deploy-api.fly.dev"
 
 [http_service]
   internal_port = 8080
