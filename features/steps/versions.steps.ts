@@ -8,6 +8,47 @@ import {
   versionsInShell,
 } from "../support/world.ts";
 import { UNITS, type Unit } from "../../scripts/contract.ts";
+import { configFromEnv, getObjectText } from "../../scripts/store.ts";
+
+type StoredHistory = {
+  units: Record<string, Array<{ unit: { unitId: string }; supersededAt?: string }>>;
+};
+
+const storedHistory = async (world: PointerWorld): Promise<StoredHistory> => {
+  const key = world.historyKey("qa");
+  const text = await getObjectText(configFromEnv(), key);
+  if (text === null) throw new Error(`${key} does not exist`);
+  return JSON.parse(text) as StoredHistory;
+};
+
+Then("the {string} unit it serves says when it started being served", function (this: PointerWorld, unit: string) {
+  const current = optionsOf(this, unit).find((o) => o.current);
+  expect(current?.since ?? `the ${unit} unit ${current?.unitId} carries no start`).toMatch(
+    /^\d{4}-\d{2}-\d{2}T/,
+  );
+});
+
+// Named by id from the scenario's own setup rather than by position, so this
+// reads the property - the served unit started when the one before it stopped -
+// and not the expression the server computes it with.
+Then("that is the moment build {string}'s {string} unit stopped being served", async function (this: PointerWorld, build: string, unit: string) {
+  const current = optionsOf(this, unit).find((o) => o.current);
+  const older = this.idsOf(build)[unit as Unit];
+  const doc = await storedHistory(this);
+  const stopped = (doc.units[unit] ?? []).find((e) => e.unit.unitId === older)?.supersededAt;
+  expect(stopped ?? `the ${unit} unit ${older} carries no stamp`).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  expect(current?.since).toBe(stopped);
+});
+
+Then("the switcher shows how long each unit it serves has been served", async function (this: PointerWorld) {
+  const shown = await this.browserPage.$$eval("[data-serving-since]", (els) =>
+    els.map((e) => `${e.getAttribute("data-serving-since")} -> ${(e.textContent ?? "").trim()}`),
+  );
+  expect(shown.length ? "shown" : "the row shows no duration at all").toBe("shown");
+  for (const line of shown) {
+    expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T.+ -> (just now|\d+ (min|h|d))$/);
+  }
+});
 
 const INCOMPATIBLE = () => `incompat-${Bun.hash(`${process.pid}`).toString(16)}`;
 

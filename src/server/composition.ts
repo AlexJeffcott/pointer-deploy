@@ -310,15 +310,21 @@ export function optionsFor(
   return Object.fromEntries(
     Object.entries(history.units).map(([unit, entries]) => [
       unit,
-      entries.map((e) => {
+      entries.map((e, i) => {
         const blocks = unit === "shell" ? blockRefusal(provided, e.surface) : null;
         const api = unit === "shell" ? apiRefusal(serves, e.surface) : null;
+        // The entry below this one stopped being served at the promote that put
+        // this one at the head, so its stamp IS this one's start. Nothing else
+        // records that moment - a publish is not a promote, and the manifest
+        // holds only what is served now.
+        const since = entries[i + 1]?.supersededAt;
         return {
           unitId: e.unit.unitId,
           marker: e.unit.marker ?? "",
           current: chosen[unit] === e.unit.unitId,
           live: live[unit] === e.unit.unitId,
           deployed: live[unit] === e.unit.unitId,
+          ...(since ? { since } : {}),
           disabled:
             typeof blocks === "string" ||
             typeof api === "string" ||

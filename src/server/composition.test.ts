@@ -456,6 +456,45 @@ describe("parseHistory carries the member reading", () => {
 });
 
 describe("optionsFor", () => {
+  const stamped: ChannelHistory = {
+    schema: 1,
+    updatedAt: "2026-08-31T12:00:00.000Z",
+    units: {
+      shell: [
+        { unit: unit("shell", "s2"), contracts: ["c2"] },
+        { unit: unit("shell", "s1"), contracts: ["c2"], supersededAt: "2026-08-31T11:00:00.000Z" },
+        { unit: unit("shell", "s0"), contracts: ["c2"], supersededAt: "2026-08-30T09:00:00.000Z" },
+      ],
+    },
+  };
+  const stampedOptions = () => optionsFor(stamped, { shell: "s2" }, { shell: "s2" }).shell ?? [];
+
+  test("says when the unit being served started being served", () => {
+    expect(stampedOptions()[0]?.since).toBe("2026-08-31T11:00:00.000Z");
+  });
+
+  test("each older option carries its own start, not the channel's", () => {
+    expect(stampedOptions().map((o) => o.since)).toEqual([
+      "2026-08-31T11:00:00.000Z",
+      "2026-08-30T09:00:00.000Z",
+      undefined,
+    ]);
+  });
+
+  test("the oldest entry a channel keeps says nothing, because nothing recorded it", () => {
+    expect(stampedOptions()[2]).not.toHaveProperty("since");
+  });
+
+  test("a build the catalogue contributed says nothing either", () => {
+    const merged = mergeKnown(stamped, {
+      schema: 1,
+      updatedAt: "t",
+      units: { shell: [{ unit: unit("shell", "s9"), contracts: ["c2"] }] },
+    });
+    const options = optionsFor(merged, { shell: "s2" }, { shell: "s2" }).shell ?? [];
+    expect(options.find((o) => o.unitId === "s9")).not.toHaveProperty("since");
+  });
+
   test("marks what the page shows and what the channel serves now", () => {
     const options = optionsFor(history, served, served);
     expect(options.shell?.map((o) => [o.unitId, o.current, o.live])).toEqual([

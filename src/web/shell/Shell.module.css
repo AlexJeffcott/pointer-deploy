@@ -129,6 +129,15 @@
   opacity: 0.75;
 }
 
+.age {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .version select {
   font: inherit;
   padding: 0.15rem 0.3rem;

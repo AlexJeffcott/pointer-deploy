@@ -3,7 +3,7 @@ import type { ShellStore } from "./api.ts";
 import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
 import { navigate, route } from "./router.ts";
-import { chooseVersion, readVersions, type VersionOption } from "./versions.ts";
+import { chooseVersion, readVersions, servedFor, type VersionOption } from "./versions.ts";
 import { DEFAULT_ROUTE, VIEWS } from "./views.ts";
 import styles from "./Shell.module.css";
 
@@ -18,13 +18,14 @@ function optionLabel(o: VersionOption): string {
 
 function UnitVersions({ unit, options }: { unit: string; options: VersionOption[] }) {
   const id = `version-${unit}`;
+  const current = options.find((o) => o.current);
   return (
     <span class={styles.version}>
       <label for={id}>{unit}</label>
       <select
         id={id}
         data-version-select={unit}
-        value={options.find((o) => o.current)?.unitId}
+        value={current?.unitId}
         onChange={(e: Event) => {
           const wanted = (e.currentTarget as HTMLSelectElement).value;
           const option = options.find((o) => o.unitId === wanted);
@@ -37,6 +38,15 @@ function UnitVersions({ unit, options }: { unit: string; options: VersionOption[
           </option>
         ))}
       </select>
+      {current?.since ? (
+        <span
+          class={styles.age}
+          data-serving-since={current.since}
+          title={`serving since ${current.since}`}
+        >
+          {servedFor(current.since)}
+        </span>
+      ) : null}
     </span>
   );
 }

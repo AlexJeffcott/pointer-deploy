@@ -49,6 +49,17 @@ Feature: Choosing which build the page runs
     When a visitor asks the qa origin for that shell
     Then the request is refused because this server cannot feed that shell
 
+  @live @test-channel
+  Scenario: The page says how long the unit it serves has been served
+    When a visitor loads the qa origin
+    Then the "alpha" unit it serves says when it started being served
+    And that is the moment build "one"'s "alpha" unit stopped being served
+
+  @browser
+  Scenario: The row shows that against every unit on the page
+    When a visitor opens the counters view
+    Then the switcher shows how long each unit it serves has been served
+
   @browser @test-channel
   Scenario: An operator picks an older unit from the page
     When a visitor picks build "one"'s "alpha" unit from the switcher

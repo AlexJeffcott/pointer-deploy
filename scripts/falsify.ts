@@ -841,6 +841,14 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
   {
+    name: "the page does not say how long a unit has been served",
+    file: "src/server/composition.ts",
+    find: "        const since = entries[i + 1]?.supersededAt;",
+    replace: "        const since = undefined;",
+    scenario: "The page says how long the unit it serves has been served",
+    live: true,
+  },
+  {
     name: "the shell is served with no content policy",
     file: "src/server/html.ts",
     find: '      "content-security-policy": contentSecurityPolicy(m, apiBase),',

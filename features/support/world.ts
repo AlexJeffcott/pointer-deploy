@@ -117,6 +117,7 @@ export type ServedOption = {
   live: boolean;
   deployed: boolean;
   disabled: boolean;
+  since?: string;
 };
 
 export function versionsInShell(html: string): Record<string, ServedOption[]> {
