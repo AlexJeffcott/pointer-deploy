@@ -52,8 +52,7 @@ Feature: Choosing which build the page runs
   @live @test-channel
   Scenario: The page says how long the unit it serves has been served
     When a visitor loads the qa origin
-    Then the "alpha" unit it serves says when it started being served
-    And that is the moment build "one"'s "alpha" unit stopped being served
+    Then the "alpha" unit it serves says it started when build "one"'s stopped
 
   @browser
   Scenario: The row shows that against every unit on the page

@@ -21,19 +21,28 @@ const storedHistory = async (world: PointerWorld): Promise<StoredHistory> => {
   return JSON.parse(text) as StoredHistory;
 };
 
-Then("the {string} unit it serves says when it started being served", function (this: PointerWorld, unit: string) {
-  const current = optionsOf(this, unit).find((o) => o.current);
-  expect(current?.since ?? `the ${unit} unit ${current?.unitId} carries no start`).toMatch(
-    /^\d{4}-\d{2}-\d{2}T/,
-  );
-});
-
-// Named by id from the scenario's own setup rather than by position, so this
-// reads the property - the served unit started when the one before it stopped -
-// and not the expression the server computes it with.
-Then("that is the moment build {string}'s {string} unit stopped being served", async function (this: PointerWorld, build: string, unit: string) {
-  const current = optionsOf(this, unit).find((o) => o.current);
+// The older unit is named by the id this scenario deployed, not by its position
+// in the list, so this reads the property - the served unit started when the one
+// before it stopped - rather than the expression the server computes it with.
+//
+// The page and the store are two readings taken at two moments, with a promote
+// just behind them, and the first run of this failed on exactly that: the page
+// was rendered from a manifest that still named the older unit. So it waits for
+// the page to show the newer one first. A stamp never moves once written - a
+// promote stamps only entries that carry none - so the pair cannot drift apart
+// again after that.
+Then("the {string} unit it serves says it started when build {string}'s stopped", async function (this: PointerWorld, unit: string, build: string) {
   const older = this.idsOf(build)[unit as Unit];
+  const started = Date.now();
+  let current: ReturnType<typeof optionsOf>[number] | undefined;
+  while (Date.now() - started < PROPAGATION_WINDOW_MS + 15_000) {
+    current = optionsOf(this, unit).find((o) => o.current);
+    if (current && current.unitId !== older) break;
+    await Bun.sleep(500);
+    await this.visit("qa");
+  }
+  expect(current ? current.unitId : "nothing").not.toBe(older);
+
   const doc = await storedHistory(this);
   const stopped = (doc.units[unit] ?? []).find((e) => e.unit.unitId === older)?.supersededAt;
   expect(stopped ?? `the ${unit} unit ${older} carries no stamp`).toMatch(/^\d{4}-\d{2}-\d{2}T/);
