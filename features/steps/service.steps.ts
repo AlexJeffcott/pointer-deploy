@@ -45,12 +45,43 @@ Then("the shell's policy permits nothing to be fetched", function (this: Pointer
 });
 
 // The check the unit tests could not make. They read the policy the server
-// writes; this reads what the browser does with it, which is where a page that
-// is told where the service is and forbidden to call it shows the difference.
-Then("the page has read its values from the service", async function (this: PointerWorld) {
-  const page = this.browserPage;
-  await page.waitForFunction(() => document.documentElement.dataset.api !== undefined, null, {
-    timeout: 20_000,
+// writes; these read what a browser does with it.
+//
+// The fetch is made from the page rather than waited for, because which shell
+// the channel serves is not this scenario's subject: a shell published before
+// the service client calls nothing, and the policy is the same either way.
+const fetchFromPage = async (world: PointerWorld, url: string): Promise<string> =>
+  world.browserPage.evaluate(async (target: string) => {
+    try {
+      const res = await fetch(target);
+      return `allowed ${res.status}`;
+    } catch (e) {
+      return `refused: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }, url);
+
+const serviceOnPage = async (world: PointerWorld): Promise<string> => {
+  const base = await world.browserPage.evaluate(() => {
+    const el = document.getElementById("__BUILD__");
+    if (!el?.textContent) return "";
+    return (JSON.parse(el.textContent) as { apiBase?: string }).apiBase ?? "";
   });
-  expect(await page.evaluate(() => document.documentElement.dataset.api)).toBe("ok");
+  if (!base) throw new Error("the page names no service to reach");
+  return base;
+};
+
+Then("the page is allowed to fetch from that service", async function (this: PointerWorld) {
+  const base = await serviceOnPage(this);
+  expect(await fetchFromPage(this, `${base}/v1/user`)).toBe("allowed 200");
+});
+
+Then("it is not allowed to fetch from the store", async function (this: PointerWorld) {
+  // Read off the page rather than configured: the store to refuse is the one
+  // the page loads its scripts from.
+  const store = await this.browserPage.evaluate(() => {
+    const src = document.querySelector('script[type="module"]')?.getAttribute("src") ?? "";
+    return src ? new URL(src).origin : "";
+  });
+  if (!store) throw new Error("the page names no store to reach");
+  expect(await fetchFromPage(this, `${store}/units/catalogue.json`)).toContain("refused");
 });
