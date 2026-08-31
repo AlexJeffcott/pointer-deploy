@@ -343,12 +343,25 @@ describe("a composition carrying digests", () => {
       expect(csp).toContain("frame-ancestors 'none'");
     });
 
-    test("lets the page reach its own origin, and no other", () => {
-      // The switcher reads `/units` from the origin. The store is where every
-      // script and stylesheet comes from and is deliberately not somewhere the
-      // page may send anything.
-      expect(directive("connect-src")).toBe("'self'");
-      expect(directive("connect-src")).not.toContain("https://store.test");
+    test("lets the page reach nothing when no service is named", () => {
+      expect(directive("connect-src")).toBe("'none'");
+    });
+
+    test("lets the page reach the service it is told to call, and no other", () => {
+      const named = contentSecurityPolicy(signed, "https://api.test/v1");
+      expect(directiveOf(named, "connect-src")).toBe("https://api.test");
+      expect(directiveOf(named, "connect-src")).not.toContain("https://store.test");
+    });
+
+    test("names that service in the policy the response carries", () => {
+      // The gap this closes: the policy was built from the manifest alone, so a
+      // server that told the page where the service is forbade it in the same
+      // breath. Every unit test passed and the browser refused the fetch.
+      const header =
+        shellResponse(signed, TARGET, undefined, "https://api.test").headers.get(
+          "content-security-policy",
+        ) ?? "";
+      expect(directiveOf(header, "connect-src")).toBe("https://api.test");
     });
 
     test("allows the import map by the hash of its own bytes", () => {

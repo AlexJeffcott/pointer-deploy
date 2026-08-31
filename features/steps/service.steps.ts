@@ -23,3 +23,34 @@ Then("the shell names no service", function (this: PointerWorld) {
 Then("the origin reports the API gate as {string}", function (this: PointerWorld, state: string) {
   expect(this.lastResponse?.headers.get("x-shell-api")).toBe(state);
 });
+
+const connectSrc = (world: PointerWorld): string => {
+  const header = world.lastResponse?.headers.get("content-security-policy");
+  if (!header) throw new Error("the response carries no content policy at all");
+  return (
+    header
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("connect-src "))
+      ?.slice("connect-src ".length) ?? ""
+  );
+};
+
+Then("the shell's policy permits that service and no other host", function (this: PointerWorld) {
+  expect(connectSrc(this)).toBe(new URL(this.serviceBase).origin);
+});
+
+Then("the shell's policy permits nothing to be fetched", function (this: PointerWorld) {
+  expect(connectSrc(this)).toBe("'none'");
+});
+
+// The check the unit tests could not make. They read the policy the server
+// writes; this reads what the browser does with it, which is where a page that
+// is told where the service is and forbidden to call it shows the difference.
+Then("the page has read its values from the service", async function (this: PointerWorld) {
+  const page = this.browserPage;
+  await page.waitForFunction(() => document.documentElement.dataset.api !== undefined, null, {
+    timeout: 20_000,
+  });
+  expect(await page.evaluate(() => document.documentElement.dataset.api)).toBe("ok");
+});

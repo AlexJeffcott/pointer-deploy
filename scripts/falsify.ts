@@ -843,9 +843,19 @@ const MUTATIONS: Mutation[] = [
   {
     name: "the shell is served with no content policy",
     file: "src/server/html.ts",
-    find: '      "content-security-policy": contentSecurityPolicy(m),',
+    find: '      "content-security-policy": contentSecurityPolicy(m, apiBase),',
     replace: "      // (no policy)",
     scenario: "A shell names the only origins its files may come from",
+  },
+  {
+    // What was live until 2026-08-31: the policy was built from the manifest
+    // alone, so a server that told the page where the service is forbade it in
+    // the same breath. Every unit test passed.
+    name: "the policy is built without the service the page is told to call",
+    file: "src/server/html.ts",
+    find: '      "content-security-policy": contentSecurityPolicy(m, apiBase),',
+    replace: '      "content-security-policy": contentSecurityPolicy(m),',
+    scenario: "A server that names a service permits the page to reach it",
   },
   {
     name: "the shell's own script and stylesheet carry no digest",

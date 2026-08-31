@@ -893,7 +893,7 @@ alpha    a3bba92a  2026-08-28  b2c81542        e0160a6
 
 **What this changed for the switcher.** Its options used to come from the channel's history alone, which is 20 promotes deep and holds nothing that was never promoted. So the one thing an operator wanted of it - look at a build *before* deploying it - was the one thing it could not do. Measured against the live store on 2026-08-31: the qa channel's history offered 2 shell builds, and the catalogue took that to 7, of which 2 are shown disabled because the member gate refuses them.
 
-**The page reads it from the origin, not the store.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history, and the policy gained `connect-src 'self'` and nothing else. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
+**The page is served the answer, not the source.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history - the reading an operator takes, or a script with no store key. The page takes none: the server merges the catalogue into the channel's history and renders the switcher's options into `__VERSIONS__`, so the policy names no origin for it at all. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
 
 ## Which compositions are being handed out
 

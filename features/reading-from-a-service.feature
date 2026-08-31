@@ -22,3 +22,19 @@ Feature: Reading the page's values from a service on its own schedule
     Given a service that answers "v1"
     When a visitor loads the qa origin
     Then the origin reports the API gate as "unread"
+
+  @local
+  Scenario: A server that names a service permits the page to reach it
+    Given a service that answers "v1"
+    When a visitor loads the qa origin
+    Then the shell's policy permits that service and no other host
+
+  @local
+  Scenario: A server with no service permits the page to reach nothing
+    When a visitor loads the qa origin
+    Then the shell's policy permits nothing to be fetched
+
+  @browser
+  Scenario: The page takes its values from the service it was told about
+    Given a visitor opens the counters view
+    Then the page has read its values from the service

@@ -404,7 +404,8 @@ state lives.
   list and nothing could read it: a browser cannot LIST a bucket, and a script
   that can answers one key at a time. `publish` now also writes
   `units/catalogue.json`, `bun run units` prints it, and `GET /units` serves it
-  to the page.
+  to an operator. The page fetches nothing: it is served the switcher's options
+  already merged.
 
   **It is derived, not authored.** Rebuilt from the store's own LIST rather than
   appended to, so a write lost to a crash or to two publishers at once heals on

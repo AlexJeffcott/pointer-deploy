@@ -147,19 +147,31 @@ function assetOrigins(m: Manifest): string[] {
   return [...origins].sort();
 }
 
-export function contentSecurityPolicy(m: Manifest): string {
+const serviceOrigin = (apiBase: string): string | null => {
+  if (!apiBase) return null;
+  try {
+    return new URL(apiBase).origin;
+  } catch {
+    return null;
+  }
+};
+
+export function contentSecurityPolicy(m: Manifest, apiBase = ""): string {
   const origins = assetOrigins(m);
   const files = origins.length ? origins.join(" ") : "'none'";
   const text = importMapText(m);
   const script = [...origins, ...(text === null ? [] : [`'${sha256(text)}'`])];
+  // The one host §13 names, and nothing else. The store is where every script
+  // comes from, so it must not also be somewhere a compromised unit may send
+  // anything, and the page's own origin needs no allowance: the server merges
+  // the unit catalogue and renders the switcher's options into the page, so
+  // nothing on it fetches `/units`, §25.
+  const service = serviceOrigin(apiBase);
   return [
     "default-src 'none'",
     `script-src ${script.length ? script.join(" ") : "'none'"}`,
     `style-src ${files}`,
-    // The page's own origin, and no more. The switcher reads the unit catalogue
-    // from `/units` there rather than from the store, so the bucket host never
-    // becomes somewhere a compromised unit is allowed to send anything, §25.
-    "connect-src 'self'",
+    `connect-src ${service ?? "'none'"}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
@@ -241,7 +253,7 @@ export function shellResponse(
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store, must-revalidate",
-      "content-security-policy": contentSecurityPolicy(m),
+      "content-security-policy": contentSecurityPolicy(m, apiBase),
     },
   });
 }

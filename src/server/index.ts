@@ -85,9 +85,9 @@ const server = Bun.serve({
     if (pathname === "/compositions") return json(handedOut.read());
 
     // The bucket answers no LIST to a browser and no LIST to a script without a
-    // key, so the one object that stands for that LIST is served here. A script
-    // reads it from the store directly; the page reads it from its own origin,
-    // which is why the policy needs no store host in connect-src.
+    // key, so the one object that stands for that LIST is served here. This is
+    // the reading an operator takes, or a script with no store key. The page
+    // takes none: it is served the switcher's options already merged.
     if (pathname === "/units") {
       const catalogue = await catalogues.get(CATALOGUE_URL);
       if (!catalogue) return text("the unit catalogue is not available", 503);
