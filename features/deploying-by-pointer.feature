@@ -13,7 +13,6 @@ Feature: Deploying by promoting a published build
     When the operator promotes build "beta" to the qa channel
     Then visitors to the qa origin receive build "beta" within the propagation window
 
-  # The whole point of the design, in a form a test can observe.
   @live
   Scenario: A deploy leaves the running server untouched
     When the operator promotes build "beta" to the qa channel
@@ -25,8 +24,6 @@ Feature: Deploying by promoting a published build
     When the operator promotes build "alpha" to the qa channel
     Then visitors to the qa origin receive build "alpha" within the propagation window
 
-  # Without this, a promotion that wrote a pointer to a nonexistent build would
-  # pass every other scenario and fail only in front of a visitor.
   @live
   Scenario: Promoting an unpublished build is refused
     When the operator promotes build "gamma" to the qa channel

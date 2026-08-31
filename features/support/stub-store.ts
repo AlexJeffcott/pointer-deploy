@@ -1,29 +1,15 @@
-// A controllable stand-in for the object store, used by the @local scenarios.
-//
-// It serves manifest pointers and nothing else. It deliberately does NOT model
-// publish or promote: every scenario that exercises those runs @live against
-// the real store, because a stub that reimplemented them could pass while the
-// real publish path was broken.
-
 export type StubStore = {
   readonly manifestBase: string;
-  /** Serve this document at manifests/<region>/<channel>.json. */
   point(channel: string, body: unknown): void;
-  /** Serve raw bytes, so a malformed document can be injected. */
   pointRaw(channel: string, body: string): void;
-  /** Take the listener down, so a fetch is refused rather than answered. */
   goDown(): Promise<void>;
   comeUp(): void;
-  /** Delay every answer by this many milliseconds. */
   setDelay(ms: number): void;
   stop(): Promise<void>;
 };
 
 const APPS = ["alpha", "bravo", "charlie", "delta"] as const;
 
-// A digest a browser would reject. Nothing here loads a file: these scenarios
-// read the served HTML, and what they check is that the digest the manifest
-// carries is the digest the page tells the browser to expect.
 const fakeDigest = (file: string) => `sha384-${btoa(file.padEnd(64, "x")).slice(0, 64)}`;
 
 const composedUnit = (name: string, id: string, assetBase: string) => ({
@@ -39,13 +25,6 @@ const composedUnit = (name: string, id: string, assetBase: string) => ({
   marker: "",
 });
 
-/**
- * A composition, as promote.ts writes one.
- *
- * `ids` names a unit id per unit. A bare string is shorthand for "every unit
- * at this id", which is what a scenario about the whole channel wants; naming
- * one unit is what a scenario about one app moving wants.
- */
 export function manifestDoc(
   ids: string | Partial<Record<"shell" | (typeof APPS)[number], string>>,
   assetBase = "https://assets.test",
@@ -64,7 +43,6 @@ export function manifestDoc(
         preact: `preact-${at("shell")}.js`,
         "@pointer/shell": `api-${at("shell")}.js`,
       },
-      // The shell's own names, and the two files the import map resolves to.
       integrity: Object.fromEntries(
         [
           `index-${at("shell")}.js`,

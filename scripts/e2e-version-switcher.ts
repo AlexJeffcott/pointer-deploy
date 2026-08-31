@@ -185,7 +185,7 @@ try {
   const body = await refused.text();
   check(
     "an id the channel never served is refused",
-    refused.status === 400 && body.includes("not one this channel has served"),
+    refused.status === 400 && body.includes("is not one this channel can serve"),
     `${refused.status} ${body.slice(0, 80)}`,
   );
 } finally {

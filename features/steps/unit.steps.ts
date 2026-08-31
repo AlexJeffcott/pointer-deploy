@@ -1,10 +1,3 @@
-// Steps about deploying and rolling back one unit at a time.
-//
-// All @live. These run the real publish.ts and promote.ts against the real
-// store, because the claim is about what those two scripts do to it. A local
-// stand-in could compose the right answer while the real merge was replacing
-// the whole composition.
-
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import {
@@ -25,25 +18,13 @@ import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 
 const BUDGET_MS = PROPAGATION_WINDOW_MS + 15_000;
 
-/** A scenario's freshly published unit, by app name. */
-const fresh = new Map<string, string>();
+/** The id each "a new <app> unit is published" step produced, by app. */
+export const fresh = new Map<string, string>();
 
-/**
- * Unique per run.
- *
- * The scenario that asserts publish uploads one unit and skips four needs
- * genuinely new bytes, or the second run of the suite finds them already in
- * the store, reports "unchanged" for all five, and goes red. Steps that only
- * need a unit different from the baseline use a stable marker instead, so the
- * suite does not republish four bundles it already has.
- */
-const RUN = Date.now().toString(36);
+export const RUN = Date.now().toString(36);
 
-/** Build with one app's marker changed, publish, and report what was uploaded. */
-async function publishOneApp(world: PointerWorld, app: string, marker: string) {
+export async function publishOneApp(world: PointerWorld, app: string, marker: string) {
   const built = await run(["bun", "run", "build"], {
-    // The baseline marker keeps the other four units byte-identical to the
-    // ones already in the store, which is the whole point of the exercise.
     BUILD_MARKER: "one",
     [`BUILD_MARKER_${app.toUpperCase()}`]: marker,
   });
@@ -59,8 +40,6 @@ Given("a new {string} unit is published", async function (this: PointerWorld, ap
   const ids = await publishOneApp(this, app, `${app}-v2`);
   const id = ids[app as Unit];
   const baseline = this.unitIdOf("one", app as Unit);
-  // Two units with the same id would make every scenario below pass by
-  // accident, because the channel would already point at what is promoted.
   expect(id).not.toBe(baseline);
   fresh.set(app, id);
 });
@@ -71,10 +50,6 @@ When("the operator promotes that {string} unit to the {word} channel", async fun
   this.lastRun = await this.promoteUnit(channel as Channel, app as Unit, id);
 });
 
-// Setup, not the act under test: it also waits for the promotion to reach a
-// visitor, so a scenario that goes on to move a second unit is not racing the
-// propagation of the first. Cucumber matches Given/When/Then interchangeably,
-// so this must not share its text with the When above.
 Given("that {string} unit is already deployed to the {word} channel", async function (this: PointerWorld, app: string, channel: string) {
   const id = fresh.get(app);
   if (!id) throw new Error(`no fresh ${app} unit was published`);
@@ -132,8 +107,6 @@ Then("each sub-app on the {word} origin is fetched from its own unit's directory
   const urls = appScriptUrls(this.lastBody);
   expect(Object.keys(urls).sort()).toEqual([...APPS].sort());
   for (const app of APPS) {
-    // The id in the path, not merely somewhere in the document: this is what
-    // separates a per-unit base from one shared base that happens to be right.
     expect(urls[app]).toContain(`/units/${app}/${served[app]}/`);
   }
 });
@@ -145,28 +118,14 @@ Then("only the {word} unit is uploaded", function (this: PointerWorld, unit: str
     .split("\n")
     .filter((l) => l.includes("uploaded"))
     .map((l) => l.trim().split(/\s+/)[0]);
-  // The whole report, because the units this names are the finding. Without it
-  // a failure says only which names it wanted and which it got, and the reason
-  // is a line in an output nobody kept.
   expect(uploaded, `publish reported:\n${report}`).toEqual([unit]);
 });
 
-/**
- * Publishes an alpha nobody could compose, one way or the other.
- *
- * Written straight into the store rather than built, because producing one from
- * source would mean minting a contract the repository then has to carry for one
- * scenario. `patch` decides WHICH refusal it earns - see the two Givens below.
- */
 async function publishIncompatible(
   world: PointerWorld,
   patch: (manifest: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<void> {
   const cfg = configFromEnv();
-  // The pid and nothing else: `versions.steps.ts` derives the SAME id to record
-  // it in a history and to look for it on the page, so anything more here makes
-  // the published unit and the recorded one two different things and the
-  // scenario proves less while still passing.
   const id = `incompat-${Bun.hash(`${process.pid}`).toString(16)}`;
   const prefix = `units/alpha/${id}`;
   const baseline = world.unitIdOf("one", "alpha");
@@ -201,9 +160,6 @@ async function publishIncompatible(
   fresh.set("incompatible", id);
 }
 
-// The fallback rule, and the only one that applies to a unit published before
-// the member reading existed: no member reading either side, so the contract
-// sets are all there is.
 Given(
   "a unit published against a contract the shell does not support",
   async function (this: PointerWorld) {
@@ -214,8 +170,6 @@ Given(
   },
 );
 
-// The member gate. Its contract set is untouched and shared, so nothing but the
-// member reading can refuse this one.
 Given(
   "a unit published needing a member the shell does not provide",
   async function (this: PointerWorld) {
@@ -240,16 +194,10 @@ Then(
   "the promotion is refused and names the member and the sub-app",
   function (this: PointerWorld) {
     expect(this.lastRun?.code).not.toBe(0);
-    // The exact half of the gate, not just the member's name. `held ===
-    // undefined` and `held !== digest` both name the member, so an assertion on
-    // the name alone stays green when one branch is disabled - measured on
-    // 2026-08-29, by a falsify mutation that survived it.
     expect(this.lastRun?.stderr).toContain(
       "alpha uses ShellStore.teleport, which this shell does not have",
     );
     expect(this.lastRun?.stderr).toContain("Nothing was changed");
-    // The refusal has to be about the member and not about the hash, or the
-    // reading an operator acts on is the one §9 replaced.
     expect(this.lastRun?.stderr).not.toContain("no contract is supported");
   },
 );

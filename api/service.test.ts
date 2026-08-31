@@ -9,20 +9,15 @@ const post = (path: string, body: unknown) =>
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
-/** The body, whatever it is. Every route here answers JSON. */
 const bodyOf = async (res: Response) => (await res.json()) as Record<string, unknown>;
 
 describe("the discovery document", () => {
-  // A client that does not know which versions exist has to be able to ask, so
-  // this one cannot sit behind a version itself.
   test("names every version this build answers", async () => {
     const res = await handle(get("/versions"), createState());
     expect(res.status).toBe(200);
     expect(await bodyOf(res)).toEqual({ serves: [...SERVES] });
   });
 
-  // Health that read the state would turn one bad write into a dead machine,
-  // which is the same rule the shell's own health check is written to.
   test("health depends on nothing", async () => {
     const res = await handle(get("/healthz"), createState());
     expect(res.status).toBe(200);
@@ -38,8 +33,6 @@ describe("the user", () => {
     });
   });
 
-  // Each field alone, because a POST that carried one and silently reset the
-  // other would be a page losing a value nobody touched.
   test("a name moves and the colour stays", async () => {
     const state = createState();
     expect(await bodyOf(await handle(post("/v1/user", { name: "Sam" }), state))).toEqual({
@@ -61,8 +54,6 @@ describe("the user", () => {
     expect(state.user).toEqual({ name: "Sam", colour: "#abcdef" });
   });
 
-  // The field is named because the caller has to know which one to fix. A 400
-  // saying only that something was wrong costs a round of guessing.
   test("a name that is not a non-empty string is refused, by name", async () => {
     for (const name of [42, "", null, {}]) {
       const res = await handle(post("/v1/user", { name }), createState());
@@ -77,8 +68,6 @@ describe("the user", () => {
     expect(await bodyOf(res)).toEqual({ error: "colour is not a non-empty string" });
   });
 
-  // A caller that thinks it changed something and did not is worse off than one
-  // that is told it named nothing.
   test("a body naming neither field is refused", async () => {
     const res = await handle(post("/v1/user", { nom: "Sam" }), createState());
     expect(res.status).toBe(400);
@@ -91,9 +80,6 @@ describe("the user", () => {
     expect(await bodyOf(res)).toEqual({ error: "body is not an object" });
   });
 
-  // A JSON body may be a number or a string and still parse. Every field read
-  // below indexes into it, and indexing a number throws - so this guard is what
-  // stands between a malformed request and a 500.
   test("a body that parses but is not an object is refused", async () => {
     for (const body of ["3", '"a string"', "null"]) {
       const res = await handle(post("/v1/user", body), createState());
@@ -124,8 +110,6 @@ describe("the counters", () => {
     });
   });
 
-  // Registering twice must not undo a count. The shell registers on every
-  // mount, so this runs far more often than the increment does.
   test("registering a namespace that already counts leaves it where it is", async () => {
     const state = createState();
     await handle(post("/v1/counters/alpha", { by: 3 }), state);
@@ -162,7 +146,6 @@ describe("the counters", () => {
     expect(state.counters).toEqual({ alpha: 0, bravo: 2 });
   });
 
-  // A namespace is a name from the page, not an identifier this service picked.
   test("a namespace arrives through the path, encoded", async () => {
     const state = createState();
     await handle(post("/v1/counters/one%20two", { by: 2 }), state);
@@ -175,7 +158,6 @@ describe("the counters", () => {
     expect(await bodyOf(res)).toEqual({ error: "method not allowed" });
   });
 
-  // The list is a read. A write with no namespace names nothing to write to.
   test("a POST to the whole list is not a route", async () => {
     const res = await handle(post("/v1/counters", { by: 1 }), createState());
     expect(res.status).toBe(405);
@@ -190,9 +172,6 @@ describe("the counters", () => {
     }
   });
 
-  // Both ends of the pattern. Without the anchors a namespace could be read out
-  // of the middle of a path this service does not answer, and the write would
-  // land somewhere the caller did not name.
   test("a path around the counter route is not a counter route", async () => {
     for (const path of ["/v1/counters/alpha/extra", "/nope/v1/counters/alpha"]) {
       const res = await handle(post(path, { by: 1 }), createState());
@@ -202,19 +181,13 @@ describe("the counters", () => {
 });
 
 describe("what a browser needs before it hands over a body", () => {
-  // The page is on another origin, so without these the browser discards the
-  // response and the shell sees a network error it cannot explain.
   test("a read carries the cross-origin headers", async () => {
     const res = await handle(get("/v1/user"), createState());
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     expect(res.headers.get("cache-control")).toBe("no-store");
-    // Stated, because a consumer that switches on it gets nothing useful from
-    // an empty one and this response is JSON in every case.
     expect(res.headers.get("content-type")).toContain("application/json");
   });
 
-  // A POST of JSON is preflighted. Without this the write never leaves the
-  // browser at all.
   test("a preflight is answered with the methods and the header the write uses", async () => {
     const res = await handle(
       new Request("http://api.test/v1/user", { method: "OPTIONS" }),
@@ -226,9 +199,6 @@ describe("what a browser needs before it hands over a body", () => {
   });
 });
 
-// The document and the routes are one fact, not two. A service that advertised
-// v2 and went on answering v1 would make the server's gate judge a claim, and
-// the page would work while the gate said it could not.
 test("the routes it answers are exactly the versions it advertises", async () => {
   for (const v of SERVES) {
     expect((await handle(get(`/${v}/user`), createState())).status).toBe(200);

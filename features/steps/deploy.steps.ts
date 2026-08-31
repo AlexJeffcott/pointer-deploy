@@ -1,7 +1,3 @@
-// Steps about what the operator does. Every one of these runs @live against
-// the real store: a local stand-in for publish and promote could pass while
-// the real path was broken, which is the failure this suite exists to catch.
-
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import {
@@ -20,7 +16,6 @@ type UnitManifest = {
   files: string[];
 };
 
-/** One published unit's manifest, straight from the store. */
 async function unitManifest(unit: Unit, id: string): Promise<UnitManifest> {
   const cfg = configFromEnv();
   const url = publicUrl(cfg, `units/${unit}/${id}/unit.json`);
@@ -29,7 +24,6 @@ async function unitManifest(unit: Unit, id: string): Promise<UnitManifest> {
   return (await res.json()) as UnitManifest;
 }
 
-/** The shell unit's entry script for a named scenario build. */
 async function entryScriptOf(world: PointerWorld, name: string): Promise<string> {
   const m = await unitManifest("shell", world.unitIdOf(name, "shell"));
   return `${m.assetBase}${m.js}`;
@@ -43,9 +37,6 @@ Given("build {string} is published and promoted to the {word} channel", async fu
   await this.pointAt(channel as Channel, name);
 });
 
-// Produces exactly the state an interrupted publish leaves behind: files in
-// the unit's directory, no unit.json beside them. Every unit, because promote
-// reads all five and any one of them being incomplete must stop it.
 Given("a publish of build {string} is interrupted after some files are uploaded", async function (this: PointerWorld, name: string) {
   const cfg = configFromEnv();
   const id = `interrupted-${Bun.hash(`${name}-${process.pid}`).toString(16)}`;
@@ -67,8 +58,6 @@ When("the operator promotes build {string} to the {word} channel", async functio
 When("the operator publishes build {string} again", async function (this: PointerWorld, name: string) {
   const built = await run(["bun", "run", "build"], { BUILD_MARKER: name });
   expect(built.code).toBe(0);
-  // The same marker yields the same bytes, so every unit hashes to the id it
-  // already has in the store.
   this.lastRun = await run(["bun", "run", "--silent", "scripts/publish.ts"]);
 });
 
@@ -85,8 +74,6 @@ When("a page loaded from build {string} requests one of its files", async functi
 });
 
 When("a browser on the {word} origin requests the script of build {string}", async function (this: PointerWorld, channel: string, name: string) {
-  // The Origin header is what turns this into a CORS request. A plain GET
-  // succeeds either way, which is why curl could not see the fault.
   const res = await fetch(await entryScriptOf(this, name), {
     headers: { origin: this.originFor(channel as Channel) },
   });
@@ -113,16 +100,6 @@ Then("the promotion is refused because build {string} has no manifest", function
 });
 
 Then("no unit is uploaded, because none of them changed", function (this: PointerWorld) {
-  // A unit id is a hash of that unit's own output, so an id already in the
-  // store names bytes that are already there. Refusing would be wrong: the
-  // common case is publishing after changing one app, where the other four
-  // are legitimately unchanged and must be skipped rather than rejected.
-  //
-  // publish prints one line per unit saying what it did, and every way this
-  // can fail is written on those lines - uploaded, a contract set that moved,
-  // digests, a provenance upgrade. A bare count would report "expected 5,
-  // received 0" and throw the reason away, so the whole block travels with
-  // each assertion.
   const said = this.lastRun?.stderr ?? "";
   expect(`code ${this.lastRun?.code}\n${said}`).toBe(`code 0\n${said}`);
   expect(said.includes("uploaded") ? said : "nothing uploaded").toBe("nothing uploaded");
@@ -141,8 +118,6 @@ Then("the file is marked as safe to cache indefinitely", function (this: Pointer
 });
 
 Then("every file that build names can be fetched", async function (this: PointerWorld) {
-  // Every file of every unit, not only the shell's. A composition whose alpha
-  // uploaded and whose delta did not still renders three panels and an error.
   const urls: string[] = [];
   for (const unit of UNITS) {
     const m = await unitManifest(unit, this.unitIdOf("alpha", unit));
@@ -163,13 +138,9 @@ Then("the file is served", function (this: PointerWorld) {
 
 Then("the machines serving the {word} origin are the instances that were already running", async function (this: PointerWorld, channel: string) {
   expect(this.machinesBefore).toBeTruthy();
-  // Confirm the origin really is served by these machines before comparing
-  // them, or the assertion is about an unrelated app.
   await this.visit(channel as Channel);
   expect(this.lastResponse?.status).toBe(200);
 
   const after = await this.machineFingerprint();
-  // Machine ids AND their updated_at timestamps. A rollout would change both;
-  // a restart would change the timestamp alone. Neither may happen.
   expect(after).toBe(this.machinesBefore!);
 });

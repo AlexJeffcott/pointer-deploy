@@ -36,6 +36,7 @@ import {
   type ChannelHistory,
   type UnitSurface,
 } from "../src/server/composition.ts";
+import { composedUnit, surfaceOfManifest } from "./catalogue.ts";
 import { regionDrift, regionsFor, type Region } from "./regions.ts";
 import { currentSource, describeSource, type Source } from "./source.ts";
 import type { UnitManifest } from "./publish.ts";
@@ -362,13 +363,7 @@ const contractsByUnit: Record<string, string[]> = Object.fromEntries(
   UNITS.map((u) => [u, manifests.get(u)!.contracts ?? []]),
 );
 const surfacesByUnit: Record<string, UnitSurface | undefined> = Object.fromEntries(
-  UNITS.map((u) => {
-    const m = manifests.get(u)!;
-    return [
-      u,
-      { provides: m.provides, uses: m.uses, subapps: m.subapps, blocks: m.blocks, api: m.api },
-    ];
-  }),
+  UNITS.map((u) => [u, surfaceOfManifest(manifests.get(u)!)]),
 );
 
 const refusal = compositionRefusal(contractsByUnit, surfacesByUnit);
@@ -443,16 +438,6 @@ for (const line of deprecationWarnings(
 
 // -- compose ----------------------------------------------------------------
 
-const composedUnit = (m: UnitManifest): ComposedUnit => ({
-  unitId: m.id,
-  commit: m.commit,
-  assetBase: m.assetBase,
-  js: m.js,
-  css: m.css,
-  ...(m.imports ? { imports: m.imports } : {}),
-  ...(m.integrity && Object.keys(m.integrity).length ? { integrity: m.integrity } : {}),
-  marker: m.marker ?? "",
-});
 
 const composition: Composition = {
   schema: 3,

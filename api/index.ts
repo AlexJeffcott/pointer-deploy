@@ -1,5 +1,3 @@
-// The service, listening. Everything it does is in `service.ts`.
-
 import { SERVES, createState, handle } from "./service.ts";
 
 const PORT = Number(Bun.env.PORT ?? 3100);

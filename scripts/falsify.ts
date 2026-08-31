@@ -77,15 +77,15 @@ const MUTATIONS: Mutation[] = [
   {
     name: "a failed refresh clears the cached build",
     file: "src/server/manifest.ts",
-    find: "      // e.value is deliberately untouched. Rules 5 and 8.",
-    replace: "      e.value = null;",
+    find: "    } catch (err) {\n      e.lastError = err instanceof Error",
+    replace: "    } catch (err) {\n      e.value = null;\n      e.lastError = err instanceof Error",
     scenario: "A running server keeps serving the last build it read",
   },
   {
     name: "stale-while-revalidate is removed",
     file: "src/server/manifest.ts",
-    find: "      if (e.value) return e.value; // Rule 2: never wait when something is serveable.",
-    replace: "      // (stale-while-revalidate removed)",
+    find: "      if (e.value) return e.value;\n",
+    replace: "",
     scenario: "A visitor is never made to wait for the store",
   },
   {
@@ -618,8 +618,8 @@ const MUTATIONS: Mutation[] = [
     // object in the store, named by whoever crafts the link.
     name: "any unit id may be asked for, not only ones the channel served",
     file: "src/server/composition.ts",
-    find: "    if (!known) return `the ${unit} unit ${id} is not one this channel has served`;",
-    replace: "    if (false) return `the ${unit} unit ${id} is not one this channel has served`;",
+    find: "    if (!known) return `the ${unit} unit ${id} is not one this channel can serve`;",
+    replace: "    if (false) return `the ${unit} unit ${id} is not one this channel can serve`;",
     scenario: "An id the channel has never served is refused",
     live: true,
   },
@@ -628,8 +628,25 @@ const MUTATIONS: Mutation[] = [
     // it the switcher offers a composition promote would have refused.
     name: "the switcher offers a composition with no shared contract",
     file: "src/server/composition.ts",
-    find: "        disabled:\n          chooseContract({ ...chosenContracts, [unit]: e.contracts }) === null,",
-    replace: "        disabled: false,",
+    find:
+      "          disabled:\n" +
+      "            typeof blocks === \"string\" ||\n" +
+      "            typeof api === \"string\" ||\n" +
+      "            compositionRefusal(\n" +
+      "              { ...chosenContracts, [unit]: e.contracts },\n" +
+      "              { ...chosenSurfaces, [unit]: e.surface },\n" +
+      "            ) !== null,",
+    // Every term is kept and the whole reading is thrown away, so the mutant
+    // still typechecks under noUnusedLocals and still offers everything.
+    replace:
+      "          disabled:\n" +
+      "            false &&\n" +
+      "            (typeof blocks === \"string\" ||\n" +
+      "              typeof api === \"string\" ||\n" +
+      "              compositionRefusal(\n" +
+      "                { ...chosenContracts, [unit]: e.contracts },\n" +
+      "                { ...chosenSurfaces, [unit]: e.surface },\n" +
+      "              ) !== null),",
     scenario: "A unit that cannot be composed with the rest is offered and disabled",
     live: true,
   },
@@ -640,8 +657,49 @@ const MUTATIONS: Mutation[] = [
     // before the switcher existed.
     name: "a cold version history makes the visitor wait for the store",
     file: "src/server/index.ts",
-    find: "      const history = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));",
-    replace: "      const history = await histories.get(historyUrl(MANIFEST_BASE, target.region, target.channel));",
+    find: "      const channelHistory = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));",
+    replace: "      const channelHistory = await histories.get(historyUrl(MANIFEST_BASE, target.region, target.channel));",
+    scenario: "A visitor is never made to wait for the store",
+  },
+  {
+    // Without the rebuild, the catalogue is whatever the last publish that
+    // happened to write it left behind, and a unit published after it is
+    // findable only by listing the bucket by hand.
+    name: "publish does not record what it published",
+    file: "scripts/publish.ts",
+    find: "  const built = await rebuildCatalogue(cfg, previous);",
+    replace: "  const built = { catalogue: previous ?? { schema: 1 as const, updatedAt: \"\", units: {} }, scanned: 0, reused: 0, marked: 0, unreadable: 0 };",
+    scenario: "Publishing a unit records it where a promote can find it",
+    live: true,
+  },
+  {
+    // A switcher offering only what the channel has served cannot show a build
+    // before it is deployed, which is the one thing an operator wants of it.
+    name: "the switcher forgets every build the channel never served",
+    file: "src/server/composition.ts",
+    find: "  if (catalogue === null) return history;",
+    replace: "  if (catalogue !== null || catalogue === null) return history;",
+    scenario: "The page offers a build that was published and never promoted",
+    live: true,
+  },
+  {
+    // A rebuild that re-reads everything is correct and costs a publish 129
+    // round trips instead of the five it wrote.
+    name: "a rebuild re-reads every unit in the store",
+    file: "scripts/catalogue.ts",
+    find: "    if (kept && kept.recordedAt === o.lastModified) {",
+    replace: "    if (false && kept) {",
+    scenario: "A rebuild re-reads only the units whose record moved",
+    live: true,
+  },
+  {
+    // The catalogue is read on the same request and carries the same rule. It
+    // is worth less to a visitor than the history is, because a visitor who
+    // never opens the switcher never looks at it.
+    name: "a cold unit catalogue makes the visitor wait for the store",
+    file: "src/server/index.ts",
+    find: "              catalogues.peek(CATALOGUE_URL),",
+    replace: "              await catalogues.get(CATALOGUE_URL),",
     scenario: "A visitor is never made to wait for the store",
   },
   {

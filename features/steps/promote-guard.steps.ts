@@ -1,15 +1,3 @@
-// The steps both promote-guard features share: running the real script, and
-// reading whether it got as far as the store.
-//
-// Two features refuse a build at the same point in `promote --from-build` - one
-// for the marker a harness stamps on it, one for the source it was built from -
-// and both need the same "did this reach the store" reading. A step is global
-// to a cucumber run, so the shared half lives here rather than in whichever
-// feature happened to be written first.
-//
-// `features/support/promote-guard.ts` carries why running the real script is
-// safe here.
-
 import { Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { REACHED_STORE, runPromote } from "../support/promote-guard.ts";
@@ -35,7 +23,5 @@ Then("the store was never contacted", function (this: PointerWorld) {
 });
 
 Then("the store was contacted", function (this: PointerWorld) {
-  // The positive half. Without it "not refused" would also pass on a script
-  // that exited early for some unrelated reason.
   expect(`${this.lastRun!.stdout}\n${this.lastRun!.stderr}`).toMatch(REACHED_STORE);
 });

@@ -100,7 +100,6 @@
   font-size: 0.8125rem;
 }
 
-/* The version switcher. One select per unit, wrapping on a narrow screen. */
 .versions {
   display: flex;
   flex-wrap: wrap;

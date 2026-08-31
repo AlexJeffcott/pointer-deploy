@@ -19,6 +19,7 @@ import {
   putObject,
 } from "./store.ts";
 import { UNITS, type Unit } from "./contract.ts";
+import { countOf, readCatalogue, rebuildCatalogue } from "./catalogue.ts";
 import type { Source } from "./source.ts";
 
 type UnitRecord = {
@@ -244,6 +245,34 @@ for (const unit of wanted) {
 
   console.error(`  ${unit.padEnd(width)} ${built.id}  uploaded ${built.files.length} files`);
   published[unit] = built.id;
+}
+
+// The catalogue is rebuilt LAST, after every unit.json it names, for the same
+// reason a unit.json is written after the files it names: nothing may point at
+// something that is not readable yet.
+//
+// It cannot stop a publish. The units are already up and immutable at this
+// point, and the catalogue is derived from them - so a failure here costs the
+// switcher and `bun run units` the newest entries until the next publish, and
+// costs a visitor nothing.
+//
+// Every publish, including one the harness made, because the catalogue lists
+// every published unit and the server decides which of them a channel may
+// serve. It costs one LIST and a read of only what changed: an entry is kept
+// from the catalogue that exists whenever the store still reports the same
+// LastModified for that unit's own manifest.
+try {
+  const previous = await readCatalogue(cfg).catch(() => null);
+  const built = await rebuildCatalogue(cfg, previous);
+  console.error(
+    `  catalogue  ${countOf(built.catalogue)} units, ${built.marked} of them harness builds. ` +
+      `Read ${built.scanned - built.reused} of ${built.scanned}`,
+  );
+} catch (err) {
+  console.error(
+    `  WARNING the catalogue was not rebuilt: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  console.error(`  Every unit above is published. Run \`bun run units --rebuild\` to write it.`);
 }
 
 // stdout carries the unit ids and nothing else, so this composes:

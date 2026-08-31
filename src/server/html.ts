@@ -1,16 +1,10 @@
-// Builds the application shell from a manifest. The only templating the
-// server does.
-
 import type { AppAssets, BuildInfo, VersionOption } from "@pointer/blocks";
 import type { ComposedUnit, Manifest } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
-// Re-exported so the shape has one declaration and its readers keep one import.
 export type { AppAssets, BuildInfo } from "@pointer/blocks";
 
 export function buildInfo(m: Manifest, target: Target, apiBase = ""): BuildInfo {
-  // Absent rather than empty. A field carrying "" would still be a field the
-  // shell reads, and a server with no service configured writes nothing.
   const api = apiBase ? { apiBase } : {};
   if (m.schema === 3) {
     return {
@@ -42,35 +36,17 @@ export function buildInfo(m: Manifest, target: Target, apiBase = ""): BuildInfo 
 const attr = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-// A JSON data block, not inline JavaScript: nothing to escape wrongly, and
-// nothing that needs a CSP exception later. Browsers do not execute it.
-// `<` must still be escaped or a value containing "</script" would end the tag.
 const jsonBlock = (value: unknown) =>
   JSON.stringify(value).replace(/</g, "\\u003c");
 
 const joinUrl = (base: string, file: string) =>
   `${base.replace(/\/$/, "")}/${file.replace(/^\//, "")}`;
 
-/**
- * Absolute URLs for one unit's own files.
- *
- * Schema 3's whole difference is here: each unit is joined against its own
- * base, so the shell can come from one published unit and alpha from another.
- */
 const unitUrls = (u: ComposedUnit): { js: string; css?: string } => ({
   js: joinUrl(u.assetBase, u.js),
   ...(u.css ? { css: joinUrl(u.assetBase, u.css) } : {}),
 });
 
-/**
- * The entry script and stylesheet, whichever schema named them.
- *
- * `css` is null when the shell unit published none. A composition may say so -
- * `ComposedUnit.css` is `string | null` - and joining the base against an empty
- * name produced the unit's own DIRECTORY, which the page then linked as a
- * stylesheet and the browser fetched as a listing. Schemas 1 and 2 require the
- * field, so only a composition reaches the null.
- */
 export function assetUrls(m: Manifest): { js: string; css: string | null } {
   if (m.schema === 3) {
     return {
@@ -85,7 +61,6 @@ export function assetUrls(m: Manifest): { js: string; css: string | null } {
   };
 }
 
-/** Every sub-app's absolute URLs, for the shell to fetch on demand. */
 export function appUrls(m: Manifest): Record<string, AppAssets> {
   if (m.schema === 1) return {};
   if (m.schema === 3) {
@@ -105,19 +80,8 @@ export function appUrls(m: Manifest): Record<string, AppAssets> {
   );
 }
 
-/**
- * The import map.
- *
- * Sub-apps are built separately with these specifiers external, so this is what
- * makes them resolve to the shell's copies. Without it each app would fail to
- * load, and with a per-app copy instead they would each get their own signals
- * runtime and stop responding to the shell's state.
- */
 export function importMap(m: Manifest): Record<string, string> {
   if (m.schema === 1) return {};
-  // The import map always resolves against the SHELL's base, whichever unit a
-  // sub-app came from. That is what keeps one Preact on the page when the
-  // bundles around it were published weeks apart.
   if (m.schema === 3) {
     return Object.fromEntries(
       Object.entries(m.shell.imports ?? {}).map(([name, file]) => [
@@ -133,15 +97,6 @@ export function importMap(m: Manifest): Record<string, string> {
 
 const JAVASCRIPT = /\.m?js$/;
 
-/**
- * URL to digest, for every script the page can fetch as a module.
- *
- * This is the only mechanism that reaches them. The shell's entry carries its
- * digest on the tag, but the chunk that entry imports, and every sub-app the
- * loader imports by URL, are fetched by the module loader with no tag and no
- * argument to put a digest in. The import map's own `integrity` section is
- * where those are declared.
- */
 export function moduleIntegrity(m: Manifest): Record<string, string> {
   if (m.schema !== 3) return {};
   const digests: Record<string, string> = {};
@@ -158,7 +113,6 @@ export type ImportMapDocument = {
   integrity?: Record<string, string>;
 };
 
-/** The import map, or null when the manifest names no shared specifiers. */
 export function importMapDocument(m: Manifest): ImportMapDocument | null {
   const imports = importMap(m);
   if (Object.keys(imports).length === 0) return null;
@@ -166,7 +120,6 @@ export function importMapDocument(m: Manifest): ImportMapDocument | null {
   return Object.keys(integrity).length ? { imports, integrity } : { imports };
 }
 
-/** The exact text of the inline import map. The policy allows these bytes. */
 function importMapText(m: Manifest): string | null {
   const doc = importMapDocument(m);
   return doc === null ? null : jsonBlock(doc);
@@ -175,7 +128,6 @@ function importMapText(m: Manifest): string | null {
 const sha256 = (text: string) =>
   `sha256-${new Bun.CryptoHasher("sha256").update(text).digest("base64")}`;
 
-/** Every origin the manifest names a file on. */
 function assetOrigins(m: Manifest): string[] {
   const { js, css } = assetUrls(m);
   const urls = [
@@ -187,35 +139,14 @@ function assetOrigins(m: Manifest): string[] {
   const origins = new Set<string>();
   for (const url of urls) {
     // Stryker disable next-line ConditionalExpression: it decides nothing.
-    // An absent file names no origin, and a shell with no stylesheet now
-    // reaches this with null rather than with a joined base. Removing the
-    // guard cannot change the answer: new URL(null), new URL(undefined) and
-    // new URL("") all throw into the same catch below, which adds no origin
-    // either. The guard says which of the two cases this is, and nothing more.
     if (!url) continue;
     try {
       origins.add(new URL(url).origin);
-    } catch {
-      // A manifest naming a URL this server cannot parse names no origin to
-      // allow. The page then fails to load that file, which is the right end.
-    }
+    } catch {}
   }
   return [...origins].sort();
 }
 
-/**
- * What the page is allowed to fetch, and from where.
- *
- * Derived from the manifest rather than configured, because which store the
- * files come from is what the manifest is for: a composition served from a
- * second bucket would otherwise be refused by a policy naming the first.
- *
- * `default-src 'none'` and no exception for anything the page does not do. The
- * import map is the page's one inline script and is allowed by the hash of its
- * own bytes, so injected script in this HTML is still refused. The JSON data
- * blocks need no allowance: a script element the browser does not execute is
- * not a script the policy is asked about.
- */
 export function contentSecurityPolicy(m: Manifest): string {
   const origins = assetOrigins(m);
   const files = origins.length ? origins.join(" ") : "'none'";
@@ -225,73 +156,29 @@ export function contentSecurityPolicy(m: Manifest): string {
     "default-src 'none'",
     `script-src ${script.length ? script.join(" ") : "'none'"}`,
     `style-src ${files}`,
+    // The page's own origin, and no more. The switcher reads the unit catalogue
+    // from `/units` there rather than from the store, so the bucket host never
+    // becomes somewhere a compromised unit is allowed to send anything, §25.
+    "connect-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
   ].join("; ");
 }
 
-/**
- * A digest on a tag, with the CORS the browser needs to check it.
- *
- * Without `crossorigin` a cross-origin stylesheet with an integrity attribute
- * is refused rather than checked, so the page renders unstyled. The bucket
- * allows GET from any origin, which is what `bun run setup:store` sets.
- */
 const sri = (digest?: string) =>
   digest ? ` integrity="${attr(digest)}" crossorigin="anonymous"` : "";
 
-/** The digests for the shell's own entry and stylesheet, when it has them. */
 function shellDigests(m: Manifest): { js?: string; css?: string } {
   if (m.schema !== 3) return {};
   const at = (file: string | null) => (file ? m.shell.integrity?.[file] : undefined);
   return { js: at(m.shell.js), css: at(m.shell.css) };
 }
 
-/**
- * Which sub-apps are worth warming before a visitor asks for one.
- *
- * Every app in the composition, and the list is HERE rather than inline so it
- * is one deliberate decision with one reason beside it (TODO §17).
- *
- * The reason it is every app: the server cannot know the layout. The shell owns
- * placement - `src/web/shell/views.ts` - and the runtime image copies
- * `src/server` and nothing else, so nothing here can tell which two apps the
- * route being served will draw and which two a navigation would need.
- *
- * What that costs, said plainly: on this page four apps, of which the two on
- * the current view were going to be fetched anyway. So the extra is the other
- * view's two bundles and two stylesheets, for a visitor who never navigates.
- * That trade holds at four apps and does not hold at forty - an application
- * with many views would have to carry the placement in the manifest and preload
- * per route, which is a schema change and a different piece of work.
- */
-export function preloadTargets(m: Manifest): Record<string, AppAssets> {
-  return appUrls(m);
-}
-
-/**
- * Warm a sub-app's files without running them.
- *
- * `modulepreload` and `preload as=style`, never a background `import()`: an
- * import EVALUATES the module, so a sub-app the visitor never opens would have
- * its top-level code run, and that is a behaviour a sub-app can notice. These
- * two fill the HTTP cache and nothing else.
- *
- * Three things have to line up or the browser fetches twice instead of once,
- * which would make this cost bandwidth and buy nothing:
- *
- *   - a module script is always fetched in CORS mode, so a modulepreload of one
- *     must be too. `crossorigin` is stated rather than left to the default;
- *   - the digest must be the same digest the import map declares for that URL,
- *     or the preloaded response is not reusable by the import;
- *   - a stylesheet's preload must match how `loader.ts` will really request it,
- *     which is with `crossorigin` only when the unit published a digest.
- */
 function preloadLinks(m: Manifest): string {
   const digests = moduleIntegrity(m);
   const tags: string[] = [];
-  for (const app of Object.values(preloadTargets(m))) {
+  for (const app of Object.values(appUrls(m))) {
     tags.push(
       `<link rel="modulepreload" href="${attr(app.js)}"` +
         `${sri(digests[app.js])}${digests[app.js] ? "" : ' crossorigin="anonymous"'} />`,
@@ -305,26 +192,16 @@ function preloadLinks(m: Manifest): string {
   return tags.map((t) => `\n    ${t}`).join("");
 }
 
-/**
- * Which units a visitor may choose between, if any.
- *
- * A JSON block rather than rendered markup: the shell is a Preact application
- * and owns its own chrome, and the server computing the OPTIONS while the shell
- * draws them keeps the contract rule in one place. An absent block is the
- * switcher being off for this channel, which is the default.
- */
 export function renderShell(
   m: Manifest,
   target: Target,
   versions?: Record<string, VersionOption[]>,
-  /** §13. Where the page finds the service, or "" for a server with none. */
   apiBase = "",
 ): string {
   const { js, css } = assetUrls(m);
   const apps = appUrls(m);
   const digest = shellDigests(m);
 
-  // The import map must be parsed before any module script runs.
   const mapText = importMapText(m);
   const importMapTag =
     mapText === null ? "" : `\n    <script type="importmap">${mapText}</script>`;
@@ -335,9 +212,6 @@ export function renderShell(
     versions && Object.keys(versions).length
       ? `\n    <script type="application/json" id="__VERSIONS__">${jsonBlock(versions)}</script>`
       : "";
-  // Dropped rather than emptied, the same way the import map and the app list
-  // are. A link whose href is the unit's directory makes the browser fetch a
-  // listing and parse it as CSS.
   const styleTag =
     css === null ? "" : `\n    <link rel="stylesheet" href="${attr(css)}"${sri(digest.css)} />`;
 
@@ -366,12 +240,7 @@ export function shellResponse(
   return new Response(renderShell(m, target, versions, apiBase), {
     headers: {
       "content-type": "text/html; charset=utf-8",
-      // Not optional. An edge cache that stores this serves one visitor's
-      // build to everyone, and it outlives the promotion that replaced it.
       "cache-control": "no-store, must-revalidate",
-      // The second half of the answer to "whoever can write the pointer can
-      // run script on this origin". The digests say the files must be the
-      // published bytes; this says nothing else may be fetched at all.
       "content-security-policy": contentSecurityPolicy(m),
     },
   });

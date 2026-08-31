@@ -9,8 +9,6 @@
 .fill { display: block; height: 100%; border-radius: 999px; transition: width 120ms ease-out; }
 .total { margin: 0.9rem 0 0; font-size: 0.8125rem; color: var(--muted); }
 
-/* One bar's share of every count. Beside the number, never inside it: the
-   count element is read as a bare number by the shared-state scenarios. */
 .share {
   min-width: 2.5rem;
   text-align: right;

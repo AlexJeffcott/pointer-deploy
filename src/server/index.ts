@@ -1,20 +1,16 @@
-// The whole server. Routing and templating; nothing else.
-//
-// It holds no application files. Every script and stylesheet a visitor loads
-// comes from the store, named by the manifest the channel points at. That is
-// why this image is rebuilt when the server changes and not when the
-// application changes.
-
 import {
   apiRefusal,
   blockRefusal,
+  catalogueUrl,
   compose,
   currentIds,
   historyUrl,
+  mergeKnown,
   optionsFor,
   parseHistory,
   refuseComposition,
   surfaceOf,
+  type Catalogue,
   type ChannelHistory,
   type UnitSurface,
 } from "./composition.ts";
@@ -27,8 +23,6 @@ import { apiVersionsUrl, parseApiVersions } from "./apiversions.ts";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const MANIFEST_BASE = Bun.env.MANIFEST_BASE ?? "";
-// §13. The service is a separate deploy and this server only tells the page
-// where it is. Unset is a working state: the page then runs on its own values.
 const API_BASE = Bun.env.API_BASE ?? "";
 const IS_PRODUCTION = Bun.env.NODE_ENV === "production";
 
@@ -41,25 +35,20 @@ const REGION = resolveRegion(Bun.env.FLY_REGION);
 const TABLE = hostTable(IS_PRODUCTION);
 const manifests = createManifestStore();
 
-// The same rules as the manifest, over a different document. A visitor waits
-// for neither, and a store outage costs neither its last good value.
 const histories = createDocumentStore<ChannelHistory>(parseHistory, { label: "history" });
 
-// §11. Read once at startup: it is a property of this image and cannot change
-// while it runs.
+// Every published unit, not only the ones this channel has served. It is read
+// through the history's own parser because a catalogue IS a history whose scope
+// is the store, §25.
+const catalogues = createDocumentStore<Catalogue>(parseHistory, { label: "catalogue" });
+const CATALOGUE_URL = catalogueUrl(MANIFEST_BASE);
+
 const BLOCKS = await blocksWritten();
 
-// §13, and the opposite case: what the service answers is a property of ANOTHER
-// deploy, so it can change while this process runs and has to be re-read. The
-// same document rules as the manifest - a visitor waits for neither, and an
-// outage costs neither its last good value.
 const apiVersions = API_BASE
   ? createDocumentStore<string[]>(parseApiVersions, { label: "api versions" })
   : null;
 
-// §12. A reading of which compositions this process is handing out. In
-// memory, so it is lost whenever the machine is replaced - which is a limit of
-// the reading and is written inside the reading itself.
 const handedOut = createServedLog();
 
 const json = (body: unknown) =>
@@ -67,8 +56,6 @@ const json = (body: unknown) =>
     status: 200,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      // The counts change on every request, so a stored copy is a wrong reading
-      // rather than an old one.
       "cache-control": "no-store",
     },
   });
@@ -89,30 +76,29 @@ const server = Bun.serve({
   async fetch(req) {
     const { pathname } = new URL(req.url);
 
-    // Deliberately reads no manifest. If health depended on the store, a store
-    // outage would make the platform kill machines that were serving visitors
-    // correctly, turning a degraded state into a full outage.
     if (pathname === "/healthz") return text("ok", 200);
 
     if (req.method !== "GET" && req.method !== "HEAD") {
       return text("method not allowed", 405);
     }
 
-    // §12. What this process has handed out, and what that does not answer.
-    // No target is resolved: the counts span every channel this machine serves,
-    // so a reader asking for them is not asking for a channel. It only READS -
-    // the whole of the item is that this half needs no write, and the server
-    // still refuses every method above.
     if (pathname === "/compositions") return json(handedOut.read());
 
-    // The server has no application files. Anything asking it for one is
-    // asking the wrong host, and saying so beats serving a stale copy.
+    // The bucket answers no LIST to a browser and no LIST to a script without a
+    // key, so the one object that stands for that LIST is served here. A script
+    // reads it from the store directly; the page reads it from its own origin,
+    // which is why the policy needs no store host in connect-src.
+    if (pathname === "/units") {
+      const catalogue = await catalogues.get(CATALOGUE_URL);
+      if (!catalogue) return text("the unit catalogue is not available", 503);
+      return json(catalogue);
+    }
+
     if (pathname === "/assets" || pathname.startsWith("/assets/")) {
       return text("not found", 404);
     }
 
     const target = resolveTarget(req.headers.get("host"), TABLE, REGION);
-    // Fails closed. An unknown host must never fall back to a channel.
     if (!target) return text("not found", 404);
 
     const url = manifestUrl(MANIFEST_BASE, target.region, target.channel);
@@ -121,42 +107,31 @@ const server = Bun.serve({
       return text("the application manifest is not available", 503);
     }
 
-    // The version switcher.
-    //
-    // On wherever there is something to choose between, which is the point of
-    // the demonstration: what a rollback would serve is a thing to look at, not
-    // a thing to be told about. Nothing here is a way in - an id this channel
-    // has never served is refused below - and the shell is no-store, so one
-    // visitor's choice reaches nobody else.
-    //
-    // Everything here fails to the ordinary page. A manifest older than schema
-    // 3, or a history that is absent or unreadable, leaves `versions` undefined
-    // and the visitor gets exactly what the pointer names.
     let served = manifest;
     let versions: Record<string, ReturnType<typeof optionsFor>[string]> | undefined;
-    // §11. What the shell being served says it reads out of this server's
-    // blocks, when the history recorded it.
     let shellSurface: UnitSurface | undefined;
-    // §12. Hoisted out of the switcher below, because the reading needs it: an
-    // operator working through the version switcher must not be counted as
-    // visitors still being served an old unit.
     let overridden = false;
-    // §13. peek, for the reason the history is peeked: a cold read must not
-    // make a visitor wait on a fourth deploy. Nothing yet read is `undefined`,
-    // which every gate below treats as "cannot decide" rather than as a
-    // refusal.
     const serves = (API_BASE ? apiVersions?.peek(apiVersionsUrl(API_BASE)) : null) ?? undefined;
     if (manifest.schema === 3) {
-      // peek, never get. A cold history must not make a visitor wait for the
-      // store: without it the page renders exactly as it did before the
-      // switcher existed, and the next request has it.
-      const history = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));
+      const channelHistory = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));
+      // What this channel has served, plus every published build. `peek` never
+      // makes a visitor wait on the store, so a catalogue that is not there yet
+      // costs the switcher entries and costs the page nothing.
+      //
+      // The suite's own channels take a build the harness made; a real channel
+      // does not, which is the rule `promote` applies at deploy time applied
+      // again where a visitor chooses.
+      const history =
+        channelHistory === null
+          ? null
+          : mergeKnown(
+              channelHistory,
+              catalogues.peek(CATALOGUE_URL),
+              target.channel.startsWith("test-"),
+            );
       if (history) {
         const wanted = new URL(req.url).searchParams;
         const ids = currentIds(manifest);
-        // Only keys that name a unit of THIS composition. An unrecognised
-        // parameter is left alone rather than refused: a page carrying somebody
-        // else's tracking parameter must still render.
         const chosen: Record<string, string> = { ...ids };
         for (const unit of Object.keys(ids)) {
           const asked = wanted.get(unit);
@@ -166,8 +141,6 @@ const server = Bun.serve({
           }
         }
 
-        // Validated only when something was actually asked for. A visitor who
-        // asked for nothing must never be refused, however stale the history.
         if (overridden) {
           const refusal = refuseComposition(history, chosen, BLOCKS, serves);
           if (refusal) return text(`that composition cannot be served: ${refusal}`, 400);
@@ -178,35 +151,15 @@ const server = Bun.serve({
       }
     }
 
-    // What this page was assembled from, said out loud.
-    //
-    // A pointer deploy has one failure nobody outside the process can see: the
-    // channel moved and this origin is still serving the composition before
-    // it. The page looks correct, every check is green, and the only reading
-    // anyone had was "the deploy has not arrived yet" - which is also what a
-    // deploy that will never arrive looks like. The age separates a manifest
-    // that is one TTL behind from one that has stopped being refreshed, and
-    // the refresh line names the store's own error when there is one.
     const state = manifests.stateOf(url);
     const res = shellResponse(served, target, versions, API_BASE);
     res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));
     res.headers.set("x-manifest-refresh", state.lastError ?? "ok");
-    // §11. An OVERRIDE this server cannot feed is refused above. The channel's
-    // own pointer is not: refusing it would take the site down over a control
-    // that misbehaves, which is worse than the bug. So it is reported here, in
-    // the same idiom as the two lines above - the reading nobody had when
-    // renaming `deployed` to `live` broke a shell the switcher still offers.
     const blocks = blockRefusal(BLOCKS, shellSurface);
     res.headers.set("x-shell-blocks", blocks === undefined ? "unread" : (blocks ?? "ok"));
-    // §13, in the same idiom again. "unread" here covers three states a reader
-    // has to be able to tell apart from a fit: no service configured, a shell
-    // published before §13, and a discovery document this process has not
-    // managed to read yet.
     const api = apiRefusal(serves, shellSurface);
     res.headers.set("x-shell-api", api === undefined ? "unread" : (api ?? "ok"));
 
-    // §12. Counted here, where the composition is already decided and a shell
-    // is actually being handed out. A refusal above reaches neither line.
     handedOut.record({
       channel: target.channel,
       region: target.region,

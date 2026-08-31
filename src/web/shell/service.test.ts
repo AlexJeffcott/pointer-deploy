@@ -10,21 +10,11 @@ import {
   type ServiceClient,
 } from "./service.ts";
 
-/**
- * The parser's own message, naming the field.
- *
- * Anchored and with the trailing space, for the reason `manifest.test.ts` gives:
- * a bare toThrow() passes on the TypeError one line further in, which is exactly
- * what a deleted guard produces, and the field path is what an operator acts on.
- */
 const rejects = (parse: (input: unknown) => unknown, input: unknown, field: string) => {
   const path = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   expect(() => parse(input)).toThrow(new RegExp(`^api field ${path} `));
 };
 
-// Nothing compiles what the service actually sends, so every one of these is a
-// shape this page can really receive: an older version of the service, a
-// proxy's error document, a field renamed by somebody who never read this repo.
 describe("what the service sends is checked, not assumed", () => {
   test("a user with both fields is accepted", () => {
     expect(parseUser({ name: "Alex", colour: "#1f5fd0" })).toEqual({
@@ -40,8 +30,6 @@ describe("what the service sends is checked, not assumed", () => {
     rejects(parseUser, { name: 42, colour: "#1f5fd0" }, "user.name");
   });
 
-  // An HTML error page, an array, a null. All three parse as JSON and none of
-  // them is a user.
   test("a body that is not an object is rejected", () => {
     rejects(parseUser, null, "user");
     rejects(parseUser, [], "user");
@@ -53,17 +41,13 @@ describe("what the service sends is checked, not assumed", () => {
     expect(parseCounters({})).toEqual({});
   });
 
-  // The page adds these and renders a total, so one bad value would show on
-  // every row rather than on the one that arrived wrong.
   test("a count that is not a finite number is rejected, by namespace", () => {
     rejects(parseCounters, { alpha: "3" }, "counters.alpha");
     rejects(parseCounters, { alpha: 1, bravo: null }, "counters.bravo");
   });
-
 });
 
 describe("the client", () => {
-  /** Records what was asked for, and answers with whatever the test names. */
   const spy = (answer: (path: string, init?: RequestInit) => Response) => {
     const calls: { path: string; init?: RequestInit }[] = [];
     const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -99,9 +83,6 @@ describe("the client", () => {
     expect(s.calls[0]!.init?.method).toBe("POST");
   });
 
-  // A 404 body is JSON too, and { error: "not found" } parses as a user with no
-  // name. Reading the status first is what makes the message name the real
-  // fault instead of a field.
   test("a status the service refuses with is reported as the status", async () => {
     const s = spy(() => Response.json({ error: "not found" }, { status: 404 }));
     await expect(createClient("https://api.test", { fetchImpl: s.fetchImpl }).user()).rejects.toThrow(
@@ -131,17 +112,12 @@ describe("filling the store from the service", () => {
     expect(await hydrate(store, client())).toBe("ok");
     expect(store.user()).toEqual({ name: "Sam", colour: "#abcdef" });
     expect(store.countOf("alpha")).toBe(3);
-    // Registered rather than skipped: a namespace at zero has to be VISIBLE, or
-    // the page shows fewer rows than the service holds.
     expect(store.snapshot()).toEqual([
       ["alpha", 3],
       ["bravo", 0],
     ]);
   });
 
-  // Rule 2 of the boundary. The store already has defaults and the page has
-  // already rendered them, so an unreachable service costs a different page
-  // rather than a blank one.
   test("a service that cannot be reached leaves the defaults and names the fault", async () => {
     const store = createStore();
     const said = await hydrate(
@@ -202,8 +178,6 @@ describe("the store, with every write sent on", () => {
     b.wrapped.increment("alpha", 4);
     b.wrapped.reset("alpha");
 
-    // Local first, with nothing awaited. A sub-app's button cannot wait for a
-    // fourth deploy to answer.
     expect(b.store.user()).toEqual({ name: "Sam", colour: "#abcdef" });
     expect(b.store.countOf("alpha")).toBe(0);
 
@@ -234,9 +208,6 @@ describe("the store, with every write sent on", () => {
     expect(b.sent).toEqual(['alpha {"by":2}']);
   });
 
-  // A write the service refuses must not throw where the sub-app called it: the
-  // caller is a click handler, and an unhandled rejection there is a page that
-  // reports nothing at all.
   test("a write the service refuses is reported, and the page keeps the value", async () => {
     const store = createStore();
     const said: string[] = [];

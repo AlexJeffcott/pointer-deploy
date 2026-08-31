@@ -1,7 +1,3 @@
-// Reads namespaces it did not create. alpha and bravo live on the other view
-// and are not loaded here, yet their counts are present: the store belongs to
-// the shell, not to whichever bundle happens to be on screen.
-
 import { useLayoutEffect, useState } from "preact/hooks";
 import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
@@ -13,9 +9,6 @@ export default function Charlie({ store }: SubAppProps) {
   const rows = store.snapshot();
   const total = rows.reduce((n, [, v]) => n + v, 0);
   const [boom, setBoom] = useState(false);
-  // Layout, not plain effect: registration must land BEFORE paint, or a panel
-  // that lists every namespace draws one short for a frame - which is what a
-  // visitor would see and what the totals scenario caught.
   useLayoutEffect(() => {
     store.register(NS);
   }, [store]);
@@ -58,8 +51,6 @@ export default function Charlie({ store }: SubAppProps) {
           ))}
         </tbody>
         <tfoot>
-          {/* No data-ns here on purpose: the totals view asserts on the set of
-              namespaces it lists, and a total is not one of them. */}
           <tr>
             <td>total</td>
             <td data-total={total} style={{ textAlign: "right" }}>

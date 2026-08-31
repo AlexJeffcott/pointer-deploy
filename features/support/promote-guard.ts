@@ -1,23 +1,3 @@
-// The working directory a promote-guard scenario runs `scripts/promote.ts` in.
-//
-// Nothing is stubbed. Every guard scenario runs the real script. Three things
-// make that safe, and deterministic on any machine:
-//
-//   1. The working directory is a temporary git REPOSITORY holding a
-//      .gitignore and the dist/build.json under test. So the commit, the
-//      cleanliness of the tree and the source the build records are all set by
-//      the scenario, rather than read off whatever the developer's own tree
-//      happens to be at.
-//   2. Bun loads no .env.local from there, so the real credentials are never
-//      in play.
-//   3. The store endpoint is store.invalid. RFC 2606 reserves the .invalid TLD
-//      and DNS never resolves it, so a run that gets past every guard fails at
-//      getaddrinfo rather than writing anything.
-//
-// That third point is what makes the assertions positive rather than
-// absence-based. A run either refuses or reaches the store, never both, and
-// removing a guard swaps which one happens.
-
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,23 +5,13 @@ import { After } from "./bdd.ts";
 import { UNITS } from "../../scripts/contract.ts";
 import type { Source } from "../../scripts/source.ts";
 
-/** Absolute, because the script runs from a temporary working directory. */
 export const PROMOTE = resolve("scripts/promote.ts");
 
-/** A host DNS cannot resolve. RFC 2606 reserves the .invalid TLD. */
 const DEAD_STORE = "https://store.invalid";
 const DEAD_BUCKET = "promote-guard";
 
-/** Proof a run got as far as the store. */
 export const REACHED_STORE = /store\.invalid/;
 
-/**
- * git, with the developer's own configuration out of the way.
- *
- * A global config can change what `status --porcelain` reports, and a scenario
- * whose reading of "clean" depended on the machine it ran on would be evidence
- * about that machine.
- */
 const GIT_ENV = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
 
 const git = (dir: string, args: string[]): string => {
@@ -60,19 +30,10 @@ const dirs: string[] = [];
 
 export type Repo = {
   dir: string;
-  /** The commit the tree is checked out at. */
   head: string;
-  /** A commit before it, so a scenario can record a source this tree has moved past. */
   older: string;
 };
 
-/**
- * A temporary repository with two commits and a clean tree.
- *
- * `dist/` is ignored, exactly as it is here, so writing the build record into
- * it leaves `git status --porcelain` empty. Without that every scenario's tree
- * would read as dirty and every one of them would refuse for the wrong reason.
- */
 export async function makeRepo(): Promise<Repo> {
   const dir = await mkdtemp(join(tmpdir(), "pointer-guard-"));
   dirs.push(dir);
@@ -98,13 +59,6 @@ export async function makeRepo(): Promise<Repo> {
   return { dir, head, older };
 }
 
-/**
- * A build.json shaped like the real one, with one unit per name.
- *
- * Only the fields the guards read have to be right. Everything downstream of
- * them is unreachable in these scenarios: a run either stops at a guard or
- * stops at DNS.
- */
 export async function writeBuild(
   dir: string,
   opts: { marker?: string; source: Source },
@@ -129,7 +83,6 @@ export async function writeBuild(
 
 export type Run = { code: number; stdout: string; stderr: string };
 
-/** Run the real promote from the scenario's repository, against a dead store. */
 export async function runPromote(dir: string, args: string[]): Promise<Run> {
   const proc = Bun.spawn(["bun", "run", PROMOTE, ...args], {
     cwd: dir,

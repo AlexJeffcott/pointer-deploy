@@ -1,6 +1,3 @@
-// Steps for the error boundaries. A real browser, because a render that throws
-// is not observable to anything that only fetches HTML.
-
 import { Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { PointerWorld } from "../support/world.ts";
@@ -23,7 +20,6 @@ Then("the {string} panel reports an error", async function (this: PointerWorld, 
 
 Then("the {string} panel is drawn", async function (this: PointerWorld, app: string) {
   await this.browserPage.waitForSelector(`[data-app="${app}"] section`, { timeout: 5_000 });
-  // And the error is gone, or a panel drawn beside its own error message passes.
   const errors = await this.browserPage.$$eval(
     `[data-app-error="${app}"]`,
     (nodes) => nodes.length,
@@ -41,7 +37,6 @@ Then("the {string} panel reads {int}", async function (this: PointerWorld, app: 
 
 Then("the page reports that the frame failed", async function (this: PointerWorld) {
   await this.browserPage.waitForSelector("[data-shell-error]", { timeout: 5_000 });
-  // The frame is gone, not merely covered.
   const frames = await this.browserPage.$$eval("[data-unit-marker]", (nodes) => nodes.length);
   expect(frames).toBe(0);
 });

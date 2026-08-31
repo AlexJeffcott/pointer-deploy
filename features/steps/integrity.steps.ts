@@ -1,16 +1,8 @@
-// Steps about what the page is allowed to load, and what it is allowed to
-// believe about the files it loads.
-//
-// Two of them read the served HTML, which is enough to say what the page CLAIMS
-// it will check. Whether a browser then refuses a file is not observable to
-// anything but a browser, so the rest drive one.
-
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { PointerWorld, PROPAGATION_WINDOW_MS } from "../support/world.ts";
 import { configFromEnv, getObjectText } from "../../scripts/store.ts";
 
-/** Well-formed, and the digest of nothing. This is what a swapped file looks like. */
 const WRONG = `sha384-${btoa("not the bytes that were published".padEnd(48, "!")).slice(0, 64)}`;
 
 type Composed = {
@@ -47,11 +39,8 @@ Then("the shell permits scripts and stylesheets from the store alone", function 
   const store = new URL(entry).origin;
 
   expect(policy).toContain("default-src 'none'");
-  // The origin the page really fetches from, not one the policy happens to name.
   expect(directive(policy, "script-src")).toContain(store);
   expect(directive(policy, "style-src")).toBe(store);
-  // A page that names its own origin would let anyone who can write a manifest
-  // point a script tag back at this server.
   expect(directive(policy, "style-src")).not.toContain(this.originFor("qa"));
 });
 
@@ -62,7 +51,6 @@ Then("the shell permits no inline script but the import map it carries", functio
 
   const hash = new Bun.CryptoHasher("sha256").update(text).digest("base64");
   expect(directive(policy, "script-src")).toContain(`'sha256-${hash}'`);
-  // The whole reason for a hash. With this the map runs and nothing else does.
   expect(policy).not.toContain("unsafe-inline");
   expect(policy).not.toContain("unsafe-eval");
 });
@@ -77,8 +65,6 @@ Then(
       this.lastBody,
     );
     expect(script?.[1]).toMatch(/^sha384-/);
-    // Without crossorigin the browser refuses a cross-origin stylesheet that
-    // carries a digest rather than checking it, and the page renders unstyled.
     expect(style?.[1]).toMatch(/^sha384-/);
   },
 );
@@ -93,12 +79,9 @@ Then("every sub-app the shell can import carries one too", function (this: Point
   expect(Object.keys(apps).length).toBeGreaterThan(0);
   const digested: string[] = [];
   for (const a of Object.values(apps)) {
-    // A sub-app's script is imported by URL, so the import map is the only
-    // place its digest can be declared.
     digested.push(map.integrity?.[a.js] ?? "none");
     if (a.css) digested.push(a.cssIntegrity ?? "none");
   }
-  // And the shared runtime, which no tag and no sub-app names.
   for (const url of Object.values(map.imports)) digested.push(map.integrity?.[url] ?? "none");
 
   expect(digested.filter((d) => !d.startsWith("sha384-"))).toEqual([]);
@@ -127,15 +110,11 @@ Given(
     unit.integrity[file] = WRONG;
 
     await this.pointChannelAtDocument("qa", doc);
-    // No unit id moved, so nothing else can tell this manifest from the one
-    // before it. The digest itself is what the page has to be serving.
     await this.awaitShellContaining("qa", WRONG, PROPAGATION_WINDOW_MS + 15_000);
   },
 );
 
 When("a visitor navigates to the counters view", async function (this: PointerWorld) {
-  // Not `openView`: that waits for every panel, and this scenario is about one
-  // of them never arriving.
   await this.browserPage.goto(`${this.originFor("qa")}/`);
   await this.browserPage.waitForSelector("[data-app] section, [data-app-error]", {
     timeout: 20_000,
@@ -151,8 +130,6 @@ Then(
   async function (this: PointerWorld, app: string) {
     const page = this.browserPage;
     await page.waitForSelector(`[data-app-error="${app}"]`, { timeout: 20_000 });
-    // The slot is replaced by the refusal, so nothing of the sub-app is on the
-    // page: a check for the error alone would pass on a page showing both.
     expect(await page.$$eval(`[data-app="${app}"]`, (n) => n.length)).toBe(0);
   },
 );
@@ -160,15 +137,11 @@ Then(
 Then("every panel on the page is styled by its own stylesheet", async function (this: PointerWorld) {
   const page = this.browserPage;
 
-  // The shell's stylesheet. Every panel border below is drawn in a variable it
-  // defines, so without this the next check passes on a page with no theme.
   const accent = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
   );
   expect(accent).not.toBe("");
 
-  // 3px comes from each sub-app's OWN app.module.css. An unstyled section has
-  // no border at all.
   const borders = await page.$$eval("[data-app] section", (nodes) =>
     nodes.map((n) => getComputedStyle(n).borderTopWidth),
   );

@@ -16,6 +16,7 @@
     "test": "bun test src/server src/web scripts api features/support",
     "publish": "bun run scripts/publish.ts",
     "promote": "bun run scripts/promote.ts",
+    "units": "bun run scripts/units.ts",
     "verify": "HARNESS=local bun node_modules/playwright-bdd/dist/cli/index.js test --tags @local && HARNESS=local bun node_modules/@playwright/test/cli.js test",
     "verify:live": "HARNESS=live bun node_modules/playwright-bdd/dist/cli/index.js test --tags '@live and not @needs-domain' && HARNESS=live bun node_modules/@playwright/test/cli.js test",
     "verify:all": "bun run verify && bun run verify:live && bun run verify:browser",

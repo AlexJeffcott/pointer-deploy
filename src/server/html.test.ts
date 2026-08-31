@@ -15,7 +15,6 @@ const BASE = "https://store.test/builds/b1/";
 const policyOf = (m: Manifest) =>
   shellResponse(m, TARGET).headers.get("content-security-policy") ?? "";
 
-/** One directive's value, so a test compares that and not the whole header. */
 const directiveOf = (csp: string, name: string) =>
   csp.split("; ").find((d) => d.startsWith(`${name} `))?.slice(name.length + 1) ?? "";
 
@@ -58,7 +57,6 @@ describe("a shell manifest", () => {
     });
   });
 
-  // A module script that runs before the map is parsed resolves nothing.
   test("puts the import map before the module script", () => {
     expect(html.indexOf('type="importmap"')).toBeLessThan(html.indexOf('type="module"'));
   });
@@ -76,15 +74,11 @@ describe("a shell manifest", () => {
   });
 });
 
-// §13. The one field of this block the SHELL reads, which is what puts the
-// block under the serve-time gate at all.
 describe("where the page is told the service is", () => {
   const buildBlock = (page: string) =>
     JSON.parse(/id="__BUILD__">(.*?)<\/script>/s.exec(page)![1]!) as Record<string, unknown>;
 
   test("a server with no service configured writes no field", () => {
-    // Absent, not empty. A field carrying "" is still a field the shell reads,
-    // and a shell that read it would call a service at the current origin.
     expect(buildBlock(renderShell(v2, TARGET))).not.toHaveProperty("apiBase");
     expect(buildBlock(renderShell(v1, TARGET))).not.toHaveProperty("apiBase");
     expect(buildInfo(v2, TARGET)).not.toHaveProperty("apiBase");
@@ -99,8 +93,6 @@ describe("where the page is told the service is", () => {
     });
   });
 
-  // The response is what the server actually hands out. renderShell being right
-  // and shellResponse dropping the argument would be invisible above.
   test("the response carries what the page was rendered with", async () => {
     const page = await shellResponse(v2, TARGET, undefined, "https://api.test").text();
     expect(buildBlock(page)).toMatchObject({ apiBase: "https://api.test" });
@@ -116,17 +108,11 @@ describe("a single-bundle manifest", () => {
     expect(html).toContain('id="__BUILD__"');
   });
 
-  // It names no sub-apps and no shared specifiers, so emitting either would be
-  // a lie the browser then has to resolve.
   test("carries no import map and no app list", () => {
     expect(html).not.toContain("importmap");
     expect(html).not.toContain("__APPS__");
   });
 
-  // The four places that render nothing when there is nothing to say: the
-  // import map tag, the app list tag, and the two digest attributes. A stray
-  // character in any of them is a malformed tag, and not.toContain() above
-  // cannot see one - it only knows the text it was told to look for is absent.
   test("puts nothing at all where it names nothing", () => {
     expect(html).toContain(`<link rel="stylesheet" href="${BASE}index-b.css" />\n  </head>`);
     expect(html).toContain(
@@ -134,8 +120,6 @@ describe("a single-bundle manifest", () => {
     );
   });
 
-  // Reached only through this schema: the policy asks for the digests and the
-  // hash of an import map that does not exist.
   test("its policy names the store and allows no inline script", () => {
     const csp = policyOf(v1);
     expect(directiveOf(csp, "script-src")).toBe("https://store.test");
@@ -143,29 +127,17 @@ describe("a single-bundle manifest", () => {
   });
 });
 
-// moduleIntegrity is exported and answers for any schema, and only schema 3
-// carries the units it reads. Through renderShell the older schemas never reach
-// it - the import map is empty, so the document is null before the digests are
-// asked for - which leaves this the only caller that can tell the guard is
-// there. Without it the two older schemas throw on a field they do not have.
 test("a manifest older than digests names no module digests", () => {
   expect(moduleIntegrity(v1)).toEqual({});
   expect(moduleIntegrity(v2)).toEqual({});
 });
 
-// A file this server cannot resolve to an origin is a file the page cannot be
-// allowed to fetch, and an empty directive value allows everything instead.
 test("a manifest naming no origin this server can parse allows nothing", () => {
   const csp = policyOf({ ...v1, assetBase: "not a url/" });
   expect(directiveOf(csp, "style-src")).toBe("'none'");
   expect(directiveOf(csp, "script-src")).toBe("'none'");
 });
 
-// Schema 3. Three separately published units, on three different bases,
-// assembled into one page. The discriminating detail is that alpha's script
-// comes from alpha's base while the import map still comes from the shell's:
-// a version of this that joined everything against one base would pass every
-// schema 2 test above and serve a page whose sub-apps 404.
 describe("a composition of independently published units", () => {
   const SHELL_BASE = "https://store.test/units/shell/s1/";
   const ALPHA_BASE = "https://store.test/units/alpha/a9/";
@@ -205,8 +177,6 @@ describe("a composition of independently published units", () => {
     });
   });
 
-  // The shared runtime must stay one instance whichever unit a sub-app came
-  // from, so the map resolves against the shell and never against an app.
   test("resolves the import map against the shell's base", () => {
     const map = JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!);
     expect(map.imports).toEqual({
@@ -215,28 +185,15 @@ describe("a composition of independently published units", () => {
     });
   });
 
-  // A shell unit published without a stylesheet. Nothing build.ts emits looks
-  // like this and no channel has ever served it, but `ComposedUnit.css` is
-  // `string | null`, so a composition may say it. Joining the base against an
-  // empty name produced the unit's own DIRECTORY, the page linked that as a
-  // stylesheet, and the browser fetched a listing and parsed it as CSS.
   test("a shell unit with no stylesheet links no stylesheet at all", () => {
     const bare: Manifest = { ...v3, shell: { ...v3.shell, css: null } };
     const page = renderShell(bare, TARGET);
-    // Narrowed when preloading arrived: the page carries `<link>` tags now, and
-    // what this is about is that none of them is a STYLESHEET, and that none
-    // names the unit's own directory.
     expect(page).not.toContain('rel="stylesheet"');
     expect(page).not.toContain(`"${SHELL_BASE}"`);
-    // The two negatives above pass on a page that rendered nothing, and on one
-    // that put anything at all where the tag was. The head is asserted as the
-    // exact join instead, so the title runs straight into the import map.
     expect(page).toContain('<title>pointer-deploy</title>\n    <script type="importmap">');
     expect(page).toContain(`<script type="module" src="${SHELL_BASE}index-a.js"`);
   });
 
-  // The policy is derived from the files the manifest names, so dropping the
-  // tag must not drop the origin the script is still fetched from.
   test("a shell unit with no stylesheet still names its origin in the policy", () => {
     const bare: Manifest = { ...v3, shell: { ...v3.shell, css: null } };
     expect(contentSecurityPolicy(bare)).toContain("style-src https://store.test");
@@ -259,19 +216,13 @@ describe("a composition of independently published units", () => {
   });
 });
 
-// Whoever writes a manifest names the files, so a file name is untrusted text
-// arriving in an HTML attribute.
 test("escapes what an attribute cannot carry, in the order that keeps it escaped", () => {
-  // Both characters in one value on purpose. The ampersand has to be replaced
-  // FIRST: escape the quote first and the ampersand it introduces is escaped
-  // again, so the href reads &amp;quot; and the browser fetches another file.
   const awkward: Manifest = { ...v2, shell: { js: 'index&"a.js', css: "index<b.css" } };
   const html = renderShell(awkward, TARGET);
   expect(html).toContain(`src="${BASE}index&amp;&quot;a.js"`);
   expect(html).toContain(`href="${BASE}index&lt;b.css"`);
 });
 
-// One separator between a base and a file, whichever of them carries it.
 test("joins a base and a file that both carry the separator", () => {
   const slashed: Manifest = { ...v2, shell: { js: "/index-a.js", css: "/index-b.css" } };
   const html = renderShell(slashed, TARGET);
@@ -292,9 +243,6 @@ test("the shell response is never stored by a cache", () => {
   expect(headers.get("content-type")).toContain("text/html");
 });
 
-// Subresource Integrity. Whoever can write a manifest can name any file on the
-// store; the digests are what stops a named file being a file the build never
-// produced.
 describe("a composition carrying digests", () => {
   const SHELL_BASE = "https://store.test/units/shell/s1/";
   const ALPHA_BASE = "https://store.test/units/alpha/a9/";
@@ -350,10 +298,6 @@ describe("a composition carrying digests", () => {
     expect(html).toContain(`href="${SHELL_BASE}index-b.css" integrity="${D.shellCss}" crossorigin="anonymous"`);
   });
 
-  // The chunk the entry imports and the sub-app the loader imports are fetched
-  // by the module loader, which reads no tag. This section is the only place
-  // they can be declared, so a page without it checks the entry and nothing
-  // behind it.
   test("every module the page can import is named in the import map", () => {
     expect(map().integrity).toEqual({
       [`${SHELL_BASE}index-a.js`]: D.shellJs,
@@ -364,9 +308,6 @@ describe("a composition carrying digests", () => {
     });
   });
 
-  // A source map is fetched by devtools and never imported, and the integrity
-  // section is read for modules alone. Matching ".js" anywhere in a name rather
-  // than at its end puts one in, where it is at best ignored.
   test("only a module carries a digest in the import map", () => {
     const mapped: ManifestV3 = {
       ...signed,
@@ -380,8 +321,6 @@ describe("a composition carrying digests", () => {
     expect(digests[`${SHELL_BASE}index-a.js`]).toBe(D.shellJs);
   });
 
-  // A stylesheet is not a module and never resolves through the map, so the
-  // digest has to reach the loader instead.
   test("a sub-app's stylesheet digest is handed to the loader", () => {
     const apps = JSON.parse(/id="__APPS__">(.*?)<\/script>/s.exec(html)![1]!);
     expect(apps.alpha).toEqual({
@@ -404,8 +343,14 @@ describe("a composition carrying digests", () => {
       expect(csp).toContain("frame-ancestors 'none'");
     });
 
-    // The whole point of a hash rather than 'unsafe-inline': the import map is
-    // allowed, and a script injected beside it is not.
+    test("lets the page reach its own origin, and no other", () => {
+      // The switcher reads `/units` from the origin. The store is where every
+      // script and stylesheet comes from and is deliberately not somewhere the
+      // page may send anything.
+      expect(directive("connect-src")).toBe("'self'");
+      expect(directive("connect-src")).not.toContain("https://store.test");
+    });
+
     test("allows the import map by the hash of its own bytes", () => {
       const text = /<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!;
       const hash = new Bun.CryptoHasher("sha256").update(text).digest("base64");
@@ -413,8 +358,6 @@ describe("a composition carrying digests", () => {
       expect(csp).not.toContain("unsafe-inline");
     });
 
-    // A file whose origin is not in the policy is fetched by nobody, whatever
-    // digest sits beside it.
     test("names the origin of a sub-app published to another store", () => {
       const elsewhere: ManifestV3 = {
         ...signed,
@@ -423,10 +366,6 @@ describe("a composition carrying digests", () => {
         },
       };
       const other = policyOf(elsewhere);
-      // Sorted, and separated. The shell's origin is reached first and
-      // other.test second, so an unsorted policy reads the other way round and
-      // its text depends on what order the manifest happened to name things.
-      // A header nothing can compare against is a header nothing checks.
       expect(directiveOf(other, "style-src")).toBe("https://other.test https://store.test");
       expect(directiveOf(other, "script-src")).toMatch(
         /^https:\/\/other\.test https:\/\/store\.test 'sha256-/,
@@ -435,8 +374,6 @@ describe("a composition carrying digests", () => {
   });
 });
 
-// A unit published before digests were recorded carries none. The page must
-// still render: a composition naming one is what a rollback that far IS.
 test("a composition with no digests renders and is still restricted", () => {
   const csp = shellResponse(v2, TARGET).headers.get("content-security-policy") ?? "";
   const html = renderShell(v2, TARGET);
@@ -446,8 +383,6 @@ test("a composition with no digests renders and is still restricted", () => {
   expect(csp).toContain("https://store.test");
 });
 
-// The version switcher's data. The server computes the options and the shell
-// draws them, so what is asserted here is the block and never any markup.
 describe("the versions block", () => {
   const options = {
     shell: [
@@ -462,9 +397,6 @@ describe("the versions block", () => {
     expect(JSON.parse(block!)).toEqual(options);
   });
 
-  // Absent is the ordinary case: the switcher is off unless a channel is named
-  // in VERSION_SWITCHER_CHANNELS, and a visitor to any other channel must get
-  // exactly the page they got before this existed.
   test("is absent when the server sent no options", () => {
     expect(renderShell(v2, TARGET)).not.toContain("__VERSIONS__");
   });
@@ -473,8 +405,6 @@ describe("the versions block", () => {
     expect(renderShell(v2, TARGET, {})).not.toContain("__VERSIONS__");
   });
 
-  // It is data and not script, so it must not need an allowance - and it must
-  // not accidentally get one either.
   test("does not change what the page is allowed to load", () => {
     expect(shellResponse(v2, TARGET, options).headers.get("content-security-policy")).toBe(
       shellResponse(v2, TARGET).headers.get("content-security-policy"),
@@ -488,11 +418,6 @@ describe("the versions block", () => {
   });
 });
 
-// Warming a sub-app's files before the visitor asks for one (TODO §17).
-//
-// The mechanism has to warm the HTTP cache and must not EVALUATE anything: a
-// background import() would run a sub-app the visitor never opens, and when a
-// module's top-level code runs is a behaviour a sub-app can notice.
 describe("preloading the apps a navigation would need", () => {
   const SHELL_BASE = "https://store.test/units/shell/s1/";
   const ALPHA_BASE = "https://store.test/units/alpha/a9/";
@@ -529,9 +454,6 @@ describe("preloading the apps a navigation would need", () => {
         integrity: { "alpha-e.js": D.alphaJs, "alpha-f.css": D.alphaCss },
         marker: "",
       },
-      // Published before digests were recorded, and before it emitted a
-      // stylesheet. Both absences have to be survivable: a unit old enough to
-      // roll back to is a unit that predates whatever was added last.
       bravo: {
         unitId: "b7",
         commit: "b".repeat(40),
@@ -551,14 +473,10 @@ describe("preloading the apps a navigation would need", () => {
     expect(html).toContain(`<link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js"`);
   });
 
-  // Not import(). The distinction is the whole reason for the mechanism.
   test("evaluates nothing: no second module script appears", () => {
     expect(html.match(/<script type="module"/g)).toHaveLength(1);
   });
 
-  // A preloaded response is reusable by the real import only when the two
-  // agree. A digest that differed, or a missing CORS mode, would cost a second
-  // fetch of every file - which is this whole change paying nothing back.
   test("a preload carries the digest the import map declares for that URL", () => {
     const declared = moduleIntegrity(composed);
     expect(declared[`${ALPHA_BASE}alpha-e.js`]).toBe(D.alphaJs);
@@ -568,8 +486,6 @@ describe("preloading the apps a navigation would need", () => {
     );
   });
 
-  // A module script is always fetched in CORS mode, so a preload of one that
-  // was not would be a different request and the browser would fetch twice.
   test("a preload without a digest still states its CORS mode", () => {
     const noDigests: ManifestV3 = {
       ...composed,
@@ -587,8 +503,6 @@ describe("preloading the apps a navigation would need", () => {
     );
   });
 
-  // loader.ts sets crossOrigin only when it has a digest to check, so a preload
-  // that always set it would not match the request the loader goes on to make.
   test("a stylesheet with no digest is preloaded the way the loader will ask for it", () => {
     const unsigned: ManifestV3 = {
       ...composed,
@@ -603,9 +517,6 @@ describe("preloading the apps a navigation would need", () => {
     expect(html).not.toContain(`as="style" href="${BRAVO_BASE}`);
   });
 
-  // The composition, not the channel's manifest. renderShell is handed what is
-  // being SERVED - the version switcher may have overridden a unit - so the
-  // preloads follow the override or they warm a file this page will not fetch.
   test("preloads the composition being served, not another one", () => {
     const overridden: ManifestV3 = {
       ...composed,
@@ -619,34 +530,20 @@ describe("preloading the apps a navigation would need", () => {
     expect(served).not.toContain(`<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js"`);
   });
 
-  // The shell is what the page cannot render without. A preload discovered
-  // before it would put four sub-apps ahead of the frame in the queue.
   test("comes after the shell's own entry script", () => {
     expect(html.indexOf('type="module"')).toBeLessThan(html.indexOf("modulepreload"));
   });
 
-  // A modulepreload is checked against script-src and a style preload against
-  // style-src, and both directives are already derived from the same origins
-  // these URLs come from. Asserted rather than assumed: a policy that refused
-  // them would cost the fetch and report nothing the server can see.
   test("needs no change to what the page is allowed to load", () => {
     const csp = policyOf(composed);
     expect(directiveOf(csp, "script-src")).toContain("https://store.test");
     expect(directiveOf(csp, "style-src")).toContain("https://store.test");
   });
 
-  // Schema 1 names no sub-apps at all, so there is nothing to warm and the
-  // page must not carry an empty hint.
   test("a manifest with no sub-apps preloads nothing", () => {
     expect(renderShell(v1, TARGET)).not.toContain("modulepreload");
   });
 
-  // Every test above reads ONE tag with toContain, and two of the faults here
-  // live between the tags rather than inside one: an extra entry in the list,
-  // and the string that joins them. A toContain cannot see either, and Stryker
-  // proved it - both mutants survived until 2026-08-29. This reads the whole
-  // block, which is everything after the shell's own script to the end of the
-  // body.
   test("emits these tags, in this order, with nothing between them", () => {
     const after = html.lastIndexOf("</script>") + "</script>".length;
     const block = html.slice(after, html.indexOf("</body>"));

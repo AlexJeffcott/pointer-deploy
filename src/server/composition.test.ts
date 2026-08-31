@@ -8,8 +8,10 @@ import {
   compositionRefusal,
   currentIds,
   decidesMembers,
+  catalogueUrl,
   historyUrl,
   memberRefusal,
+  mergeKnown,
   optionsFor,
   parseHistory,
   refuseComposition,
@@ -38,7 +40,6 @@ const manifest: ManifestV3 = {
   apps: { alpha: unit("alpha", "a1"), bravo: unit("bravo", "b1") },
 };
 
-/** s1+a1+b1 all support c2. s0 is older and supports c1 only. */
 const history: ChannelHistory = {
   schema: 1,
   updatedAt: "2026-08-28T00:00:00.000Z",
@@ -66,8 +67,6 @@ describe("sharedContracts", () => {
     expect(sharedContracts({ shell: ["c1"], alpha: ["c2"] })).toEqual([]);
   });
 
-  // The shell seeds the result, so the answer reads in the order the contracts
-  // were minted rather than in the order an app happens to list them.
   test("reports in the shell's order", () => {
     expect(sharedContracts({ shell: ["c1", "c2"], alpha: ["c2", "c1"] })).toEqual(["c1", "c2"]);
   });
@@ -80,16 +79,12 @@ describe("sharedContracts", () => {
     expect(sharedContracts({ alpha: ["c1"] })).toEqual([]);
   });
 
-  // Nothing filters the seed here, so this is the only place an absent shell
-  // can be told from one that seeded the answer with something.
   test("a composition of no units shares nothing", () => {
     expect(sharedContracts({})).toEqual([]);
   });
 });
 
 describe("chooseContract", () => {
-  // The registry keeps contracts oldest first, so the last one they all support
-  // is the newest they all support.
   test("takes the last shared hash", () => {
     expect(chooseContract({ shell: ["c1", "c2"], alpha: ["c1", "c2"] })).toBe("c2");
   });
@@ -144,7 +139,6 @@ describe("parseHistory", () => {
     rejects({ schema: 1, units: {} }, "history field updatedAt is missing or not a string");
   });
 
-  // An empty string is a name nobody can act on, so it is missing.
   test("rejects an empty string where a value belongs", () => {
     rejects({ schema: 1, updatedAt: "", units: {} }, "history field updatedAt is missing or not a string");
     rejects(
@@ -161,9 +155,6 @@ describe("parseHistory", () => {
     );
   });
 
-  // Truthy and not an object. The falsy cases above leave the second half of
-  // each guard untested, and it is the half that catches a malformed document
-  // rather than a missing one.
   test("rejects units that is a string rather than an object", () => {
     rejects(
       { schema: 1, updatedAt: "t", units: "no" },
@@ -185,8 +176,6 @@ describe("parseHistory", () => {
     );
   });
 
-  // null is an object to typeof, so it is the case the first half of the guard
-  // has to catch on its own.
   test("rejects a unit that is null", () => {
     rejects(
       { schema: 1, updatedAt: "t", units: { shell: [{ unit: null, contracts: [] }] } },
@@ -229,7 +218,6 @@ describe("parseHistory", () => {
     );
   });
 
-  // The index the failure names is the one an operator has to look at.
   test("names the position of the entry that is wrong", () => {
     rejects(
       {
@@ -242,9 +230,6 @@ describe("parseHistory", () => {
   });
 });
 
-// §11. The other boundary: the server writes three JSON blocks and the shell
-// reads part of them, and the two are separate deploys. Only a running server
-// can compare them, so this rule is not in `compositionRefusal`.
 describe("the block gate", () => {
   const WRITES = {
     "VersionOption.live": "l1",
@@ -267,9 +252,6 @@ describe("the block gate", () => {
     expect(refusal).toContain("writes differently");
   });
 
-  // Every shell published before §11, including the one whose rename
-  // demonstrated the problem. It cannot say what it reads, so nothing may be
-  // concluded - which is why the renamed field is still written.
   test("a shell that records nothing cannot be judged", () => {
     expect(blockRefusal(WRITES, {})).toBeUndefined();
     expect(blockRefusal(WRITES, undefined)).toBeUndefined();
@@ -280,8 +262,6 @@ describe("the block gate", () => {
     expect(blockRefusal({}, {})).toBeUndefined();
   });
 
-  // Two faults reported as two. The separator is what a reader of the header
-  // has to split on, and a single toContain cannot see it.
   test("two fields wrong are reported as two", () => {
     expect(
       blockRefusal(WRITES, {
@@ -293,8 +273,6 @@ describe("the block gate", () => {
     );
   });
 
-  // The blocks are a surface between the server and the SHELL. A sub-app never
-  // reads them, so judging one would grey out an option a promote allows.
   test("only the shell is judged on what this server writes", () => {
     const h: ChannelHistory = {
       schema: 1,
@@ -338,15 +316,10 @@ describe("the block gate", () => {
     const by = (id: string) => options.shell!.find((o) => o.unitId === id)!;
     expect(by("s2").disabled).toBe(false);
     expect(by("s1").disabled).toBe(true);
-    // Records nothing, so it is offered: the append-only rule is what protects
-    // this one, and a guess would take away a rollback that works.
     expect(by("s0").disabled).toBe(false);
   });
 });
 
-// The third gate, §13, and the only one with no compiler behind it. What it
-// compares is version STRINGS: the service's surface is not a TypeScript file,
-// so there is no declaration to take a digest of.
 describe("the API gate", () => {
   const shell = (api: string[]) => ({ api });
 
@@ -365,15 +338,10 @@ describe("the API gate", () => {
     expect(apiRefusal(["v9"], shell(["v1", "v2"]))).toContain("v1, v2");
   });
 
-  // A service that answers nothing is a reading and not an absence. Treating it
-  // as undecidable would serve a shell against a service that cannot feed it.
   test("a service answering no version at all still decides", () => {
     expect(apiRefusal([], shell(["v1"]))).toContain("does not answer");
   });
 
-  // Three states that are all "nothing to compare": a shell published before
-  // §13, a server with no service configured, and a discovery document this
-  // process has not read yet. None of them is a refusal.
   test("nothing can be decided without both sides", () => {
     expect(apiRefusal(["v1"], {})).toBeUndefined();
     expect(apiRefusal(["v1"], undefined)).toBeUndefined();
@@ -397,14 +365,9 @@ describe("the API gate", () => {
     const by = (id: string) => options.shell!.find((o) => o.unitId === id)!;
     expect(by("s2").disabled).toBe(false);
     expect(by("s1").disabled).toBe(true);
-    // Records nothing, so it is offered. The same rule as the block gate: a
-    // guess would take away a rollback that works.
     expect(by("s0").disabled).toBe(false);
   });
 
-  // A sub-app never calls the service, so a version reading on one is not this
-  // server's business - and judging it would grey out an option a promote
-  // would allow.
   test("only the shell is judged on the API", () => {
     const h: ChannelHistory = {
       schema: 1,
@@ -432,7 +395,6 @@ describe("the API gate", () => {
       "that shell calls API v1, which the service does not answer",
     );
     expect(refuseComposition(h, { shell: "s1" }, {}, ["v1"])).toBeNull();
-    // No reading of the service at all, so this half decides nothing.
     expect(refuseComposition(h, { shell: "s1" }, {})).toBeNull();
   });
 });
@@ -467,10 +429,6 @@ describe("parseHistory carries the member reading", () => {
     expect(parsed.units.shell![0]!.surface).toBeUndefined();
   });
 
-  // A reading that is not an object is worth nothing and must not be carried
-  // as though it were: every reader indexes into it, and a string would answer
-  // every lookup with undefined - which reads as "records nothing" and allows
-  // what the gate exists to refuse.
   test("a surface that is not an object is dropped", () => {
     const parsed = parseHistory({
       schema: 1,
@@ -506,8 +464,6 @@ describe("optionsFor", () => {
     ]);
   });
 
-  // The two differ the moment a visitor chooses something, and the shell needs
-  // both: choosing the live id clears the override rather than pinning it.
   test("current and live separate once a choice is made", () => {
     const options = optionsFor(history, { ...served, shell: "s0" }, served);
     expect(options.shell?.map((o) => [o.unitId, o.current, o.live])).toEqual([
@@ -516,8 +472,6 @@ describe("optionsFor", () => {
     ]);
   });
 
-  // s0 supports c1 alone, and alpha a1 supports c2 alone, so that pair has no
-  // contract in common and the older shell cannot be chosen beside it.
   test("disables an option that leaves no shared contract", () => {
     const options = optionsFor(history, served, served);
     expect(options.shell?.map((o) => [o.unitId, o.disabled])).toEqual([
@@ -526,9 +480,6 @@ describe("optionsFor", () => {
     ]);
   });
 
-  // The same option, against a different rest of the composition. Rolling alpha
-  // back to a0 first makes the older shell selectable, which is the whole point
-  // of computing this against what is chosen rather than against what is live.
   test("the same option is allowed once the rest of the composition moves", () => {
     const options = optionsFor(history, { ...served, alpha: "a0" }, served);
     expect(options.shell?.map((o) => [o.unitId, o.disabled])).toEqual([
@@ -537,8 +488,6 @@ describe("optionsFor", () => {
     ]);
   });
 
-  // A composition published before markers reached a unit carries none, and a
-  // switcher that printed "undefined" beside an id would read as a build fault.
   test("an entry with no marker reads as no marker", () => {
     const bare = {
       schema: 1 as const,
@@ -548,9 +497,6 @@ describe("optionsFor", () => {
     expect(optionsFor(bare, { shell: "s1" }, { shell: "s1" }).shell?.[0]?.marker).toBe("");
   });
 
-  // Retained for a shell published before the rename. That shell reads
-  // `deployed`, it is still in qa's history, and the switcher offers it - so
-  // dropping the field makes a rollback target quietly do the wrong thing.
   test("carries the old name of live, with the same value", () => {
     for (const o of optionsFor(history, { ...served, shell: "s0" }, served).shell ?? []) {
       expect(`${o.unitId} deployed=${o.deployed}`).toBe(`${o.unitId} deployed=${o.live}`);
@@ -586,11 +532,9 @@ describe("refuseComposition", () => {
     expect(refuseComposition(history, { ...served, alpha: "a0" })).toBeNull();
   });
 
-  // The refusal that matters. Without it the query string is a way to make this
-  // origin serve any object in the store.
   test("refuses an id this channel has never served", () => {
     expect(refuseComposition(history, { ...served, alpha: "0000dead" })).toBe(
-      "the alpha unit 0000dead is not one this channel has served",
+      "the alpha unit 0000dead is not one this channel can serve",
     );
   });
 
@@ -598,8 +542,6 @@ describe("refuseComposition", () => {
     expect(refuseComposition(history, { ...served, charlie: "c1" })).toContain("charlie");
   });
 
-  // The block gate, through the function `promote` and the switcher both
-  // call. Reaching it any other way tests blockRefusal and not the refusal.
   test("refuses a chosen shell this server cannot feed, and names the field", () => {
     const h: ChannelHistory = {
       schema: 1,
@@ -617,7 +559,6 @@ describe("refuseComposition", () => {
     expect(refuseComposition(h, { shell: "s1" }, { "VersionOption.live": "l1" })).toBe(
       "that shell reads VersionOption.deployed, which this server does not write",
     );
-    // The same composition, judged by a server that writes what it reads.
     expect(refuseComposition(h, { shell: "s1" }, { "VersionOption.deployed": "d1" })).toBeNull();
   });
 
@@ -628,11 +569,6 @@ describe("refuseComposition", () => {
   });
 });
 
-
-// §9. The gate an operator actually needs: does this app need anything this
-// shell does not have. The contract sets below are DISJOINT throughout, which
-// is the state a published app reaches the moment a contract is minted after
-// it - and the old rule refused every one of these.
 describe("the member gate", () => {
   const HALF = "sub1";
 
@@ -642,7 +578,6 @@ describe("the member gate", () => {
   });
   const app = (uses: Record<string, string>, subapps = [HALF]): UnitSurface => ({ uses, subapps });
 
-  /** Eight members, of which alpha calls three and bravo calls four. */
   const FULL = {
     "ShellStore.user": "u1",
     "ShellStore.register": "r1",
@@ -681,8 +616,6 @@ describe("the member gate", () => {
     expect(refusal).not.toContain("alpha");
   });
 
-  // The case a list of member NAMES would miss. A narrowed parameter keeps the
-  // name and changes the declaration, so the digest moves.
   test("a re-declared member refuses only the apps that name it", () => {
     const narrowed = { ...FULL, "ShellStore.reset": "x2" };
     const refusal = compositionRefusal(DISJOINT, surfaces(narrowed));
@@ -695,8 +628,6 @@ describe("the member gate", () => {
     expect(compositionRefusal(DISJOINT, surfaces({ ...FULL, "ShellStore.setName": "n2" }))).toBeNull();
   });
 
-  // The half a sub-app PRODUCES. Nothing about `uses` can see it, because the
-  // shell requires all of it rather than part of it.
   test("a different SubApp half refuses even when every member fits", () => {
     const refusal = compositionRefusal(DISJOINT, {
       shell: shell(FULL, ["sub2"]),
@@ -713,8 +644,6 @@ describe("the member gate", () => {
     );
   });
 
-  // Rolling back onto a unit published before any of this existed has to go on
-  // working, and it is judged the only way it can be.
   test("an app with no reading falls back to the contract sets", () => {
     const mixed = { shell: shell(FULL), alpha: app(ALPHA), bravo: undefined };
     expect(compositionRefusal({ shell: ["c9"], alpha: ["c1"], bravo: ["c9"] }, mixed)).toBeNull();
@@ -729,15 +658,11 @@ describe("the member gate", () => {
     expect(memberRefusal({ shell: shell(FULL), alpha: app(ALPHA) })).toBeNull();
   });
 
-  // Half a reading is not a reading. Without the first check the second half
-  // is read anyway, and `shellHalves.includes` is called on nothing.
   test("a shell recording only half of its own surface cannot answer", () => {
     expect(memberRefusal({ shell: { provides: FULL }, alpha: app(ALPHA) })).toBeUndefined();
     expect(memberRefusal({ shell: { subapps: [HALF] }, alpha: app(ALPHA) })).toBeUndefined();
   });
 
-  // The rollback case, from the other side: an entry the history carries with
-  // no surface at all, beside one that has it.
   test("an app with no reading is skipped rather than judged", () => {
     expect(memberRefusal({ shell: shell(FULL), alpha: undefined })).toBeUndefined();
     expect(memberRefusal({ shell: shell(FULL), alpha: undefined, bravo: app(BRAVO) })).toBeNull();
@@ -748,9 +673,6 @@ describe("the member gate", () => {
     expect(memberRefusal({ shell: shell(FULL), alpha: { subapps: [HALF] } })).toBeUndefined();
   });
 
-  // Which half of the gate refused, exactly. Both halves name the member, so a
-  // toContain on the name passes when the wrong branch fires - which is how a
-  // mutation of this line went unnoticed until 2026-08-29.
   test("a member the shell does not have is named as missing, not as changed", () => {
     const { "ShellStore.reset": _gone, ...smaller } = FULL;
     expect(memberRefusal({ shell: shell(smaller), bravo: app(BRAVO) })).toBe(
@@ -758,9 +680,6 @@ describe("the member gate", () => {
     );
   });
 
-  // A unit records the half of EVERY contract it compiles against, so carrying
-  // more than one is ordinary. Sharing one is the fit; needing all of them
-  // would refuse a sub-app that compiles against the shell perfectly well.
   test("one SubApp half in common is enough", () => {
     expect(
       memberRefusal({
@@ -778,9 +697,6 @@ describe("the member gate", () => {
     );
   });
 
-  // Every app judged on members leaves the shell alone in the contract half,
-  // and a shell that shares nothing with itself is not a refusal. The guard
-  // that makes this pass is the one the comment beside it argues for.
   test("a shell alone in the contract half is not refused for sharing nothing", () => {
     expect(
       compositionRefusal({ shell: [], alpha: ["c1"] }, { shell: shell(FULL), alpha: app(ALPHA) }),
@@ -794,8 +710,6 @@ describe("the member gate", () => {
     expect(decidesMembers(undefined, app(ALPHA))).toBe(false);
   });
 
-  // The switcher greys an option out with the rule `promote` refuses on. If the
-  // two ever part, the control lies about what an operator could deploy.
   test("the switcher offers what promote would allow", () => {
     const { "ShellStore.setName": _gone, ...smaller } = FULL;
     const withSurfaces: ChannelHistory = {
@@ -810,7 +724,6 @@ describe("the member gate", () => {
       },
     };
     const options = optionsFor(withSurfaces, { shell: "s2", bravo: "b0" }, { shell: "s2", bravo: "b0" });
-    // b0 uses reset, s2 still has it, and their contract sets share nothing.
     expect(options.shell!.find((o) => o.unitId === "s2")!.disabled).toBe(false);
     expect(options.shell!.find((o) => o.unitId === "s1")!.disabled).toBe(false);
   });
@@ -850,8 +763,6 @@ describe("compose", () => {
     expect(out.shell.unitId).toBe("s1");
   });
 
-  // The contract a composition resolves at is a property of the composition and
-  // not of the pointer, so choosing an older unit has to recompute it.
   test("recomputes the contract for what was chosen", () => {
     expect(compose(manifest, history, { ...served, alpha: "a0" }).contract).toBe("c2");
     expect(compose(manifest, history, { shell: "s0", alpha: "a0", bravo: "b1" }).contract).toBe("c1");
@@ -867,8 +778,6 @@ describe("compose", () => {
     expect(out.apps.alpha?.unitId).toBe("a1");
   });
 
-  // A unit this channel has no history for at all, which is not the same as an
-  // id it does not hold. The lookup has to answer rather than throw.
   test("a unit the history never names leaves the composition alone", () => {
     const out = compose(manifest, history, { ...served, charlie: "c9" });
     expect(out.apps.charlie).toBeUndefined();
@@ -890,4 +799,137 @@ describe("compose", () => {
 
 test("the depth a channel keeps is stated once", () => {
   expect(HISTORY_DEPTH).toBe(20);
+});
+
+describe("catalogueUrl", () => {
+  test("sits beside the pointers, one prefix over", () => {
+    expect(catalogueUrl("https://s.test/manifests")).toBe("https://s.test/units/catalogue.json");
+    expect(catalogueUrl("https://s.test/manifests/")).toBe("https://s.test/units/catalogue.json");
+  });
+
+  test("keeps a prefix the bucket is nested under", () => {
+    expect(catalogueUrl("https://s.test/a/b/manifests")).toBe(
+      "https://s.test/a/b/units/catalogue.json",
+    );
+  });
+});
+
+describe("mergeKnown", () => {
+  const catalogue: ChannelHistory = {
+    schema: 1,
+    updatedAt: "2026-08-31T00:00:00.000Z",
+    units: {
+      alpha: [
+        { unit: unit("alpha", "a9"), contracts: ["c2"], publishedAt: "2026-08-31T00:00:00.000Z" },
+        { unit: unit("alpha", "a1"), contracts: ["c9"], publishedAt: "2026-08-01T00:00:00.000Z" },
+      ],
+      charlie: [{ unit: unit("charlie", "c1"), contracts: ["c2"] }],
+    },
+  };
+
+  test("adds a published build this channel has never served", () => {
+    const merged = mergeKnown(history, catalogue);
+    expect(merged.units.alpha?.map((e) => e.unit.unitId)).toEqual(["a1", "a0", "a9"]);
+  });
+
+  test("adds a unit the channel has no history for at all", () => {
+    expect(mergeKnown(history, catalogue).units.charlie?.map((e) => e.unit.unitId)).toEqual(["c1"]);
+  });
+
+  test("what the channel served wins, because only it knows the order and the stamps", () => {
+    const merged = mergeKnown(history, catalogue);
+    expect(merged.units.alpha?.find((e) => e.unit.unitId === "a1")?.contracts).toEqual(["c2"]);
+  });
+
+  test("keeps every unit the channel has served", () => {
+    const merged = mergeKnown(history, catalogue);
+    expect(merged.units.shell?.map((e) => e.unit.unitId)).toEqual(["s1", "s0"]);
+    expect(merged.units.bravo?.map((e) => e.unit.unitId)).toEqual(["b1"]);
+  });
+
+  test("no catalogue leaves the channel exactly as it was", () => {
+    expect(mergeKnown(history, null)).toBe(history);
+  });
+
+  test("a real channel is offered no build the harness made", () => {
+    const withHarness: ChannelHistory = {
+      schema: 1,
+      updatedAt: "t",
+      units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
+    };
+    expect(mergeKnown(history, withHarness).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+      "a1",
+      "a0",
+    ]);
+  });
+
+  test("the suite's own channels are, because that is where the suite promotes", () => {
+    const withHarness: ChannelHistory = {
+      schema: 1,
+      updatedAt: "t",
+      units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
+    };
+    expect(mergeKnown(history, withHarness, true).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+      "a1",
+      "a0",
+      "a7",
+    ]);
+  });
+
+  test("a marked build the channel already served stays, whatever the channel is", () => {
+    const served: ChannelHistory = {
+      schema: 1,
+      updatedAt: "t",
+      units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
+    };
+    expect(mergeKnown(served, { schema: 1, updatedAt: "t", units: {} }).units.alpha).toHaveLength(1);
+  });
+
+  test("a composition is judged the same whichever side an entry came from", () => {
+    const merged = mergeKnown(history, catalogue);
+    expect(refuseComposition(merged, { shell: "s1", alpha: "a9", bravo: "b1" })).toBeNull();
+    expect(compose(manifest, merged, { shell: "s1", alpha: "a9", bravo: "b1" }).apps.alpha?.unitId).toBe(
+      "a9",
+    );
+  });
+
+  test("the switcher offers a build that was published and never promoted", () => {
+    const options = mergeKnown(history, catalogue);
+    expect(optionsFor(options, served, served).alpha?.map((o) => o.unitId)).toEqual([
+      "a1",
+      "a0",
+      "a9",
+    ]);
+  });
+});
+
+describe("parseHistory of a catalogue", () => {
+  test("keeps when a unit was published and whether the tree was dirty", () => {
+    const parsed = parseHistory({
+      schema: 1,
+      updatedAt: "t",
+      units: {
+        alpha: [
+          {
+            unit: { unitId: "a1" },
+            contracts: [],
+            publishedAt: "2026-08-01T00:00:00.000Z",
+            dirty: true,
+          },
+        ],
+      },
+    });
+    expect(parsed.units.alpha?.[0]?.publishedAt).toBe("2026-08-01T00:00:00.000Z");
+    expect(parsed.units.alpha?.[0]?.dirty).toBe(true);
+  });
+
+  test("a history that records neither carries neither", () => {
+    const parsed = parseHistory({
+      schema: 1,
+      updatedAt: "t",
+      units: { alpha: [{ unit: { unitId: "a1" }, contracts: [] }] },
+    });
+    expect(parsed.units.alpha?.[0]).not.toHaveProperty("publishedAt");
+    expect(parsed.units.alpha?.[0]).not.toHaveProperty("dirty");
+  });
 });

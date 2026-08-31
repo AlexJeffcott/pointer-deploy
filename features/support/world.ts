@@ -6,10 +6,6 @@ import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../sc
 import type { BuildInfo } from "@pointer/blocks";
 import type { ServedComposition, ServedReading } from "../../src/server/served.ts";
 
-// The hooks are in hooks.ts and the bindings in bdd.ts. This file holds the
-// world and nothing that registers itself with the runner: bdd.ts imports the
-// class to build the fixture, so a hook here would close the cycle.
-
 export { curlGet, run };
 
 export type Channel = "qa" | "prod";
@@ -17,7 +13,6 @@ export type Mode = "local" | "live";
 
 export const MODE: Mode = (Bun.env.HARNESS as Mode) ?? "local";
 
-/** The store's 5 s pointer cache plus the server's manifest TTL. */
 export const PROPAGATION_WINDOW_MS = 15_000;
 
 const LOCAL_TTL_MS = 300;
@@ -28,55 +23,22 @@ const MANIFEST_BASE =
   Bun.env.MANIFEST_BASE ?? "https://pointer-deploy-assets.fly.storage.tigris.dev/manifests";
 const REGION = Bun.env.REGION ?? "eu";
 
-/**
- * The channel each scenario channel really is, live.
- *
- * The suite publishes throwaway builds and promotes them. Promoting them to
- * qa and prod IS a deploy, so every live run used to leave the application
- * serving a test build until someone promoted a real one. The suite gets two
- * channels of its own instead, and never writes the two the application is
- * served from.
- *
- * The scenarios keep saying "qa" and "prod": which channels the harness uses
- * is not part of the specification.
- */
 const LIVE_CHANNELS: Record<Channel, string> = {
   qa: "test-qa",
   prod: "test-prod",
 };
 
-/** The channels the suite must never write. Asserted before and after a run. */
 export const REAL_CHANNELS = ["qa", "prod"] as const;
 
-/**
- * The Host each channel is reached by. Every channel is one app on one
- * machine; only the header differs. No .test name resolves, so each is reached
- * by setting the header directly - which is what Fly forwards to the server
- * anyway.
- */
 const LIVE_HOSTS: Record<Channel, string> = {
   qa: Bun.env.TEST_QA_HOST ?? "test-qa.pointer-deploy.test",
   prod: Bun.env.TEST_PROD_HOST ?? "test-prod.pointer-deploy.test",
 };
 
-/** Every unit id a named scenario build resolved to. */
 export type UnitIds = Record<Unit, string>;
 
-// Shared across scenarios on purpose. Cucumber builds a fresh World per
-// scenario, and rebuilding and republishing the same five bundles for each one
-// would add minutes without testing anything the first publish did not.
 const BUILD_IDS = new Map<string, UnitIds>();
 
-/**
- * What a channel's pointer names in the store, or why it could not be read.
- *
- * Retries a request that gets no answer at all, the same way the live suite's
- * own requests do. A store that ANSWERS is a reading - "absent (404)" and
- * "unreadable" are both true things about the channel. A socket that closes
- * without answering is not a reading, and this one is the baseline the deploy
- * tripwire compares against: losing it to one dropped connection leaves the
- * tripwire with nothing to compare and the run with no guard.
- */
 export async function pointerBuildId(channel: string): Promise<string> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${channel}.json`;
   let res: Response | null = null;
@@ -102,8 +64,6 @@ export async function pointerBuildId(channel: string): Promise<string> {
       shell?: { unitId?: string };
       apps?: Record<string, { unitId?: string }>;
     };
-    // Every unit, because a run that moved one app and left the others is
-    // still a deploy nobody asked for.
     if (doc.schema === 3) {
       return [
         `shell=${doc.shell?.unitId ?? "?"}`,
@@ -118,14 +78,6 @@ export async function pointerBuildId(channel: string): Promise<string> {
   }
 }
 
-/**
- * What the harness reads out of `__BUILD__`.
- *
- * Every field optional and the shape derived from the server's own
- * declaration: this parses a document the suite did not write, so a missing
- * field is a reading and never a crash - but WHICH fields exist is the server's
- * to say, and §11 is about that having been written down twice.
- */
 type ShellBuildInfo = Partial<BuildInfo>;
 
 function buildInfoInShell(html: string): ShellBuildInfo | null {
@@ -142,13 +94,11 @@ export function buildIdInShell(html: string): string | null {
   return buildInfoInShell(html)?.buildId ?? null;
 }
 
-/** Which unit id the served page names for each unit. */
 export function unitIdsInShell(html: string): Partial<Record<Unit, string>> {
   const units = buildInfoInShell(html)?.units ?? {};
   return Object.fromEntries(Object.entries(units).map(([n, u]) => [n, u.unitId]));
 }
 
-/** The base each sub-app's script is fetched from. Per unit under schema 3. */
 export function appScriptUrls(html: string): Record<string, string> {
   const m = /id="__APPS__">(.*?)<\/script>/s.exec(html);
   if (!m?.[1]) return {};
@@ -160,23 +110,15 @@ export function appScriptUrls(html: string): Record<string, string> {
   }
 }
 
-/** One choice the served page offers for one unit. */
 export type ServedOption = {
   unitId: string;
   marker: string;
   current: boolean;
   live: boolean;
-  /** The old name of `live`, kept for shells that still read it. */
   deployed: boolean;
   disabled: boolean;
 };
 
-/**
- * The version switcher's options, as the page carries them.
- *
- * An absent block is the switcher being off for that channel, which is the
- * default, so this answers with an empty record rather than throwing.
- */
 export function versionsInShell(html: string): Record<string, ServedOption[]> {
   const m = /id="__VERSIONS__">(.*?)<\/script>/s.exec(html);
   if (!m?.[1]) return {};
@@ -194,47 +136,28 @@ export function assetUrlsInShell(html: string): { js: string | null; css: string
   };
 }
 
-/**
- * One scenario's state.
- *
- * Constructed by the `world` fixture in bdd.ts, once per scenario, which is
- * what `setWorldConstructor` used to do. It takes no arguments now: cucumber
- * passed its own options object and nothing here ever read it.
- */
 export class PointerWorld {
   mode: Mode = MODE;
   stub: StubStore | null = null;
   server: ReturnType<typeof Bun.spawn> | null = null;
   serverPort = 0;
-  /** §13. The service this scenario started, and where it is listening. */
   service: ReturnType<typeof Bun.spawn> | null = null;
   serviceBase = "";
-  /** True while this process is serving the real store on 127.0.0.1. */
   localServer = false;
 
-  /** Scenario build name ("alpha") to the unit ids the store holds for it. */
   private ids = BUILD_IDS;
 
-  // Browser scenarios. The page is the RUNNER's, handed over by the @browser
-  // hook - see usePage. The harness used to launch its own Chrome, and a page
-  // it launched itself is a page no trace, screenshot or video is attached to.
   page: Page | null = null;
-  /** Every URL the page has requested, in order. */
   requests: string[] = [];
 
   lastResponse: Response | null = null;
   lastBody = "";
-  /** §12. What the origin last said it had handed out. */
   lastServed: ServedReading | null = null;
-  /** §12. The row a step last found in it, for the step that reads its count. */
   lastNamed: ServedComposition | null = null;
   lastRun: Run | null = null;
-  /** Temporary working directory a promote-refusal scenario runs from. */
   guardDir: string | null = null;
   machinesBefore: string | null = null;
   elapsedMs = 0;
-
-  // -- lifecycle ------------------------------------------------------------
 
   async startLocal(): Promise<void> {
     this.stub = await startStubStore();
@@ -245,17 +168,6 @@ export class PointerWorld {
     });
   }
 
-  /**
-   * The real service, started here, answering the versions named. §13.
-   *
-   * The service itself and not a stub: what is being demonstrated is a party
-   * with its own deploy schedule, and a stand-in written in this repository
-   * would be a party with THIS one's. Which versions it answers comes from its
-   * environment, which is how a deploy expresses that anyway.
-   *
-   * The server is then restarted pointing at it, because a server reads
-   * API_BASE once at startup - like the image it is.
-   */
   async startServiceAndServer(serves: string): Promise<void> {
     const proc = Bun.spawn(["bun", "api/index.ts"], {
       env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", PORT: "0", API_SERVES: serves },
@@ -289,22 +201,9 @@ export class PointerWorld {
     throw new Error(`the service did not start. Output so far:\n${buffered}`);
   }
 
-  /**
-   * The real server, started here, reading the REAL store.
-   *
-   * Live, a test-* channel is reached by a Host header, and no browser can be
-   * made to send one: Host is forbidden to setExtraHTTPHeaders, and Fly routes
-   * on SNI, so a resolver override cannot supply it either. So a @browser
-   * scenario about one of the suite's own channels runs the documented entry
-   * point here instead - the same file the image runs, and the same compromise
-   * scripts/e2e-independent-deploy.ts makes. The store, the units, the bundles
-   * and the browser are real; only the process the HTML comes from is local.
-   */
   async startAgainstRealStore(): Promise<void> {
     await this.spawnServer({
       MANIFEST_BASE,
-      // The store caches a pointer for 5 s, so a shorter server TTL buys
-      // nothing. This one only stops the server adding to that wait.
       MANIFEST_TTL_MS: "1000",
       MANIFEST_TIMEOUT_MS: "10000",
     });
@@ -315,11 +214,8 @@ export class PointerWorld {
     const proc = Bun.spawn(["bun", "src/server/index.ts"], {
       env: {
         ...process.env,
-        // The port is read out of the first line, so this output is parsed too.
-        // See PLAIN_OUTPUT in http.ts for what colour does to that.
         FORCE_COLOR: "0",
         NO_COLOR: "1",
-        // Development, so the *.localhost names resolve to a channel.
         NODE_ENV: "development",
         PORT: "0",
         ...env,
@@ -329,9 +225,6 @@ export class PointerWorld {
     });
     this.server = proc;
 
-    // The server prints its port on the first line. Waiting for it beats
-    // sleeping, and a start failure surfaces here rather than as a refused
-    // connection three steps later.
     const reader = proc.stdout.getReader();
     const deadline = Date.now() + 10_000;
     let buffered = "";
@@ -360,9 +253,6 @@ export class PointerWorld {
     this.localServer = false;
   }
 
-  // -- channels -------------------------------------------------------------
-
-  /** The whole composition a scenario build name resolved to. */
   idsOf(name: string): UnitIds {
     return (
       this.ids.get(name) ??
@@ -370,12 +260,6 @@ export class PointerWorld {
     );
   }
 
-  /**
-   * The id a scenario means by a build name.
-   *
-   * The shell's, because that is what the served page reports as its build id
-   * and what every scenario written before the split compares against.
-   */
   idOf(name: string): string {
     return this.idsOf(name).shell;
   }
@@ -388,17 +272,6 @@ export class PointerWorld {
     this.ids.set(name, Object.fromEntries(UNITS.map((u) => [u, id])) as UnitIds);
   }
 
-  setIds(name: string, ids: UnitIds): void {
-    this.ids.set(name, ids);
-  }
-
-  /**
-   * Build and publish every unit, or register a synthetic composition locally.
-   *
-   * `markers` overrides the marker of individual units, which is how a scenario
-   * gets a new alpha without a new bravo: the other four units come out
-   * byte-identical, keep their ids, and publish reports them unchanged.
-   */
   async publish(name: string, markers: Partial<Record<Unit, string>> = {}): Promise<UnitIds> {
     const known = this.ids.get(name);
     if (known) return known;
@@ -422,9 +295,6 @@ export class PointerWorld {
 
     const ids = JSON.parse(published.stdout) as UnitIds;
 
-    // Two scenario builds whose shells collide would make every promotion
-    // scenario pass by accident, because the channel would already serve the
-    // composition being promoted to it.
     for (const [other, otherIds] of this.ids) {
       if (otherIds.shell === ids.shell) {
         throw new Error(
@@ -438,17 +308,12 @@ export class PointerWorld {
     return ids;
   }
 
-  /** The channel this scenario channel writes. The stub store has no others. */
   storeChannel(channel: Channel): string {
     return this.mode === "live" ? LIVE_CHANNELS[channel] : channel;
   }
 
-  /** The channel the suite is allowed to write. Never a real one. */
   private targetChannel(channel: Channel): string {
     const target = this.storeChannel(channel);
-    // A tripwire on the path that caused the defect. Promoting is a deploy, so
-    // a mapping that ever resolves to a real channel must stop the run rather
-    // than ship a scenario's build to visitors.
     if (!target.startsWith("test-")) {
       throw new Error(
         `the suite tried to promote to ${JSON.stringify(target)}, which is a real channel. ` +
@@ -458,7 +323,6 @@ export class PointerWorld {
     return target;
   }
 
-  /** Promote the whole composition a scenario build name stands for. */
   async promote(channel: Channel, name: string): Promise<Run> {
     const ids = this.idsOf(name);
     if (this.mode === "local") {
@@ -475,21 +339,9 @@ export class PointerWorld {
     ]);
   }
 
-  /** The Fly region a scenario is asking its requests to be routed to, §3. */
   routedTo: string | null = null;
-  /** The manifest regions the machine reached that way says it has served. */
   regionsSeen: string[] = [];
 
-  /**
-   * Which manifest region a machine says it served, §3.
-   *
-   * `Fly-Prefer-Region` picks the machine; `/compositions` is that process's
-   * own record of the shells it handed out, and every row carries the region it
-   * resolved from its own FLY_REGION. So this reads which POINTER the machine
-   * that answered was reading - which is the whole claim a second region makes,
-   * and is not something the served composition can show while both regions
-   * hold the same one.
-   */
   async regionsServedFrom(channel: Channel, flyRegion: string): Promise<string[]> {
     const headers = { "fly-prefer-region": flyRegion };
     await this.visit(channel, "/", headers);
@@ -507,30 +359,12 @@ export class PointerWorld {
     return [...new Set(reading.compositions.map((c) => c.region))];
   }
 
-  /**
-   * The exact bytes a region's pointer holds, §3.
-   *
-   * The ids alone cannot say that THIS promote wrote a region. Two regions can
-   * name the same build because a promote wrote both, or because one of them
-   * was already there from an earlier run - and a scenario that cannot tell
-   * those apart proves nothing about the promote. The whole document can:
-   * every region is written the same composition, `composedAt` included, so
-   * identical bytes mean one promote wrote both.
-   */
   async pointerTextInRegion(channel: Channel, region: string): Promise<string | null> {
     const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${this.storeChannel(channel)}.json`;
     const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
     return res.ok ? await res.text() : null;
   }
 
-  /**
-   * Move ONE region to a build, leaving every other region where it was, §3.
-   *
-   * The only way to make two regions disagree, which is the state a promote has
-   * to refuse. What it creates is put back by `restoreRegionParity` after the
-   * scenario: a channel left with its regions apart would refuse every promote
-   * that followed, including the ones belonging to other scenarios.
-   */
   async moveRegionAlone(channel: Channel, name: string, region: string): Promise<Run> {
     if (this.mode !== "live") {
       throw new Error("moveRegionAlone is @live only; the stub store models one region");
@@ -542,23 +376,12 @@ export class PointerWorld {
       "--shell", ids.shell,
       ...APPS.flatMap((a) => ["--app", `${a}=${ids[a]}`]),
     ]);
-    // Recorded only when the region actually moved. A restore that runs after a
-    // refusal reports a difference nobody created, which is a false alarm in
-    // the one place this suite must be believed.
     if (result.code === 0) this.regionMoved = { channel, region };
     return result;
   }
 
-  /** Set when a scenario moved one region alone, so the After can put it back. */
   private regionMoved: { channel: Channel; region: string } | null = null;
 
-  /**
-   * Put a region a scenario moved alone back beside the others.
-   *
-   * Loud on failure, unlike the real-channel guard, and for the opposite
-   * reason: this drift is the suite's own doing, and leaving it would refuse
-   * every promote in every scenario that runs after it.
-   */
   async restoreRegionParity(): Promise<void> {
     const moved = this.regionMoved;
     this.regionMoved = null;
@@ -586,12 +409,6 @@ export class PointerWorld {
     }
   }
 
-  /**
-   * Promote ONE unit, leaving the rest of the channel's composition alone.
-   *
-   * This is the operation the whole feature exists for, so the suite runs the
-   * real script with one flag rather than composing the result itself.
-   */
   async promoteUnit(channel: Channel, unit: Unit, id: string): Promise<Run> {
     const flag = unit === "shell" ? ["--shell", id] : ["--app", `${unit}=${id}`];
     if (this.mode === "local") {
@@ -602,18 +419,10 @@ export class PointerWorld {
     ]);
   }
 
-  /** What the channel's pointer names right now, straight from the store. */
   async compositionOf(channel: Channel): Promise<Partial<Record<Unit, string>>> {
     return this.compositionInRegion(channel, REGION);
   }
 
-  /**
-   * The same reading, in a region named by the scenario, §3.
-   *
-   * `compositionOf` reads the one region the suite runs against. A promote
-   * writes every region, and the only way to see that is to ask for another by
-   * name.
-   */
   async compositionInRegion(
     channel: Channel,
     region: string,
@@ -633,38 +442,21 @@ export class PointerWorld {
     };
   }
 
-  /** Setup helper: make the channel point at the build, however that is done. */
   async pointAt(channel: Channel, name: string, markers: Partial<Record<Unit, string>> = {}): Promise<void> {
     await this.publish(name, markers);
     const result = await this.promote(channel, name);
     if (result.code !== 0) throw new Error(`could not point ${channel} at ${name}:\n${result.stderr}`);
-    // EVERY unit, not just the shell. Two compositions can share a shell and
-    // differ in one app, so waiting on the shell id alone returns immediately
-    // while the app a scenario is about is still the previous one. That is not
-    // hypothetical: it is what made two scenarios fail the first time this ran.
     if (this.mode === "live") {
       await this.awaitComposition(channel, this.idsOf(name), PROPAGATION_WINDOW_MS + 15_000);
     }
   }
 
-  // -- writing a pointer directly ---------------------------------------------
-
-  /** What the channel's pointer held before a scenario overwrote it. */
   private pointerBefore: { key: string; text: string } | null = null;
 
-  /** The object key of a channel's pointer. Never a real channel's. */
   pointerKey(channel: Channel): string {
     return `manifests/${REGION}/${this.targetChannel(channel)}.json`;
   }
 
-  /**
-   * Point a channel at a document promote.ts cannot write.
-   *
-   * promote.ts composes schema 3 and nothing else, so a scenario about an
-   * older schema has to write the pointer itself. It shares the tripwire:
-   * only a test-* channel, checked here as well as there, because writing a
-   * pointer IS the deploy however it is done.
-   */
   async pointChannelAtDocument(channel: Channel, doc: unknown): Promise<void> {
     const cfg = configFromEnv();
     const key = this.pointerKey(channel);
@@ -676,33 +468,12 @@ export class PointerWorld {
     await this.writePointer(cfg, key, `${JSON.stringify(doc, null, 2)}\n`);
   }
 
-  /** What the channel's history held before a scenario added to it. */
   private historyBefore: { key: string; text: string } | null = null;
 
-  /** The object key of a channel's history. Never a real channel's. */
   historyKey(channel: Channel): string {
     return `manifests/${REGION}/${this.targetChannel(channel)}.history.json`;
   }
 
-  /**
-   * Put an entry in a channel's history that no promote could have written.
-   *
-   * For the one option a live run cannot otherwise produce: a unit the channel
-   * HAS served that can no longer be composed with the rest. Reaching that by
-   * promoting needs two retained contracts and a shell that moved between them,
-   * and the registry holds one. So the document is written directly, the same
-   * way the schema 2 rollback scenarios write a pointer, and put back after.
-   */
-  /**
-   * Adds one id to a channel's history, copying the served entry's shape.
-   *
-   * `contracts` and `surface` are OVERRIDES: leave one out and the served
-   * entry's own is copied, and pass `surface: null` for a unit that records
-   * none at all. Both matter, and two scenarios got it wrong on 2026-08-29 - a
-   * fixture given `contracts: ["0000000"]` to test the BLOCK gate was refused
-   * by the contract rule instead, and one testing the CONTRACT fallback
-   * inherited a member reading that let the member gate allow it.
-   */
   async recordInHistory(
     channel: Channel,
     unit: Unit,
@@ -746,7 +517,6 @@ export class PointerWorld {
     await this.writePointer(cfg, key, `${JSON.stringify(doc, null, 2)}\n`);
   }
 
-  /** Put back exactly the history bytes that were there. Loud on failure. */
   async restoreHistory(): Promise<void> {
     const saved = this.historyBefore;
     if (!saved) return;
@@ -754,12 +524,6 @@ export class PointerWorld {
     await this.writePointer(configFromEnv(), saved.key, saved.text);
   }
 
-  /**
-   * Put back exactly the bytes that were there.
-   *
-   * Loud on failure on purpose. A restore that swallowed its error would leave
-   * the channel pointing at a fixture and report a green run.
-   */
   async restorePointer(): Promise<void> {
     const saved = this.pointerBefore;
     if (!saved) return;
@@ -778,26 +542,18 @@ export class PointerWorld {
     });
   }
 
-  // -- requests -------------------------------------------------------------
-
-  /** The address to connect to. Both live channels share one. */
   originFor(channel: Channel): string {
     if (this.mode === "local") return `http://127.0.0.1:${this.serverPort}`;
-    // A server this process started against the real store. The channel is
-    // selected by the *.localhost name, which a browser CAN send - a Host
-    // header is the thing it cannot.
     if (this.localServer) return `http://${this.storeChannel(channel)}.localhost:${this.serverPort}`;
     return LIVE_ADDRESS;
   }
 
-  /** The Host to send. This is what selects the channel. */
   hostFor(channel: Channel): string {
     if (this.mode === "local") return `${channel}.localhost`;
     if (this.localServer) return `${this.storeChannel(channel)}.localhost`;
     return LIVE_HOSTS[channel];
   }
 
-  /** True when the Host differs from the address, so fetch cannot be used. */
   private needsCurl(channel: Channel): boolean {
     if (this.localServer) return false;
     return this.mode === "live" && this.hostFor(channel) !== new URL(LIVE_ADDRESS).host;
@@ -812,10 +568,6 @@ export class PointerWorld {
     const url = `${this.originFor(channel)}${path}`;
     const started = Bun.nanoseconds();
 
-    // Over TLS, Bun derives SNI from the Host header, so a Host that differs
-    // from the address breaks certificate verification. curl keeps the two
-    // apart, which is what a request carrying another Host looks like on the
-    // wire.
     const res = this.needsCurl(channel)
       ? await curlGet(url, host, headers)
       : await fetch(url, { headers: { host, ...headers }, redirect: "manual" });
@@ -826,20 +578,9 @@ export class PointerWorld {
     return res;
   }
 
-  /**
-   * What the origin says it has handed out, §12.
-   *
-   * Through `visit`, so the reading is fetched exactly the way a visitor's
-   * request reaches the same process - live, that is a Host the address does
-   * not match, and therefore curl rather than fetch.
-   */
   async readServed(channel: Channel): Promise<ServedReading> {
     const res = await this.visit(channel, "/compositions");
     const type = res.headers.get("content-type") ?? "none";
-    // The content type as well as the status. A server that does not know this
-    // path renders the SHELL for it, so an image published before the reading
-    // existed answers 200 text/html - and without this the failure is a JSON
-    // parse error two lines further on, which names nothing.
     if (res.status !== 200 || !type.includes("application/json")) {
       throw new Error(
         `GET /compositions answered ${res.status} ${type}, which is not a reading. ` +
@@ -850,14 +591,6 @@ export class PointerWorld {
     return this.lastServed;
   }
 
-  /**
-   * Sends a Host the server does not know, to the address it really listens on.
-   *
-   * Over TLS this cannot go through fetch: Bun derives SNI from the Host
-   * header, so spoofing one breaks certificate verification. curl keeps the
-   * two separate, which is what a request carrying an unexpected Host actually
-   * looks like on the wire.
-   */
   async visitUnknownOrigin(path = "/"): Promise<Response> {
     const url = `${this.originFor("qa")}${path}`;
     const host = "not-configured.example.com";
@@ -872,18 +605,6 @@ export class PointerWorld {
     return res;
   }
 
-  /**
-   * What the store's pointer says, for a message about the origin lagging it.
-   *
-   * A timeout on the origin has two readings and the message could not tell
-   * them apart: the promote wrote the composition and the origin is still
-   * serving an older one, or the pointer itself never moved. This reads the
-   * pointer at the moment of the failure and says which.
-   *
-   * It answers rather than throws. A diagnosis that fails is still a timeout,
-   * and losing the original message to a second fault would be worse than
-   * reporting the timeout with nothing beside it.
-   */
   async pointerNow(channel: Channel): Promise<string> {
     try {
       const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${this.storeChannel(channel)}.json`;
@@ -908,14 +629,6 @@ export class PointerWorld {
     }
   }
 
-  /**
-   * What the origin said about the manifest it rendered the last page from.
-   *
-   * The other half of the diagnosis. `pointerNow` says what the store holds;
-   * this says whether the origin has read it. An age below the server's TTL
-   * with the wrong composition in it means the store answered with the old
-   * one; an age far above the TTL means the origin stopped refreshing.
-   */
   originSays(): string {
     const age = this.lastResponse?.headers.get("x-manifest-age");
     if (age === null || age === undefined) {
@@ -925,7 +638,6 @@ export class PointerWorld {
     return `the origin rendered from a manifest ${age} ms old, last refresh ${refresh}`;
   }
 
-  /** Poll until the channel serves this exact composition, or time out. */
   async awaitComposition(channel: Channel, want: UnitIds, budgetMs: number): Promise<number> {
     const started = Date.now();
     let seen: Partial<Record<Unit, string>> = {};
@@ -945,7 +657,6 @@ export class PointerWorld {
     );
   }
 
-  /** Poll until the channel serves this unit id for this unit, or time out. */
   async awaitUnit(channel: Channel, unit: Unit, id: string, budgetMs: number): Promise<number> {
     const started = Date.now();
     let seen: string | undefined;
@@ -962,12 +673,10 @@ export class PointerWorld {
     );
   }
 
-  /** Poll until the channel serves the named build, or time out. */
   async awaitBuild(channel: Channel, name: string, budgetMs: number): Promise<number> {
     return this.awaitBuildId(channel, this.idOf(name), budgetMs);
   }
 
-  /** The same, for a build id no scenario name stands for. */
   async awaitBuildId(channel: Channel, want: string, budgetMs: number): Promise<number> {
     const started = Date.now();
     let seen: string | null = null;
@@ -984,13 +693,6 @@ export class PointerWorld {
     );
   }
 
-  /**
-   * Poll until the served shell carries this text, or time out.
-   *
-   * For a change no build id reports: rewriting one digest inside a pointer
-   * leaves every unit id where it was, so nothing above can tell the new
-   * manifest from the old one.
-   */
   async awaitShellContaining(channel: Channel, text: string, budgetMs: number): Promise<number> {
     const started = Date.now();
     while (Date.now() - started < budgetMs) {
@@ -1005,17 +707,6 @@ export class PointerWorld {
     );
   }
 
-  // -- browser ---------------------------------------------------------------
-
-  /**
-   * Take the runner's page, and attach what every browser scenario needs.
-   *
-   * Called by the @browser hook before any step runs. Both listeners have to be
-   * installed here rather than in a step: a request is issued and a content
-   * policy refusal is reported before any step could attach one, and the
-   * refusal of a shell's OWN script happens before the page has a script at
-   * all.
-   */
   async usePage(page: Page): Promise<void> {
     this.page = page;
     page.on("request", (r) => this.requests.push(r.url()));
@@ -1028,7 +719,6 @@ export class PointerWorld {
     });
   }
 
-  /** Every content policy refusal the page has reported so far. */
   async policyRefusals(): Promise<string[]> {
     return this.browserPage.evaluate(
       () => (globalThis as unknown as { __refusals?: string[] }).__refusals ?? [],
@@ -1040,20 +730,15 @@ export class PointerWorld {
     return this.page;
   }
 
-  /** Opens a view and waits until both of its sub-apps have rendered. */
   async openView(path: string, apps: string[]): Promise<void> {
     const page = this.browserPage;
     const url = `${this.originFor("qa")}${path}`;
     if (page.url() === "about:blank") await page.goto(url);
     else await page.click(`a[href="${path}"]`);
     for (const app of apps) {
-      // promote.ts warms every file the build names, so a cold edge is no
-      // longer something this has to wait out.
       await page.waitForSelector(`[data-app="${app}"] section`, { timeout: 20_000 });
     }
   }
-
-  // -- Fly ------------------------------------------------------------------
 
   async machineFingerprint(): Promise<string> {
     const r = await run(["fly", "machine", "list", "--json"]);

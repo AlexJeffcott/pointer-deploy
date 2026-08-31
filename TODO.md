@@ -12,6 +12,7 @@ The README carries the design, the traps and the conventions.
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
 | Contract | `e0160a6` |
+| Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/2d429c02/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Secrets | `.env.local`, gitignored |
 
@@ -21,6 +22,7 @@ The README carries the design, the traps and the conventions.
 bun run build && bun run publish
 bun run promote qa --from-build          # everything just built
 bun run promote qa --app alpha=<id>      # one sub-app. Same command rolls it back
+bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
 ```
 
@@ -396,6 +398,50 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **One record of every published unit.** §25, done on 2026-08-31. Every publish
+  has always written `units/<name>/<id>/unit.json`, so the store held the whole
+  list and nothing could read it: a browser cannot LIST a bucket, and a script
+  that can answers one key at a time. `publish` now also writes
+  `units/catalogue.json`, `bun run units` prints it, and `GET /units` serves it
+  to the page.
+
+  **It is derived, not authored.** Rebuilt from the store's own LIST rather than
+  appended to, so a write lost to a crash or to two publishers at once heals on
+  the next publish. Only what moved is re-read: the LIST reports when each
+  `unit.json` was last written, and `publish` rewrites one in place whenever the
+  claims beside a bundle change, which is exactly what the compatibility gate
+  reads. Measured against the live store: 129 units read in 3.8 s, and a rebuild
+  that finds nothing changed takes 1.4 s and reads none of them.
+
+  **It is a `ChannelHistory`.** The same shape a channel's version history has,
+  because a catalogue is a history whose scope is the store rather than one
+  channel. `refuseComposition`, `compose` and `optionsFor` read it unchanged, so
+  the switcher gained every published build without one new rule about how a
+  composition is judged. `mergeKnown` merges the two and is where a marked build
+  is kept off a real channel — the rule `promote` applies at deploy time,
+  applied again where a visitor chooses.
+
+  **What it changed for an operator.** The switcher's options came from the
+  channel's history alone, 20 promotes deep, holding nothing that was never
+  promoted — so the one thing it was for, looking at a build before deploying
+  it, was the one thing it could not do. Measured on 2026-08-31: qa's history
+  offered 2 shell builds and the catalogue took that to 7, two of them shown
+  disabled by the member gate. The refusal an operator reads changed with it,
+  from "is not one this channel has served" to "is not one this channel can
+  serve", because the first stopped being the rule.
+
+  **Seen red.** Four scenarios in `finding-a-build-to-promote.feature` and one
+  in `choosing-a-version.feature`, and three mutations in `falsify.ts` that each
+  turn one of them red. Two of the five were green under their own mutation
+  first: they used the suite's fixed-marker unit, whose id is the same every run
+  and was therefore already in the catalogue and already in a channel's history.
+  A per-run marker fixed both. That is the trap `CLAUDE.md` names, caught here
+  by running the mutation rather than by reading the scenario.
+
+  **Repaired while in there.** One mutation in `falsify.ts` had a `find` string
+  that no longer matched `optionsFor` — it could not apply, so the scenario it
+  claimed to falsify had nothing behind it. Repaired and seen red.
 
 - **A second region, and each machine reads its own.** Was §3, done on
   2026-08-30. `fly scale count 1 --region iad` created machine

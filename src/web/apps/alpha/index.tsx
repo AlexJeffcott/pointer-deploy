@@ -1,12 +1,3 @@
-// A self-contained sub-app. Its own bundle, its own stylesheet, loaded from the
-// object store when its view first appears.
-//
-// It imports NOTHING from the shell at runtime. The store arrives as a prop, so
-// the only shell import is a type, and a type-only import is erased before the
-// bundle exists. Preact's JSX runtime is the one bare specifier left, resolved
-// by the import map to the shell's copy - which is still what keeps one Preact
-// and one signals runtime on the page.
-
 import { useLayoutEffect, useState } from "preact/hooks";
 import type { SubAppProps } from "@pointer/subapp";
 import styles from "./app.module.css";
@@ -16,14 +7,9 @@ const NS = "alpha";
 export default function Alpha({ store }: SubAppProps) {
   const who = store.user();
   const [boom, setBoom] = useState(false);
-  // Layout, not plain effect: registration must land BEFORE paint, or a panel
-  // that lists every namespace draws one short for a frame - which is what a
-  // visitor would see and what the totals scenario caught.
   useLayoutEffect(() => {
     store.register(NS);
   }, [store]);
-  // Thrown during render, so the loader's boundary catches it. A throw from
-  // inside the click handler would reach no boundary at all.
   if (boom) throw new Error(`${NS} was asked to throw`);
 
   return (

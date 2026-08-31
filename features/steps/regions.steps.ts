@@ -1,10 +1,3 @@
-// §3, the second region. What a promote writes, and what it refuses to write.
-//
-// Every step here reads the store rather than an origin. A pointer in a region
-// with no machine in it is still the whole of what a machine there would serve,
-// and the reading is available the moment the promote returns - which is what
-// lets these run before the second machine exists as well as after.
-
 import { Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { REGIONS } from "../../scripts/regions.ts";
@@ -32,14 +25,6 @@ Then(
 Then(
   "every region holds the composition this promote wrote on the {word} channel",
   async function (this: PointerWorld, channel: string) {
-    // The ids alone cannot say this promote wrote both regions: they match just
-    // as well when one region was already there from an earlier run. The whole
-    // document can - `composedAt` moves on every promote - so identical bytes
-    // in every region mean one promote wrote all of them.
-    //
-    // Read with a window rather than once. A pointer is read milliseconds after
-    // it is written, and the store is not required to answer with the new bytes
-    // that fast.
     const deadline = Date.now() + 15_000;
     let texts: Array<string | null> = [];
     for (;;) {
@@ -82,8 +67,6 @@ Then(
   },
 );
 
-// -- the machines themselves ------------------------------------------------
-
 When(
   "a visitor loads the {word} origin through the {string} region",
   async function (this: PointerWorld, channel: string, flyRegion: string) {
@@ -95,10 +78,6 @@ When(
 Then(
   "that machine says it served the {string} region",
   function (this: PointerWorld, region: string) {
-    // What the machine read, not what it served. Both regions hold the same
-    // composition, so the units on the page cannot tell one machine from the
-    // other; the region a response was counted under names the POINTER the
-    // machine that answered was reading.
     expect(this.regionsSeen, `reached through ${this.routedTo}`).toEqual([region]);
   },
 );

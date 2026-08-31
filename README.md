@@ -140,6 +140,7 @@ bun run promote qa --app alpha=9b855c4b       # the deploy
 bun run promote qa --app alpha=36226fb9       # the rollback. Same command
 bun run promote qa --shell 43ca0019           # the shell alone
 bun run promote qa --from-build               # everything just built
+bun run units                                 # which ids there are to name
 ```
 
 `fly deploy` is not in that list, and `deploying-by-pointer.feature` asserts it:
@@ -863,6 +864,36 @@ was built with, and the intersection stays non-empty.
 
 That last row used to read *refused, correctly*, and it was neither. See
 **Compatible, not identical**.
+
+## One record of every published unit
+
+Every publish writes `units/<name>/<id>/unit.json`, so the store has always held the whole list. Nothing could read it: a browser cannot LIST a bucket, and a script that can would still be answering the question one key at a time. So `publish` also writes `units/catalogue.json` - every published unit, grouped by name, newest publish first.
+
+```sh
+bun run units                 # every unit an operator may deploy
+bun run units alpha           # one unit
+bun run units --all           # and the builds the harness made
+bun run units --rebuild       # read the store again and write the file
+bun run units --json          # the catalogue itself, for a script
+```
+
+```
+shell    2738edb9  2026-08-29  f4155335+dirty  11 members provided
+alpha    e34063ba  2026-08-28  2c08a50a        6 members used
+alpha    a3bba92a  2026-08-28  b2c81542        e0160a6
+```
+
+**It is derived, and rebuilt rather than appended to.** `publish` reads the store's own LIST and writes the file from scratch, so a write lost to a crash or to two publishers at once heals on the next publish. An appended file would carry that loss forever, and a file that can silently disagree with the store is what this exists to replace. Nothing here is the only record of anything: every entry restates what one `unit.json` already says.
+
+**A rebuild re-reads only what moved.** The LIST reports when each `unit.json` was last written, and an entry is kept from the previous catalogue only while that timestamp is unchanged. It has to be the timestamp and not the id: `publish` rewrites a `unit.json` in place when the claims beside a bundle change - its contracts, its members, its digests - and those are exactly what the compatibility gate reads. Measured against the live store on 2026-08-31: a full read of 129 units takes 3.8 s, and a rebuild that finds nothing changed takes 1.4 s and reads none of them.
+
+**The catalogue is a `ChannelHistory`.** Not a shape of its own - the same shape a channel's version history has, because a catalogue *is* a history whose scope is the store rather than one channel. `refuseComposition`, `compose` and `optionsFor` therefore read it without knowing which of the two they were handed, and the switcher gained every published build without one new rule about how a composition is judged.
+
+**Which of them a channel may serve is a different question.** The catalogue lists every published unit, marker and all: 112 of the 129 units in the live store on 2026-08-31 were the harness's, and a record that leaves out 87% of what was published is not the record of what was published. `mergeKnown` answers the other half, where the channel is known - a marked unit reaches a `test-*` channel and no other, which is the rule `promote` applies at deploy time applied again where a visitor chooses. `bun run units` hides them for the same reason and by a different mechanism.
+
+**What this changed for the switcher.** Its options used to come from the channel's history alone, which is 20 promotes deep and holds nothing that was never promoted. So the one thing an operator wanted of it - look at a build *before* deploying it - was the one thing it could not do. Measured against the live store on 2026-08-31: the qa channel's history offered 2 shell builds, and the catalogue took that to 7, of which 2 are shown disabled because the member gate refuses them.
+
+**The page reads it from the origin, not the store.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history, and the policy gained `connect-src 'self'` and nothing else. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
 
 ## Which compositions are being handed out
 

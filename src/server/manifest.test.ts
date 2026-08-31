@@ -7,7 +7,6 @@ import {
   type Manifest,
 } from "./manifest.ts";
 
-/** The id a manifest is known by, whichever schema it is. */
 const idOf = (m: Manifest | null | undefined): string | undefined =>
   m ? (m.schema === 3 ? m.shell.unitId : m.buildId) : undefined;
 
@@ -20,7 +19,6 @@ const base = (buildId: string) => ({
   assetBase: `https://store.test/builds/${buildId}/`,
 });
 
-/** A build from before the shell split. Still a valid rollback target. */
 const v1 = (buildId: string) => ({
   ...base(buildId),
   schema: 1,
@@ -35,7 +33,6 @@ const doc = (buildId: string) => ({
   apps: { alpha: { js: "apps/alpha-eeee.js", css: "apps/alpha-ffff.css" } },
 });
 
-/** A composition. Each unit carries its own base, which is the whole point. */
 const unit = (name: string, id: string, extra: Record<string, unknown> = {}) => ({
   unitId: id,
   commit: `${id}${"0".repeat(40)}`.slice(0, 40),
@@ -58,26 +55,9 @@ const composed = (shellId: string, alphaId = "a1") => ({
   apps: { alpha: unit("alpha", alphaId) },
 });
 
-/** A copy a test may delete fields from. The fixtures above are typed shapes. */
 const loosen = (value: unknown): Record<string, unknown> =>
   value as Record<string, unknown>;
 
-/**
- * The parser's own rejection, naming the field an operator has to fix.
- *
- * Two things are pinned, and both earn their place. The `manifest field`
- * prefix says the parser rejected the document itself: a guard that stops
- * firing still throws a line later, from a property read on null, and a bare
- * `toThrow()` passes on that TypeError while the manifest it was meant to
- * reject goes unexamined.
- *
- * The TRAILING SPACE pins how deep the failure is. `manifest field apps.alpha `
- * does not match a message about `apps.alpha.js`, so a guard that lets a
- * malformed app through and fails one field further in is a failure here.
- *
- * Nothing else about the wording is asserted, because nothing else is
- * behaviour. The field path is what an operator acts on.
- */
 const rejects = (input: unknown, field: string) => {
   const path = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   expect(() => parseManifest(input)).toThrow(new RegExp(`^manifest field ${path} `));
@@ -124,8 +104,6 @@ describe("caching", () => {
     expect(h.state.calls).toBe(1);
   });
 
-  // The boundary itself. A TTL of 10s that still counts 10s as fresh is a TTL
-  // of 10s plus one request, and nothing above this line can tell the two apart.
   test("a read exactly at the TTL refreshes", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -140,7 +118,6 @@ describe("caching", () => {
     h.state.respond = async () => Response.json(doc("beta"));
     h.tick(11_000);
 
-    // Rule 2: the visitor gets the previous build immediately.
     expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(2);
 
@@ -149,12 +126,6 @@ describe("caching", () => {
     expect(h.state.calls).toBe(2);
   });
 
-  // Rule 9. A wall clock moves backwards - an NTP correction does it, and so
-  // does a machine resumed from a snapshot with its clock behind the world's.
-  // `now() - checkedAt` is then negative, which is smaller than any TTL, so an
-  // unguarded check reads the entry as fresh and never refreshes it again. The
-  // origin then serves a composition nobody promoted for as long as the skew
-  // lasts, with no failed request and no warning to show for it.
   test("a clock that has moved backwards refreshes rather than reading as fresh", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -162,15 +133,12 @@ describe("caching", () => {
 
     h.tick(-60_000);
 
-    // Rule 2 still holds: the visitor gets the previous build immediately.
     expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(2);
     await settle();
     expect(idOf(await h.store.get(URL_QA))).toBe("beta");
   });
 
-  // The skew is not permanent damage: one refresh stamps the entry with this
-  // clock, and the entry is comparable again from there.
   test("an entry stamped by the moved clock is fresh again", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -184,8 +152,6 @@ describe("caching", () => {
     expect(h.state.calls).toBe(2);
   });
 
-  // peek is the read for a document the page is better off WITHOUT than delayed
-  // for. Rule 3 does not apply to it, and every other rule does.
   test("a cold peek answers with nothing and does not wait", async () => {
     const h = harness();
     expect(h.store.peek(URL_QA)).toBeNull();
@@ -236,8 +202,6 @@ describe("caching", () => {
     expect(h.state.calls).toBe(1);
   });
 
-  // Rule 9 again. A peek that trusted a clock which moved backwards would stop
-  // refreshing exactly the way `get` would.
   test("a peek after the clock moved backwards refreshes", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -246,7 +210,6 @@ describe("caching", () => {
     expect(h.state.calls).toBe(2);
   });
 
-  // Rule 5 through the other door: a failed refresh must not empty it.
   test("a peek keeps the last good value when the refresh fails", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -269,16 +232,7 @@ describe("caching", () => {
   });
 });
 
-// Every test above names ttlMs and timeoutMs, so none of them runs the numbers
-// a server started with no configuration actually uses.
 describe("defaults", () => {
-  /**
-   * A store with the timing options left out.
-   *
-   * The environment is cleared and put back for the same reason the options
-   * are omitted: MANIFEST_TTL_MS set on one machine would otherwise decide
-   * what these two tests measure.
-   */
   function unconfigured() {
     const saved = {
       ttl: Bun.env.MANIFEST_TTL_MS,
@@ -322,8 +276,6 @@ describe("defaults", () => {
     }
   });
 
-  // A default timeout that is not a number aborts the request before it is
-  // sent, and every cold read answers 503 with the store sitting there healthy.
   test("a cold read with the default timeout returns the manifest", async () => {
     const h = unconfigured();
     try {
@@ -373,10 +325,6 @@ describe("failure", () => {
     expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
   });
 
-  // The body is a valid manifest on purpose. Against a 500 whose body cannot
-  // parse, a status check that stopped firing is invisible: the refresh fails
-  // on the body instead, the last good build survives, and the test above
-  // passes over a check that is no longer there.
   test("a non-2xx response is rejected even when its body is a manifest", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -397,8 +345,6 @@ describe("failure", () => {
     expect(await h.store.get(URL_QA)).toBeNull();
   });
 
-  // onWarn is the only reading a running server gives of a store it cannot
-  // reach, because rule 5 makes the failure invisible in what it serves.
   test("a failed refresh reports through onWarn", async () => {
     const warnings: string[] = [];
     const store = createManifestStore({
@@ -413,22 +359,15 @@ describe("failure", () => {
 
     expect(await store.get(URL_QA)).toBeNull();
     expect(warnings).toHaveLength(1);
-    // The default kind. A store told nothing about the document it holds says
-    // manifest, which is what every log line before this option said.
     expect(warnings[0]).toStartWith("[manifest] ");
   });
 
-  // Rule 3. A store that accepts the connection and then says nothing is the
-  // case a rejecting fetch cannot reach: without the deadline on the request,
-  // the cold read never returns and the visitor waits with it.
   test("a cold read gives up at the timeout", async () => {
     const store = createManifestStore({
       ttlMs: 10_000,
       timeoutMs: 20,
       now: () => 1_000_000,
       onWarn: () => {},
-      // Settles only when the request is aborted. With no deadline on it this
-      // never settles, and the test fails on its own clock rather than passing.
       fetchImpl: ((_url: string, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
@@ -436,13 +375,9 @@ describe("failure", () => {
     });
 
     expect(await store.get(URL_QA)).toBeNull();
-    // Ended by its OWN abort, and not by rule 11's backstop. Without this the
-    // signal can be dropped from the request and nothing notices: the deadline
-    // catches the hang one timeout later and the read still answers null.
     expect(store.stateOf(URL_QA).lastError).toBe("aborted");
   });
 
-  // Rule 6. Without this a dead store is hit once per request.
   test("a dead store is retried on the TTL, not on every read", async () => {
     const h = harness();
     h.state.respond = async () => {
@@ -460,22 +395,7 @@ describe("failure", () => {
   });
 });
 
-// Rule 11. `AbortSignal.timeout` is the only thing that ends a slow request,
-// and a fetch that does not honour it leaves the refresh promise pending for
-// as long as the process lives. Nothing failed, so `lastError` stays null and
-// `checkedAt` never advances: every later request finds `e.inflight` set,
-// takes the stale path and returns at once. The origin then serves a
-// superseded composition and reports its last refresh ok, which is the state a
-// live origin was read in on 2026-08-28 - 27464 ms behind its channel against
-// a 10 s TTL, with `lastError` null.
 describe("a refresh that never settles", () => {
-  /**
-   * A store whose fetch answers neither the request nor its own abort while
-   * `hang` is set.
-   *
-   * The clock stays fake, because the TTL is measured on it. The deadline is
-   * measured on the REAL one, so every wait below is a real sleep.
-   */
   function stuck(timeoutMs = 20) {
     const state = { clock: 1_000_000, calls: 0, hang: false, id: "alpha" };
     const store = createManifestStore({
@@ -492,9 +412,6 @@ describe("a refresh that never settles", () => {
     return { store, state, tick: (ms: number) => (state.clock += ms) };
   }
 
-  // The fault itself, in the one form that is observable: how many times the
-  // store goes to the network. Without the deadline the third read makes no
-  // request at all and the entry keeps serving alpha for ever.
   test("the entry is refreshed again once the deadline has passed", async () => {
     const h = stuck();
     expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
@@ -502,23 +419,20 @@ describe("a refresh that never settles", () => {
 
     h.state.hang = true;
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha"); // Rule 2.
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(2);
 
-    await Bun.sleep(60); // Past 2 x timeoutMs, on the clock the deadline uses.
+    await Bun.sleep(60);
 
     h.state.hang = false;
     h.state.id = "bravo";
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha"); // Still rule 2.
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
     expect(h.state.calls).toBe(3);
     await settle();
     expect(idOf(await h.store.get(URL_QA))).toBe("bravo");
   });
 
-  // Rule 10, on the entry this rule exists for. An operator reading the
-  // response gets the mechanism named rather than a green refresh beside a
-  // wrong page.
   test("the abandoned refresh is named, and the age goes on growing", async () => {
     const h = stuck();
     await h.store.get(URL_QA);
@@ -526,8 +440,6 @@ describe("a refresh that never settles", () => {
     h.state.hang = true;
     h.tick(11_000);
     await h.store.get(URL_QA);
-    // In flight. Nothing has failed yet, and reporting a failure here would
-    // name every slow refresh a broken one.
     expect(h.store.stateOf(URL_QA).lastError).toBeNull();
 
     await Bun.sleep(60);
@@ -536,9 +448,6 @@ describe("a refresh that never settles", () => {
     expect(state.ageMs).toBe(11_000);
   });
 
-  // Rule 3, for the fetch a rejecting one cannot stand in for. The race is
-  // what makes a regression FAIL here: without it the read never returns and
-  // the runner hangs on its own timeout with nothing named.
   test("a cold read gives up even when the abort is ignored", async () => {
     const h = stuck();
     h.state.hang = true;
@@ -550,19 +459,12 @@ describe("a refresh that never settles", () => {
   });
 });
 
-// What an operator reads off a response. The whole point is telling a manifest
-// that is one TTL behind from one that has stopped being refreshed, so every
-// test here is about a NUMBER rather than about the manifest beside it.
 describe("state", () => {
   test("a URL nothing has fetched has no age and no error", () => {
     const h = harness();
     expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: null, lastError: null });
   });
 
-  // An entry exists the moment a URL is asked for, and its fetchedAt is still
-  // zero. Measuring an age from zero would report the manifest as older than
-  // this machine, which reads as a stuck origin rather than as one that has
-  // never had a manifest at all.
   test("a URL whose only fetch failed has no age, and names the failure", async () => {
     const h = harness();
     h.state.respond = async () => {
@@ -585,9 +487,6 @@ describe("state", () => {
     expect(h.store.stateOf(URL_QA).ageMs).toBe(7_000);
   });
 
-  // The reading that separates "behind" from "stopped". A failed refresh
-  // advances the retry clock (rule 6) and must NOT advance the age, or an
-  // origin serving a manifest it can no longer refresh reports it as new.
   test("a failed refresh names its error and leaves the age growing", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -601,9 +500,6 @@ describe("state", () => {
     expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: 11_000, lastError: "the store is gone" });
   });
 
-  // The cache is generic over the document it parses, and the server runs two:
-  // a channel's manifest and the history of what that channel has served. The
-  // label is what tells the two apart in a log.
   test("a failed refresh names the kind of document in the log", async () => {
     const said: string[] = [];
     const store = createDocumentStore(parseManifest, {
@@ -637,8 +533,6 @@ describe("state", () => {
     expect(h.store.stateOf(URL_QA)).toEqual({ ageMs: 0, lastError: null });
   });
 
-  // Not clamped. A negative age is the state in which a TTL over a wall clock
-  // stops expiring, and an operator who cannot read it cannot diagnose it.
   test("a clock behind the one that stamped the entry reports a negative age", async () => {
     const h = harness();
     await h.store.get(URL_QA);
@@ -657,8 +551,6 @@ describe("parseManifest", () => {
     expect(m.imports["@pointer/shell"]).toBe("api-dddd.js");
   });
 
-  // A build published before the shell split must stay a working rollback
-  // target rather than becoming a 503.
   test("still accepts a single-bundle manifest", () => {
     const m = parseManifest(v1("old"));
     expect(m.schema).toBe(1);
@@ -678,9 +570,6 @@ describe("parseManifest", () => {
     rejects({ ...v1("a"), entry: { js: "x.js" } }, "entry.css");
   });
 
-  // No entry object at all, rather than an entry missing one file. A manifest
-  // this old is still a rollback target, so it has to be REJECTED and not
-  // crashed on.
   test("rejects a single-bundle manifest with no entry at all", () => {
     const d = loosen(v1("a"));
     delete d.entry;
@@ -695,11 +584,6 @@ describe("parseManifest", () => {
     rejects({ ...doc("a"), imports: { preact: 42 } }, "imports.preact");
   });
 
-  // null and a truthy non-object are the two wrong shapes a JSON document can
-  // hold here, and they catch different failures. null gets past a guard whose
-  // two halves are joined by the wrong operator; a string gets past one that
-  // stopped checking the type, and then parses into an import map of single
-  // letters with nothing else objecting.
   test("rejects a manifest whose imports is not an object", () => {
     rejects({ ...doc("a"), imports: null }, "imports");
     rejects({ ...doc("a"), imports: "preact-cccc.js" }, "imports");
@@ -723,8 +607,6 @@ describe("parseManifest", () => {
     rejects({ ...doc("a"), apps: { alpha: { js: "a.js", css: 42 } } }, "apps.alpha.css");
   });
 
-  // The stylesheet is the one optional file in schema 2, so both readings have
-  // to hold: a named one survives parsing, and an app without one still parses.
   test("keeps an app's stylesheet, and accepts an app without one", () => {
     const kept = parseManifest(doc("a"));
     if (kept.schema !== 2) throw new Error("unreachable");
@@ -767,23 +649,15 @@ describe("parseManifest", () => {
     rejects({ ...doc("a"), publishedAt: 42 }, "publishedAt");
   });
 
-  // "" is a name no file has, and an empty base resolves every script on the
-  // page against the server's own origin instead of the store.
   test("rejects an empty string where a name belongs", () => {
     rejects({ ...doc("a"), assetBase: "" }, "assetBase");
   });
 
   test("rejects a non-object", () => {
-    // Anchored on the whole message. A guard that stops firing still throws,
-    // one line later and from a property read, and a bare toThrow() passes on
-    // that TypeError while the document goes unexamined.
     expect(() => parseManifest(null)).toThrow(/^manifest is not an object$/);
     expect(() => parseManifest("{}")).toThrow(/^manifest is not an object$/);
   });
 
-  // Schema 3. The units are composed from separate publishes, so the thing to
-  // check is that each one keeps its OWN base rather than borrowing a shared
-  // one - that is the single field the whole feature rests on.
   test("accepts a composition and keeps each unit's own base", () => {
     const m = parseManifest(composed("s1", "a9"));
     expect(m.schema).toBe(3);
@@ -803,9 +677,6 @@ describe("parseManifest", () => {
     expect(m.apps.alpha!.css).toBeNull();
   });
 
-  // A named stylesheet has to survive, and the field being ABSENT has to read
-  // the same as the explicit null next door. A unit published before the field
-  // existed carries neither.
   test("keeps a composed unit's stylesheet, and accepts one with no css field", () => {
     const kept = parseManifest(composed("s1"));
     if (kept.schema !== 3) throw new Error("unreachable");
@@ -827,13 +698,9 @@ describe("parseManifest", () => {
   test("rejects a composition whose shell carries no import map", () => {
     const doc3 = composed("s1");
     delete (doc3.shell as { imports?: unknown }).imports;
-    // Without it every sub-app's bare specifiers fail to resolve in the
-    // browser and the page renders empty, while the server stays green.
     rejects(doc3, "shell.imports");
   });
 
-  // An import map that exists and names nothing resolves exactly as many bare
-  // specifiers as no import map at all.
   test("rejects a composition whose shell import map is empty", () => {
     const doc3 = composed("s1");
     loosen(doc3.shell).imports = {};
@@ -887,9 +754,6 @@ describe("parseManifest", () => {
   test("rejects a composition whose shell is malformed", () => {
     const doc3 = composed("s1");
     delete loosen(doc3.shell).assetBase;
-    // Named as the shell, not as an app. The shell is parsed by the same
-    // function the apps are, and a message that mislabels which unit is wrong
-    // sends an operator to the wrong publish.
     rejects(doc3, "shell.assetBase");
   });
 
@@ -923,9 +787,6 @@ describe("parseManifest", () => {
     });
   });
 
-  // A unit published before digests were recorded carries none, and a
-  // composition naming one is what a rollback that far IS. Refusing it here
-  // would turn the oldest rollback into a 503.
   test("accepts a composed unit with no digests at all", () => {
     const m = parseManifest(composed("s1"));
     if (m.schema !== 3) throw new Error("unreachable");
@@ -948,8 +809,6 @@ describe("parseManifest", () => {
     rejects(stringy, "apps.alpha.integrity");
   });
 
-  // Both fields postdate the first compositions, so a unit without them still
-  // has to parse - and a unit carrying them has to keep what it carries.
   test("keeps a composed unit's commit and marker, and defaults each to empty", () => {
     const doc3 = composed("s1");
     loosen(doc3.apps.alpha).marker = "e2e";

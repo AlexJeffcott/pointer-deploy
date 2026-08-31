@@ -10,9 +10,6 @@ export default function Delta({ store }: SubAppProps) {
   const total = rows.reduce((n, [, v]) => n + v, 0);
   const peak = Math.max(1, ...rows.map(([, v]) => v));
   const [boom, setBoom] = useState(false);
-  // Layout, not plain effect: registration must land BEFORE paint, or a panel
-  // that lists every namespace draws one short for a frame - which is what a
-  // visitor would see and what the totals scenario caught.
   useLayoutEffect(() => {
     store.register(NS);
   }, [store]);
@@ -50,8 +47,6 @@ export default function Delta({ store }: SubAppProps) {
               />
             </span>
             <span data-count-for={ns}>{n}</span>
-            {/* Outside data-count-for, which is read as a bare number, and
-                after the track, whose child span is the bar being measured. */}
             <span class={styles.share} data-share-for={ns}>
               {total > 0 ? `${Math.round((n / total) * 100)}%` : "-"}
             </span>

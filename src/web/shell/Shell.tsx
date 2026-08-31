@@ -10,21 +10,12 @@ import styles from "./Shell.module.css";
 const apps: AppMap = readAppMap();
 const versions = readVersions();
 
-/** How one option reads. The id is the identity; the marker is for a person. */
 function optionLabel(o: VersionOption): string {
   const name = o.marker ? `${o.unitId} (${o.marker})` : o.unitId;
   if (o.disabled) return `${name} - no shared contract`;
   return o.live ? `${name} - live` : name;
 }
 
-/**
- * One unit's choices.
- *
- * An id that cannot be composed with the rest is DISABLED and not hidden.
- * Hiding it would say the build was never deployed to this channel, which is
- * false of every id in the list, and the opposite of what an operator is
- * looking for: the reason a rollback is refused is what they came to find out.
- */
 function UnitVersions({ unit, options }: { unit: string; options: VersionOption[] }) {
   const id = `version-${unit}`;
   return (
@@ -50,13 +41,6 @@ function UnitVersions({ unit, options }: { unit: string; options: VersionOption[
   );
 }
 
-/**
- * The switcher, or nothing.
- *
- * Nothing is the ordinary case. The server sends no options unless the channel
- * is named in VERSION_SWITCHER_CHANNELS, so a visitor to a channel without one
- * sees exactly the page they saw before this existed.
- */
 function Versions() {
   const units = Object.keys(versions);
   if (units.length === 0) return null;
@@ -91,18 +75,10 @@ function Tab({ path, label }: { path: string; label: string }) {
 export function Shell({ store }: { store: ShellStore }) {
   const view = VIEWS[route.value] ?? VIEWS[DEFAULT_ROUTE]!;
   const who = store.user();
-  // Throws during THIS render, not from the handler, so the boundary in
-  // index.tsx is what catches it. A throw inside an event handler never reaches
-  // a boundary at all, and a control that proved the wrong thing would be worse
-  // than none.
   const [boom, setBoom] = useState(false);
   if (boom) throw new Error("the shell was asked to throw");
 
   return (
-    // The shell is a unit like any other, so its marker has to reach the DOM
-    // too. Without this BUILD_MARKER_SHELL changes nothing the shell emits,
-    // its unit id does not move, and "deploy the shell alone" cannot be
-    // observed by anything.
     <div class={styles.frame} data-unit-marker={__UNIT_MARKER__}>
       <header class={styles.masthead}>
         <h1 class={styles.title}>pointer-deploy</h1>
@@ -127,8 +103,6 @@ export function Shell({ store }: { store: ShellStore }) {
         </div>
       </header>
 
-      {/* Drawn from the same table that places the apps, so a view added there
-          gets a tab without a second edit here. */}
       <nav class={styles.nav}>
         {Object.entries(VIEWS).map(([path, v]) => (
           <Tab key={path} path={path} label={v.title} />

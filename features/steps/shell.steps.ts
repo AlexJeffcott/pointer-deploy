@@ -1,6 +1,3 @@
-// Steps about what a visitor observes. All mechanics live here; the scenarios
-// stay declarative.
-
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import {
@@ -33,9 +30,6 @@ Given("the store has become slow to answer", function (this: PointerWorld) {
 });
 
 Given("a server that has not yet read any manifest", function (this: PointerWorld) {
-  // The Before hook started a fresh server for this scenario and nothing has
-  // visited it yet, so its cache is genuinely cold. Asserting that here keeps
-  // the precondition honest rather than assumed.
   expect(this.lastResponse).toBeNull();
 });
 
@@ -67,8 +61,6 @@ When("a visitor loads an origin that is not configured", async function (this: P
 
 const UNTRUSTWORTHY: Record<string, string> = {
   "a truncated document": '{"schema": 1, "buildId": ',
-  // Parses cleanly. Only validation stands between this and a shell with no
-  // script tag.
   "valid JSON that is not a manifest": JSON.stringify({ schema: 1, buildId: "beta" }),
 };
 
@@ -94,8 +86,6 @@ Then("the shell loads the script and the stylesheet of build {string}", function
   const id = this.idOf(name);
   expect(js).toBeTruthy();
   expect(css).toBeTruthy();
-  // Both must come from the shell unit's own directory in the store, never
-  // from this server: the claim is that the image holds no application files.
   expect(js).toContain(`/units/shell/${id}/`);
   expect(css).toContain(`/units/shell/${id}/`);
   expect(new URL(js!).origin).not.toBe(this.originFor("qa"));
@@ -128,7 +118,6 @@ Then("the server reports itself healthy", function (this: PointerWorld) {
   expect(this.lastBody.trim()).toBe("ok");
 });
 
-/** The two headers the server puts on every shell it renders. */
 const manifestAge = (world: PointerWorld): string =>
   world.lastResponse?.headers.get("x-manifest-age") ?? "absent";
 const lastRefresh = (world: PointerWorld): string =>
@@ -136,8 +125,6 @@ const lastRefresh = (world: PointerWorld): string =>
 
 Then("the shell reports the age of the manifest it was rendered from", function (this: PointerWorld) {
   const age = manifestAge(this);
-  // A number, not merely a header. "never" is the honest answer for a manifest
-  // nothing has fetched, and a shell rendered from one cannot exist.
   expect(`${age} is a number: ${/^-?\d+$/.test(age)}`).toBe(`${age} is a number: true`);
 });
 
@@ -149,8 +136,6 @@ Then(
   "the shell reports the manifest it was rendered from as older than the refresh interval",
   function (this: PointerWorld) {
     const age = Number(manifestAge(this));
-    // The server's TTL for a @local run. An age below it would mean the store
-    // answered and this scenario proved nothing about a refresh that failed.
     expect(`${age} ms >= ${LOCAL_TTL_MS} ms: ${age >= LOCAL_TTL_MS}`).toBe(
       `${age} ms >= ${LOCAL_TTL_MS} ms: true`,
     );
@@ -159,8 +144,6 @@ Then(
 
 Then("the shell names what its last refresh failed with", function (this: PointerWorld) {
   const said = lastRefresh(this);
-  // Whatever the fetch threw. Pinning the sentence would pin Bun's wording for
-  // a refused connection, which is not this project's behaviour to fix.
   expect(`${JSON.stringify(said)} is an error: ${said !== "ok" && said !== "absent" && said.length > 0}`).toBe(
     `${JSON.stringify(said)} is an error: true`,
   );
@@ -168,16 +151,11 @@ Then("the shell names what its last refresh failed with", function (this: Pointe
 
 Then("the shell is returned without waiting for the store", function (this: PointerWorld) {
   expect(this.lastResponse?.status).toBe(200);
-  // The store is answering in 1500 ms. Anything close to that means the
-  // request waited for it instead of serving the copy it already had.
   expect(this.elapsedMs).toBeLessThan(400);
 });
 
 Then("visitors to the {word} origin continue to receive build {string}", async function (this: PointerWorld, channel: string, name: string) {
   const want = this.idOf(name);
-  // Two observations across two refresh intervals. One could be the cached
-  // copy the previous step already had; two means the server really is holding
-  // this build rather than drifting to something else.
   for (let i = 0; i < 2; i++) {
     if (this.mode === "local") await pastTtl();
     else await Bun.sleep(PROPAGATION_WINDOW_MS / 2);
@@ -193,8 +171,6 @@ Then("visitors to the {word} origin receive build {string} within the propagatio
   console.log(`    propagation: ${took} ms of a ${budget} ms budget`);
 });
 
-// The claim is that ONE server answers both channels. A certificate list would
-// not show that; the machine count does.
 Then("both origins are served by one machine", async function (this: PointerWorld) {
   const list = await run(["fly", "machine", "list", "--json"]);
   expect(list.code).toBe(0);

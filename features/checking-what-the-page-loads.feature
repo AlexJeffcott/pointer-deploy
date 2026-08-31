@@ -3,30 +3,6 @@ Feature: Checking every file the page loads against the manifest
   I want the browser to refuse any file that is not the bytes that were published
   So that whoever can write a manifest cannot run their own code on this origin
 
-  # The hole this closes is the one the README names: whoever can write
-  # manifests/eu/prod.json can point the page at any file on the store, and the
-  # page would load it. Two mechanisms, and neither is sufficient alone:
-  #
-  #   a digest   the manifest names the bytes it expects for each file, and the
-  #              browser refuses the file when they differ.
-  #   a policy   nothing may be fetched from an origin the manifest does not
-  #              name, and no inline script may run but the import map.
-  #
-  # The digest is the answer to a swapped file. The policy is the answer to a
-  # manifest naming an origin of its author's choosing, which no digest can
-  # catch because whoever wrote the manifest wrote the digest beside it.
-  #
-  # Both mechanisms come from the SERVER: the policy is a response header, the
-  # digests are attributes it renders. An @live scenario runs against the
-  # DEPLOYED image, so these two were @local until the image carried this. They
-  # are @live as well now, which is what makes them a check on the deploy and
-  # not only on the source.
-  #
-  # The browser scenarios stay @test-channel, which runs the documented entry
-  # point here against the real store - the same compromise the schema 2
-  # scenarios make. A @browser scenario against the deployed image could not be
-  # falsified by an edit here, so it would prove nothing about its own quality.
-
   Background:
     Given the qa channel points at build "alpha"
 
@@ -42,10 +18,6 @@ Feature: Checking every file the page loads against the manifest
     Then the shell's own script and stylesheet carry the digests the manifest records
     And every sub-app the shell can import carries one too
 
-  # The claim the whole item exists for, and the only check that can make it:
-  # whether a browser REFUSES a file is not observable to anything that reads
-  # HTML. One digest in the pointer is replaced with a well-formed one that
-  # matches nothing, which is what a swapped file looks like from the page.
   @browser @test-channel
   Scenario Outline: A sub-app whose <file> does not match its digest does not run
     Given the digest recorded for the <file> of "alpha" is wrong
@@ -58,9 +30,6 @@ Feature: Checking every file the page loads against the manifest
       | script     |
       | stylesheet |
 
-  # The other half. A policy strict enough to be worth having is also strict
-  # enough to break the page, and the page breaking is silent: the shell paints
-  # its frame either way.
   @browser @test-channel
   Scenario: The page assembles from five bundles under its own policy
     When a visitor opens the counters view
