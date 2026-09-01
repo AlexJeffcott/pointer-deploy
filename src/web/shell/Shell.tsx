@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useLayoutEffect, useState } from "preact/hooks";
 import type { ShellStore } from "./api.ts";
 import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
@@ -82,14 +82,41 @@ function Tab({ path, label }: { path: string; label: string }) {
   );
 }
 
+/** The frame's own three fields from the service, §27. */
+function Motd({ store }: { store: ShellStore }) {
+  const message = store.motd();
+  if (message === null) return null;
+  return (
+    <p
+      class={message.level === "warn" ? `${styles.motd} ${styles.motdWarn}` : styles.motd}
+      data-motd={message.level}
+    >
+      {message.text} <span class={styles.motdUntil}>until {message.until}</span>
+    </p>
+  );
+}
+
 export function Shell({ store }: { store: ShellStore }) {
   const view = VIEWS[route.value] ?? VIEWS[DEFAULT_ROUTE]!;
   const who = store.user();
+  const compact = store.flags().compact;
   const [boom, setBoom] = useState(false);
+
+  // On the root element rather than in the tree: the palette is CSS custom
+  // properties, and the body has to see them too. Set in a layout effect so a
+  // page never paints one theme and then the other.
+  useLayoutEffect(() => {
+    document.documentElement.dataset.dark = String(who.theme.dark);
+  }, [who.theme.dark]);
+
   if (boom) throw new Error("the shell was asked to throw");
 
   return (
-    <div class={styles.frame} data-unit-marker={__UNIT_MARKER__}>
+    <div
+      class={compact ? `${styles.frame} ${styles.compact}` : styles.frame}
+      data-unit-marker={__UNIT_MARKER__}
+      data-compact={compact}
+    >
       <header class={styles.masthead}>
         <h1 class={styles.title}>pointer-deploy</h1>
         <div class={styles.identity}>
@@ -112,6 +139,8 @@ export function Shell({ store }: { store: ShellStore }) {
           </button>
         </div>
       </header>
+
+      <Motd store={store} />
 
       <nav class={styles.nav}>
         {Object.entries(VIEWS).map(([path, v]) => (

@@ -11,7 +11,9 @@ The README carries the design, the traps and the conventions.
 | Fly app | `pointer-deploy`, one machine, region `ams` |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
-| Contract | `e0160a6` |
+| Units | six: `shell`, `alpha`, `bravo`, `charlie`, `delta`, `echo` |
+| Service | `pointer-deploy-api`, its own `fly deploy`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
+| Contract | `ac87a8c` (`service-offering-2026-08`). `63bcf32` and `e0160a6` are retained; `e0160a6` is marked going away |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/2d429c02/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Secrets | `.env.local`, gitignored |
@@ -254,6 +256,28 @@ Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
 not reproduce and is not explained. Its assertion now carries publish's whole
 output, which names which of contracts, digests or provenance moved.
 
+### 29. The live suite writes to the deployed service
+
+`verify:browser` clicks counters on the live page, and every click is a `POST`
+to `pointer-deploy-api`. Measured on 2026-08-31: `alpha` moved 12 to 22 across
+one run.
+
+The channels are already handled - the suite owns `test-qa` and `test-prod`, and
+a tripwire fails a run that moved a real one. The service has no equivalent, so
+the one production thing the suite still mutates is the state a visitor sees.
+
+The scenarios no longer DEPEND on that state, §28's sibling fix: they assert
+that every panel holds the same number and that it moved by what was clicked.
+So this is no longer a failing suite. It is still the suite writing to
+production.
+
+Two ways out, and neither is chosen yet:
+
+| | |
+| --- | --- |
+| A second service | `pointer-deploy-api-test`, and the local server the `@test-channel` scenarios already spawn is pointed at it. The `@browser` scenarios against the deployed origin cannot be, because that origin's `API_BASE` is its own |
+| A scope on the state | The service keys its state by a header or a query the suite sets, so a suite run writes a different set of counters from the one a visitor sees. One deploy, and the isolation reaches the live origin too |
+
 ### 21. Pin the vendor types the contract references, or stop claiming to
 
 Was §9's second half. NOT built, and the decision is open.
@@ -398,6 +422,114 @@ document and a migration owned by the shell, which §15 says is where shared
 state lives.
 
 ## Done
+
+- **A `falsify` mutation that proved nothing.** §28, done on 2026-08-31.
+  `a cold unit catalogue makes the visitor wait for the store` replaces
+  `catalogues.peek` with `await catalogues.get` on the request path, and the
+  scenario it named stayed green. Two faults, and either alone was enough to
+  hide it:
+
+  | | |
+  | --- | --- |
+  | The stub applied its delay AFTER matching the route | It answers one shape of key, so a request for anything else - the catalogue among them - got an instant 404 however slow the store was. A slow object store is slow for every key, and the stub now sleeps before the match |
+  | No local channel had a history | The merge that reads the catalogue runs only when `histories.peek` returned one, so the mutated line was never reached in any `@local` scenario. The stub now serves a history, opt-in through `pointHistory`, because a history turns the version switcher on and most scenarios are asserting a page without it |
+
+  A new scenario reaches it: "A visitor whose channel has a history is not made
+  to wait for the catalogue". Measured with the mutation applied - 1502 ms
+  against a 400 ms bound - and green without it.
+
+  What this cost to find is worth recording. The mutation had been uncatchable
+  since the catalogue landed, and `falsify` reported it as a failure every run,
+  so the signal was there and was read as noise.
+
+- **What the service offers, and who reads which field.** §27, done on
+  2026-08-31. §26 gave the service a way to say what it holds, and what it held
+  was three fields. All five sub-apps read two of them, so every retirement hit
+  every panel and nothing could show a change reaching one unit and not another.
+
+  **20 fields over 13 routes**, in seven resources: `user` (now with `initials`
+  and a `theme`), `counters`, `limits`, `labels`, `flags`, `stats` and `motd`.
+  Five are writable, so `POST /v1/flags` changes what a panel draws with no
+  build, no publish and no promote. `stats` is read-only because it is derived
+  from the counters, and a write there would be an answer the next read throws
+  away.
+
+  **Ownership comes out at the FIELD, and nobody declared it.** `Limits` is a
+  type with three named members, so the removal prober cuts
+  `Limits.allowNegative` on its own. The table `bun run contract:members` prints
+  is the answer: step to alpha, allowNegative to bravo, showTotals to charlie,
+  showShares and emoji to delta, updatedAt to echo, initials to charlie. 59
+  members in 33.7 s. `members.test.ts` asserts 11 of those claims.
+
+  **Three rules at the boundary.** Strict about what the page cannot draw
+  without and tolerant about what the service grew later - `user.initials`
+  absent is an older deploy, `user.initials` present and wrong is refused, by
+  field. Five routes and five separate failures, so `readSettings` uses
+  `allSettled` and a service without `/v1/flags` yet costs the page its flags
+  and nothing else. And every default is a value a panel can draw, so a service
+  that never answers costs a different page rather than a blank one.
+
+  **Contract `ac87a8c`**, `service-offering-2026-08`, additive over both
+  retained contracts. `63bcf32` is NOT deprecated: additive means a unit built
+  against it still composes, so there is no move to force and marking one would
+  be a warning about something nobody has to do.
+
+  **Proved by `bun run e2e:schema`**, now 44 checks in five steps. Step 4 makes
+  four writes against the running service and reads all three views again:
+  seven panel readings change, `limits.max` does not because no write named it,
+  and not one unit id moves. Held underneath by 12 `@local` scenarios, 5
+  `falsify` mutations across §26 and §27, and unit tests on all seven parsers.
+
+- **What is inside the service, and what is going away.** §26, done on
+  2026-08-31. §13 gave the service a version set and nothing else: `serves` says
+  which versions it answers and no member of it says what a version HOLDS. So
+  the one surface with no compiler behind it was also the one nothing could
+  read, and a field being retired had nowhere to be said.
+
+  **The service says it, and an operator decides it.** `GET /versions` keeps
+  `serves` exactly as it was — a shell published before this reads that member
+  and no other — and grows `versions.<v>.routes` and `.fields` beside it,
+  declared in `api/service.ts` next to the handlers. A retirement is
+  `API_DEPRECATED` in the environment, like `API_SERVES`: one JSON array, no
+  code change, no rebuild. Every response carrying a retired field also says so
+  in RFC 9745 `Deprecation` and RFC 8594 `Sunset`, and
+  `access-control-expose-headers` names both, without which a cross-origin page
+  gets the body and not the warning attached to it.
+
+  **It refuses rather than ignores.** A malformed value, a missing `instead`, a
+  sunset before the deprecation, or a path this deploy does not answer all stop
+  the service starting. A service that swallowed the error would publish
+  "nothing is going away", which is a false reading rather than silence, and the
+  operator who set the variable could not tell it from one that read it.
+  `user.color` for `user.colour` is the case that decided it.
+
+  **A sixth unit, and five panels that each say something different.** The store
+  gained `service()`, `setService()` and `goingAway()`; the shell reads the
+  document once and hands the reading down, so no sub-app fetches anything.
+  `echo` is the new unit, on a new `/api` view, and reports the document itself.
+  alpha names the retired field, bravo counts the days left, charlie says which
+  version the counts were read over, delta greys its bars while the reading is
+  not good. `echo` registers no counter, so the totals views still count four
+  namespaces — and the member gate reads that: it records no use of `increment`,
+  `register`, `countOf` or `snapshot`.
+
+  **Contract `63bcf32`**, `service-report-2026-08`, additive — so nothing
+  published against `e0160a6` breaks — and `e0160a6` is now marked going away
+  with `63bcf32` named to move to.
+
+  **Proved by `bun run e2e:schema`**: six units built, published and promoted to
+  `test-qa`, all three views read, `user.colour` retired on the service alone,
+  all three views read again. 21 checks in a real Chrome, and the two that
+  matter are that every panel changed and that not one unit id moved. Held
+  underneath by 8 `@local` scenarios in
+  `features/reading-what-the-service-holds.feature`, 3 `falsify` mutations, and
+  unit tests on both boundary parsers.
+
+  **Not done, and named as such:** the deployed `pointer-deploy-api` has not
+  been given this build. Until `fly deploy -c api/fly.toml` runs, the live page
+  reads a service that answers `{"serves":["v1"]}` and no schema — which is the
+  case the parse was written for, and `echo` draws it as "this deploy publishes
+  no schema" rather than as a fault.
 
 - **One record of every published unit.** §25, done on 2026-08-31. Every publish
   has always written `units/<name>/<id>/unit.json`, so the store held the whole

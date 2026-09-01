@@ -15,3 +15,8 @@
   font-variant-numeric: tabular-nums;
   opacity: 0.6;
 }
+
+.stale { opacity: 0.45; filter: grayscale(1); }
+.stalenote { color: #b4342a; }
+.emoji { margin-right: 0.35rem; }
+.busiest { font-weight: 700; }

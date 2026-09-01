@@ -146,3 +146,18 @@
   background: inherit;
   color: inherit;
 }
+
+
+/* flags.compact, read from the service. */
+.compact { max-width: 44rem; padding-top: 1rem; }
+.compact .pair { gap: 0.75rem; }
+
+.motd {
+  margin: 1rem 0 0;
+  padding: 0.5rem 0.8rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--line);
+  font-size: 0.875rem;
+}
+.motdWarn { border-color: #b4342a; color: #b4342a; }
+.motdUntil { color: var(--muted); }

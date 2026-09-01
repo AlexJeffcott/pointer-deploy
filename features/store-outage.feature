@@ -31,6 +31,21 @@ Feature: Serving through a store outage
     Then the shell is returned without waiting for the store
 
   @local
+  Scenario: A visitor whose channel has a history is not made to wait for the catalogue
+    The switcher's options are merged from the channel's history and the unit
+    catalogue, on the request path. The catalogue is `peek`ed and never awaited,
+    so a catalogue that is missing or slow costs the switcher entries and costs
+    the visitor nothing. Nothing else can see the difference: without a history
+    that branch does not run at all.
+
+    Given the qa channel has served an earlier build
+    And a visitor has already loaded the qa origin
+    And the server's copy of the manifest is older than its refresh interval
+    And the store has become slow to answer
+    When a visitor loads the qa origin
+    Then the shell is returned without waiting for the store
+
+  @local
   Scenario Outline: A manifest the server cannot trust does not replace a good one
     Given a visitor has already loaded the qa origin
     When the qa channel's manifest is replaced with <kind>

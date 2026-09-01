@@ -15,6 +15,11 @@ export const VIEWS: Record<string, View> = {
     apps: ["charlie", "delta"],
     note: "Two more bundles. Neither created a counter on this page, and both read the ones that did.",
   },
+  "/api": {
+    title: "Service",
+    apps: ["echo"],
+    note: "One bundle, reporting what the service says it holds. It fetches nothing: the shell read the document once and handed the reading down with the store.",
+  },
 };
 
 export const DEFAULT_ROUTE = "/";

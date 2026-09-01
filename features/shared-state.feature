@@ -11,11 +11,18 @@ Feature: Sharing state between independently loaded sub-apps
 
     @browser
     Scenario: A count raised in one sub-app is read by a sub-app on another view
+      The counters this page starts with belong to the service, which is shared
+      by every visitor and every earlier run. So what is asserted is the pair of
+      facts this scenario is actually for: every panel holds the SAME number,
+      and it moved by what was clicked.
+
       When they raise the "alpha" counter by 6
       And they raise the "bravo" counter by 3
       And they open the totals view
-      Then every sub-app that lists counters reads "alpha" as 6
-      And every sub-app that lists counters reads "bravo" as 3
+      Then every sub-app that lists counters agrees about "alpha"
+      And the "alpha" count rose by 6
+      And every sub-app that lists counters agrees about "bravo"
+      And the "bravo" count rose by 3
 
     @browser
     Scenario: A sub-app that created no counter still sees the ones that exist

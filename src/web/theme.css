@@ -17,6 +17,16 @@
   }
 }
 
+/* What the service asks for, through user.theme.dark. It wins over the
+   operating system's preference, because it was asked for on purpose. */
+:root[data-dark="true"] {
+  --fg: #e6e9ee;
+  --bg: #14181f;
+  --muted: #9aa4b2;
+  --accent: #7aa7f0;
+  --line: #2a313b;
+}
+
 * {
   box-sizing: border-box;
 }

@@ -8,6 +8,13 @@ export default function Charlie({ store }: SubAppProps) {
   const who = store.user();
   const rows = store.snapshot();
   const total = rows.reduce((n, [, v]) => n + v, 0);
+  const service = store.service();
+  const going = service.fields.filter((f) => f.going !== null);
+  const showTotals = store.flags().showTotals;
+  // Two numbers that should match, produced on opposite sides of a network.
+  // A page that only ever showed its own sum could not tell you the boundary
+  // was there at all.
+  const said = store.stats().total;
   const [boom, setBoom] = useState(false);
   useLayoutEffect(() => {
     store.register(NS);
@@ -45,21 +52,39 @@ export default function Charlie({ store }: SubAppProps) {
         <tbody>
           {rows.map(([ns, n]) => (
             <tr key={ns} class={ns === NS ? styles.mine : undefined}>
-              <td data-ns={ns}>{ns}</td>
+              <td data-ns={ns}>{store.labelFor(ns).title}</td>
               <td data-count-for={ns}>{n}</td>
             </tr>
           ))}
         </tbody>
-        <tfoot>
-          <tr>
-            <td>total</td>
-            <td data-total={total} style={{ textAlign: "right" }}>
-              {total}
-            </td>
-          </tr>
-        </tfoot>
+        {showTotals ? (
+          <tfoot data-totals>
+            <tr>
+              <td>total</td>
+              <td data-total={total} style={{ textAlign: "right" }}>
+                {total}
+              </td>
+            </tr>
+          </tfoot>
+        ) : null}
       </table>
-      <p class={styles.who}>Read by {who.name}.</p>
+      <p class={styles.caption} data-source={service.state}>
+        {service.base === ""
+          ? "No service was named, so every count above is this page's own."
+          : service.state === "ok"
+            ? `Read over ${service.calling} at ${service.readAt?.slice(11, 19)}Z · ${service.fields.length - going.length} of ${service.fields.length} fields current`
+            : service.state === "failed"
+              ? `The service did not answer: ${service.error}. The counts above are this page's own.`
+              : "The service has not answered yet."}
+      </p>
+      <p class={styles.agree} data-agrees={String(said === total)}>
+        {said === total
+          ? `The service counts ${said} too.`
+          : `The service counts ${said}, and this page counts ${total}.`}
+      </p>
+      <p class={styles.who}>
+        Read by <b data-initials={who.initials}>{who.initials}</b> ({who.name}).
+      </p>
     </section>
   );
 }

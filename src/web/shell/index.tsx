@@ -1,7 +1,16 @@
 import { Component, render, type ComponentChildren } from "preact";
 import "../theme.css";
 import { createStore } from "./api.ts";
-import { createClient, hydrate, readApiBase, serviceBacked } from "./service.ts";
+import {
+  awaiting,
+  createClient,
+  hydrate,
+  noteSunset,
+  readApiBase,
+  readService,
+  readSettings,
+  serviceBacked,
+} from "./service.ts";
 import { Shell } from "./Shell.tsx";
 
 class ShellBoundary extends Component<
@@ -34,6 +43,11 @@ const store = createStore();
 const base = readApiBase();
 const client = base ? createClient(base) : null;
 
+// Before the render, not after it. The first paint then says which service is
+// being read and that it has not answered yet, which is a different panel from
+// one drawn with no service at all.
+if (client) store.setService(awaiting(base));
+
 render(
   <ShellBoundary>
     <Shell store={client ? serviceBacked(store, client, reportApi) : store} />
@@ -42,7 +56,21 @@ render(
 );
 
 if (client) {
-  void hydrate(store, client).then(reportApi);
+  // Two reads, started together and settled apart. The document says what the
+  // service holds; hydrate fills the page from it. Neither waits for the other,
+  // and a page whose schema read fails still shows the counters.
+  void readService(store, client);
+  // A resource an older service does not have is reported, not thrown. The
+  // page keeps the defaults for that one and every other one still arrives.
+  void readSettings(store, client).then((missing) => {
+    document.documentElement.dataset.settings = missing.length
+      ? `missing ${missing.join(",")}`
+      : "ok";
+  });
+  void hydrate(store, client).then((state) => {
+    noteSunset(store, client);
+    reportApi(state);
+  });
 }
 
 function reportApi(state: string): void {

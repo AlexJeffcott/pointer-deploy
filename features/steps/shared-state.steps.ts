@@ -35,15 +35,27 @@ When("they open the {word} view", async function (this: PointerWorld, name: stri
   await this.openView(v.path, v.apps);
 });
 
+/**
+ * Raises a counter, and records what it stood at first.
+ *
+ * The start is READ and not assumed to be zero. A page told about a service
+ * fills its counters from it, and that service is shared by every visitor and
+ * every earlier run - so "clicked six times, therefore reads 6" is only true
+ * for a page whose service holds nothing, and the suite is not that page.
+ */
 When("they raise the {string} counter by {int}", async function (this: PointerWorld, ns: string, by: number) {
   const page = this.browserPage;
+  const selector = `[data-app="${ns}"] section p:nth-of-type(2)`;
+  const before = Number(await page.$eval(selector, (n) => n.textContent?.trim() ?? ""));
+  if (!Number.isFinite(before)) throw new Error(`${ns} does not show a number to raise`);
+  this.countsBefore.set(ns, before);
+
   for (let i = 0; i < by; i++) {
     await page.click(`[data-app="${ns}"] button:has-text("+1")`);
   }
   await page.waitForFunction(
-    ([selector, want]) =>
-      document.querySelector(selector as string)?.textContent?.trim() === String(want),
-    [`[data-app="${ns}"] section p:nth-of-type(2)`, by] as const,
+    ([sel, want]) => document.querySelector(sel as string)?.textContent?.trim() === String(want),
+    [selector, before + by] as const,
     { timeout: 5_000 },
   );
 });
@@ -64,6 +76,23 @@ When("they set the colour to {string}", async function (this: PointerWorld, colo
   );
 });
 
+// What the scenario is named for: five separately published bundles holding one
+// number between them. The number itself belongs to the service and is not this
+// scenario's subject.
+Then("every sub-app that lists counters agrees about {string}", async function (this: PointerWorld, ns: string) {
+  const seen = await readsOf(this, ns);
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen).toEqual(seen.map(() => seen[0]!));
+});
+
+Then("the {string} count rose by {int}", async function (this: PointerWorld, ns: string, by: number) {
+  const before = this.countsBefore.get(ns);
+  if (before === undefined) throw new Error(`no step has raised ${ns}, so nothing recorded its start`);
+  const seen = await readsOf(this, ns);
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen).toEqual(seen.map(() => before + by));
+});
+
 Then("every sub-app that lists counters reads {string} as {int}", async function (this: PointerWorld, ns: string, want: number) {
   const seen = await readsOf(this, ns);
   expect(seen.length).toBeGreaterThan(0);
@@ -71,21 +100,27 @@ Then("every sub-app that lists counters reads {string} as {int}", async function
 });
 
 Then("the totals view lists the namespaces {word}, {word}, {word} and {word}", async function (this: PointerWorld, a: string, b: string, c: string, d: string) {
+  // Read from the attribute, not from the text. What the row SAYS is the
+  // service's label, which an operator renames at runtime - so a scenario
+  // asserting the text would go red every time the feature was used. The
+  // namespace is what this scenario is about, and the attribute carries it in
+  // every composition, old units included.
   const wanted = [a, b, c, d].sort();
+  const namespaces = () =>
+    this.browserPage.$$eval("[data-app='charlie'] [data-ns]", (nodes) =>
+      nodes.map((n) => n.getAttribute("data-ns") ?? ""),
+    );
   await this.browserPage.waitForFunction(
     (want) => {
       const seen = [...document.querySelectorAll("[data-app='charlie'] [data-ns]")]
-        .map((n) => n.textContent?.trim() ?? "")
+        .map((n) => n.getAttribute("data-ns") ?? "")
         .sort();
       return JSON.stringify(seen) === JSON.stringify(want);
     },
     wanted,
     { timeout: 5_000 },
   );
-  const listed = await this.browserPage.$$eval("[data-app='charlie'] [data-ns]", (nodes) =>
-    nodes.map((n) => n.textContent?.trim() ?? ""),
-  );
-  expect([...listed].sort()).toEqual(wanted);
+  expect([...(await namespaces())].sort()).toEqual(wanted);
 });
 
 Then("the bar for {string} is longer than the bar for {string}", async function (this: PointerWorld, bigger: string, smaller: string) {

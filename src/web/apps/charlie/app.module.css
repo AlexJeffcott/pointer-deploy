@@ -9,3 +9,5 @@
 .table td:last-child { text-align: right; }
 .mine { font-weight: 700; }
 .who { margin: 0.9rem 0 0; font-size: 0.8125rem; color: var(--muted); }
+.caption { margin: 0.7rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.agree { margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--muted); }

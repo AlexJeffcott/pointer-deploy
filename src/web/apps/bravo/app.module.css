@@ -9,3 +9,6 @@
 .row { display: flex; gap: 0.5rem; }
 .button { font: inherit; padding: 0.35rem 0.8rem; border-radius: 0.3rem; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
 .who { margin: 0.9rem 0 0; font-size: 0.8125rem; color: var(--muted); }
+.badge { margin-left: 0.5rem; border: 1px solid var(--line); border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: none; }
+.urgent { border-color: #b4342a; color: #b4342a; }
+.button:disabled { opacity: 0.4; cursor: not-allowed; }

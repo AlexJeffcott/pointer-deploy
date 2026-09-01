@@ -36,12 +36,13 @@ That moves alpha. The shell and the other three sub-apps stay exactly where
 they were, and rolling alpha back afterwards leaves alone whatever was deployed
 in between.
 
-### The page is five bundles that agree with each other
+### The page is six bundles that agree with each other
 
-The shell owns the state — a name, a colour, and a map of namespaced counters.
-Four sub-apps read and write it. Two appear on the counters view, two on the
-totals view, and the second pair reads counters the first pair created without
-the two pairs ever being on screen together.
+The shell owns the state — a name, a colour, a map of namespaced counters, and
+what the service says it holds. Five sub-apps read it. Two appear on the counters
+view, two on the totals view, and the second pair reads counters the first pair
+created without the two pairs ever being on screen together. The fifth is on its
+own view and writes nothing: it reports what is inside the service, §26.
 
 Each sub-app is its own **unit**: its own bundle, its own stylesheet, its own id,
 published and promoted on its own and fetched when its view first needs it. That
@@ -111,7 +112,7 @@ app from the same running machine — and only the part that moved is different.
 Note the last two lines. Alpha and bravo come from different directories,
 written at different times. **One `assetBase` per unit is the whole feature.**
 Schema 2 had one base for the entire page, so every file had to come from one
-build directory, which is what made the five bundles deploy and roll back
+build directory, which is what made the six bundles deploy and roll back
 together.
 
 ### What it costs
@@ -134,7 +135,7 @@ lines repeated, and a new image for every commit.
 ## Deploying
 
 ```sh
-bun run build                                 # five units into dist/units/
+bun run build                                 # six units into dist/units/
 bun run publish                               # uploads only what changed. Affects nobody
 bun run promote qa --app alpha=9b855c4b       # the deploy
 bun run promote qa --app alpha=36226fb9       # the rollback. Same command
@@ -154,7 +155,7 @@ point at a half-uploaded unit.
 
 `promote` reads the channel's current composition, applies only what you named,
 and writes the result. That merge is the feature: without it every promote
-replaces all five units, and "deploy alpha" silently rolls the other four back
+replaces all six units, and "deploy alpha" silently rolls the other five back
 to whatever the operator last had on disk. `falsify.ts` breaks the merge and
 requires a scenario to go red.
 
@@ -162,7 +163,7 @@ requires a scenario to go red.
 
 The commit is deliberately not in it. It used to be — `<source>-<content>` — and
 under per-unit publishing that is wrong: one commit touching only alpha would
-change all five ids and republish all five, which removes the point. The commit
+change all six ids and republish all six, which removes the point. The commit
 identifies the source, not the artefact, so it lives in `unit.json` as
 provenance and reaches the served page in the `__BUILD__` block.
 
@@ -226,14 +227,16 @@ Three consequences, and they are why the matrix is worth its cost:
 | | |
 | --- | --- |
 | Nobody can claim a contract they did not compile against | The set is generated output. There is no hand-written claim to get wrong, so it stops being a thing to test and becomes a property |
-| An additive change costs nothing | Every adapter still compiles against the new hash, so it joins every set with no new file and no decision. Adding an export to `api.ts` does not force four republishes |
+| An additive change costs nothing | Every adapter still compiles against the new hash, so it joins every set with no new file and no decision. Adding an export to `api.ts` does not force five republishes |
 | A breaking change appears as a `fail` column | In the unit that has to move, immediately, rather than in a browser weeks later |
 
 The table above is the real output of making `increment(ns, by = 1)` require
-`by`. The shell stops satisfying the old contract; the four apps, which all call
-`increment(NS)` with one argument, stop satisfying the new one; the intersection
-is empty. Every one of them calls `increment`, so the member gate below refuses
-it too — this is a change that genuinely breaks all four.
+`by`. The shell stops satisfying the old contract; the four counting apps, which
+all call `increment(NS)` with one argument, stop satisfying the new one; the
+intersection is empty. Each of those four calls `increment`, so the member gate
+below refuses them too — this is a change that genuinely breaks all four. echo is
+the fifth app and calls nothing on the counting half, so the gate lets it through
+where the set intersection would not: exactly the case §7 exists for.
 
 `build.ts` refuses to run when the surface at HEAD hashes to something the
 registry does not hold, and names the command:
@@ -341,19 +344,20 @@ createStore
 not removable on their own: Counts, ShellStore, User
 ```
 
-Two of `ShellStore`'s eight members are called by no sub-app. Under the set
+Six of `ShellStore`'s eighteen members are called by no sub-app. Four of them are writers the shell owns — `setName`, `setColour`, `setUser`, `setSettings`, `setService` — and `motd` is a reader the frame keeps to itself. Under the set
 intersection, removing either refused every composition — because a **published**
 app's contract set was fixed at its build time and cannot name a contract minted
 after it. `createStore` is used by nothing either: the shell reaches `api.ts` by
-relative path, so only the four apps are asked.
+relative path, so only the five apps are asked.
 
 **Use is measured by removal, never parsed.** Cut one declaration out of the
 surface and recompile the consumers against the rest; if it still compiles, they
 do not use it. That is the same definition the rule needs, and `tsc` is the
 oracle for it — the trick `falsify` plays on the scenarios, played on a type
 surface. Two runs per member, one to prove the cut surface still holds and one
-for all four apps at once: 11 members in about 4.3 s, in `build.ts` beside the
-matrix. A member whose removal stops the surface being a surface — `ShellStore`
+for all five apps at once: 59 members in about 33.7 s, in `build.ts` beside the
+matrix. The members grew with §26 and §27 and so did the time — the lane count
+is not what to tune, the number of members is. A member whose removal stops the surface being a surface — `ShellStore`
 itself — cannot be asked about, and is reported rather than counted.
 
 `unit.json` carries what was derived: `provides` on the shell, `uses` on each
@@ -365,7 +369,7 @@ is set inclusion with matching digests, so `promote` needs no compiler.
 | a member added | allowed | allowed |
 | a member removed that no app uses | **refused** | allowed |
 | `reset` removed | refused | refused, naming bravo and `ShellStore.reset` |
-| a parameter narrowed | refused for all four | refused for the apps that use that member |
+| a parameter narrowed | refused for all five | refused for the apps that use that member |
 
 The digest is what keeps the same-name signature change covered; a list of
 member *names* would call a narrowed `increment` the same member.
@@ -385,7 +389,7 @@ refused.
 
 **Proved end to end** on 2026-08-29, `bun run e2e:members`, against the real
 store and the real scripts: `reset` removed from `ShellStore`, the shell
-published alone, and the four sub-apps left exactly as they were.
+published alone, and the five sub-apps left exactly as they were.
 
 ```
 bravo uses ShellStore.reset, which this shell does not have. Nothing was changed.
@@ -491,7 +495,7 @@ at 12 cores the CPU sits at 1055% either way — the number of members is.
 | Limit | Why |
 | --- | --- |
 | A same-name signature change | Covered. This is the case a list of exported *names* would have missed, and hashing the declaration surface catches it |
-| A Preact major that breaks an old bundle | **Not covered.** Vendor types resolve from `node_modules` at HEAD, so a cell testing an old app against an old contract compiles against head Preact anyway — the vendor half would be identity with no verification behind it. Folding versions into the hash would instead force all four apps to republish on every patch bump. `unit.json` records the resolved versions and `promote` **warns** on a major mismatch |
+| A Preact major that breaks an old bundle | **Not covered.** Vendor types resolve from `node_modules` at HEAD, so a cell testing an old app against an old contract compiles against head Preact anyway — the vendor half would be identity with no verification behind it. Folding versions into the hash would instead force all five apps to republish on every patch bump. `unit.json` records the resolved versions and `promote` **warns** on a major mismatch |
 | A change in behaviour behind an unchanged type | Not covered, and not coverable this way |
 
 Measured, on this repository: the surface hash is stable across runs, unchanged
@@ -525,7 +529,9 @@ a server with no service configured, a discovery document not yet read).
 
 A version set is coarse, and deliberately so: there is no declaration to take a
 digest of. What the member gate does for `ShellStore` cannot be done here, and
-saying that is better than pretending otherwise.
+saying that is better than pretending otherwise. What §26 adds is the other
+half: the service says which FIELDS are inside each version it answers, and
+which of them are going away.
 
 **Which versions a deploy answers is `API_SERVES` in its environment**, not a
 constant in its source. Dropping v1 is a thing an operator does on a Tuesday,
@@ -569,9 +575,11 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/web/shell/subapp.ts` | `SubApp` and `SubAppProps`, the half of the contract a sub-app satisfies |
 | `src/web/shell/contract.ts` | The shell's conformance, in one file the matrix can compile |
 | `src/web/apps/<name>/contract.ts` | That app's default export, checked against `SubApp` |
+| `src/web/shell/service.ts` | The service client and the boundary parsers. Declares the response shapes and never imports them from `api/` |
+| `api/service.ts` | The service: what it answers, what it publishes about itself, and the retirement it was told about |
 | `src/web/vendor/` | One re-export per shared specifier. These are what the import map points at |
 | `contracts/<name>/` | One retained contract: `shell.d.ts`, `subapp.d.ts`, and the hash of the two |
-| `build.ts` | Five `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
+| `build.ts` | Six `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
 | `scripts/contract.ts` | Surface emit, the hash, the registry, the matrix, and the direction reading |
 | `scripts/members.ts` | The removal prober: what a surface provides, and which member each consumer uses |
 | `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__`, `__APPS__` and `__VERSIONS__`, declared once |
@@ -581,6 +589,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
 | `scripts/promote.ts` | Read the composition, merge what was named, test the member gate, write |
 | `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
+| `scripts/e2e-service-schema.ts` | Retires a field and changes four more with nothing rebuilt, and reads what all five panels then paint |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
 | `features/support/bdd.ts` | The bindings, and the one file that names the runner |
 | `features/support/hooks.ts` | Every hook, in the order they must run |
@@ -588,7 +597,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 76 ways; each break must turn one check red, and a `find` that names more than one place is refused |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 87 ways; each break must turn one check red, and a `find` that names more than one place is refused |
 | `scripts/measure-preload.ts` | What warming a sub-app's files buys, in a real Chrome, with a control |
 | `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve and the retention floor allows |
 | `scripts/retention.ts` | The floor itself: how long a superseded build is kept, decided against a clock the caller passes in |
@@ -844,7 +853,7 @@ both are already derived from the manifest, and each unit carries its own
 `assetBase` and `integrity`, so a composition assembled from a query string
 needs no new code for either. That is schema 3 paying for itself.
 
-What is NOT built is a `select` inside each sub-app. The shell draws all five,
+What is NOT built is a `select` inside each sub-app. The shell draws all six,
 which makes every unit selectable, but handing the data to a sub-app means
 adding to `api.ts` or `subapp.ts` - and the contract hash is taken over exactly
 those two files. One export there mints a new contract, and every unit has to be
@@ -1022,6 +1031,218 @@ marks the predecessor, and reads what `contract:matrix` and `promote` actually
 print - then restores `api.ts`, the registry and `test-qa`. The pure readings
 underneath it are held by 16 unit tests and four `falsify` mutations.
 
+## What is inside the service, and what is going away
+
+§10 marks a *contract* as going away, and the two commands an operator runs say
+so. The service cannot use any of that. Its surface is not a TypeScript file,
+there is no registry to write the decision into, and the decision itself is
+taken on a Tuesday against shells published long before it. So the service says
+what it holds out loud instead, in one document, and the page reads it.
+
+| `GET /versions` | Reading |
+| --- | --- |
+| `serves` | Which versions this deploy answers. Unchanged from §13, and it has to stay unchanged: a shell published before this existed reads that member and nothing else, so the document grew beside it rather than around it |
+| `versions.<v>.routes`, `.fields` | What is INSIDE a version. Declared in `api/service.ts` next to the handlers that return them, because there is no compiler to measure it from — the same honesty `api: ["v1"]` needed on the shell |
+| `versions.<v>.fields[].deprecated` | A field going away: the day it was marked, the day it stops being answered, why, and what to move to |
+
+**The decision is `API_DEPRECATED` in the environment**, exactly as which
+versions are answered is `API_SERVES`. One JSON array, and the service refuses
+to start on anything it cannot act on:
+
+```sh
+fly secrets set -a pointer-deploy-api API_DEPRECATED='[{
+  "path": "user.colour", "since": "2026-08-31", "sunset": "2026-11-30",
+  "reason": "the colour moves into a theme object", "instead": null
+}]'
+```
+
+Refusing is the point. A service that ignored a malformed value would publish
+"nothing is going away", and that is not silence — it is a false reading, and the
+operator who set the variable cannot tell it from a service that read it. So a
+path this deploy does not answer stops it, and names what it does answer:
+`user.color` is a plausible thing to type, and accepted it would deprecate a
+field nobody has while the one the operator meant went on being served with no
+warning at all. `instead` may be `null` and may not be absent, for the reason
+`contract:deprecate --instead none` exists: no successor is a legitimate reading
+and has to be said out loud rather than left behind by a forgotten flag.
+
+### Two dates, and two RFCs
+
+Every response carrying a retired field says so, whatever read the document:
+
+```
+HTTP/1.1 200 OK
+deprecation: @1788134400
+sunset: Mon, 30 Nov 2026 00:00:00 GMT
+link: <https://pointer-deploy-api.fly.dev/versions>; rel="deprecation"
+```
+
+`Deprecation` is RFC 9745 and carries the day the decision took effect; `Sunset`
+is RFC 8594 and carries the day the field stops being answered. Two readings,
+not one: the gap between them is the notice, and an operator needs to know
+which of the two dates has passed. Two retired fields in one body get the
+earliest sunset — the one there is least time to act on — and the document
+carries the rest, field by field.
+
+`access-control-expose-headers` names both. Without it a cross-origin page gets
+the body and not the warning attached to it, which would publish the deprecation
+to everything except the thing that has to act on it.
+
+**Going away is a warning and never a refusal**, the same rule §10 applies to a
+contract and for the same reason: the field keeps being answered until the day
+it is not, and a page that broke on the day a field was deprecated would be
+worse than the fault it was reporting.
+
+### The shell reads it once, and hands it down
+
+`readService` fills one member of the store — `service()` — and every panel
+reads that. A sub-app fetches nothing, which is what lets one be rolled back to
+a build from last month and still be shown this afternoon's service.
+
+Three properties of the reading matter, and each is a different drawing:
+
+| `state` | What the page does |
+| --- | --- |
+| `unread` | The service was named and has not answered. The store's defaults are on screen and that is not a fault |
+| `ok` | The document was read. `fields`, `routes` and `serves` are what it said |
+| `failed` | The document could not be read, and `error` says why, by field where the fault was the shape |
+
+`versions` is OPTIONAL in the parse, and that is the reading this whole shape
+exists for. A service deployed before this section answers `{"serves":["v1"]}`
+and nothing else; a shell that demanded a schema would report a working service
+as broken. Absent means "this deploy publishes no schema", which is a different
+fact from "this deploy has no fields" and is drawn differently. Unknown members
+are ignored for the mirror-image reason — the service is on its own schedule, so
+a member added there this afternoon has to reach a shell published last month.
+
+### What each unit does with it
+
+The five sub-apps read the same reading and each says a different thing about
+it, so a promote of one is visible on screen without reading a single id:
+
+| Unit | What it shows | Members it records in `uses` |
+| --- | --- | --- |
+| alpha | Names the retired field and the day it goes, beside the count it paints in that colour | `ShellStore.goingAway` |
+| bravo | How many days are left, and turns red under thirty | `ShellStore.goingAway` |
+| charlie | Which version the counts were read over, at what time, and how many fields are still current | `ShellStore.service` |
+| delta | Greys its bars while the reading is not good: the shares are a claim about the whole set, and an unanswered service means this tab's own counts | `ShellStore.service` |
+| echo | The document itself: versions, routes, every field with its type, what is going away and why, and the `Sunset` a data response carried | `ShellStore.service` |
+
+echo is the fifth sub-app and the first that registers no counter. It reports on
+the service and takes no part in the shared state, so the totals views count
+four namespaces whether anybody has opened `/api` or not — and the member gate
+reads the difference: echo records no use of `increment`, `register`, `countOf`
+or `snapshot`, so a change to the counting half of the surface cannot refuse it.
+
+The new members mint a contract. `service-report-2026-08` (`63bcf32`) is
+additive, so nothing published against `injected-store-2026-08` breaks — and
+that predecessor is marked going away, with `63bcf32` named to move to.
+
+**Proved end to end by `bun run e2e:schema`**, in a real Chrome, against the real
+store and the real bundles. It builds and publishes all six units, promotes them
+to `test-qa`, reads all three views, then retires `user.colour` on the service
+alone — no build, no publish, no promote — and reads all three views again. 44
+checks across five steps. Two of them are the whole claim: every panel changed, and **not one unit
+id moved between the two readings**. It finishes by taking the service away
+entirely, because a page that cannot reach it must be a different page and never
+a blank one.
+
+The service is a LOCAL process in that run, and that is the one thing it does not
+prove. Changing `API_DEPRECATED` twice in a run against the deployed service
+would be changing what the live site is told while a visitor is reading it.
+`bun run e2e:api` is the counterpart that does drive the deployed one.
+
+## What the service offers, and who reads which field
+
+§26 gave the service a way to say what it holds. What it held was three fields,
+and all five sub-apps read two of them — so a retirement could only ever hit
+every panel at once, and nothing could show a change reaching one unit and not
+another. The service now answers **20 fields over 13 routes**.
+
+| Resource | Fields | Written at runtime |
+| --- | --- | --- |
+| `user` | `name`, `colour`, `initials`, `theme.colour`, `theme.dark` | `POST /v1/user` |
+| `counters` | `<ns>` | `POST /v1/counters/<ns>` |
+| `limits` | `step`, `max`, `allowNegative` | `POST /v1/limits` |
+| `labels` | `<ns>.title`, `<ns>.emoji` | `POST /v1/labels`, merged per namespace |
+| `flags` | `showShares`, `showTotals`, `compact` | `POST /v1/flags` |
+| `stats` | `total`, `busiest`, `updatedAt` | **No.** Derived from the counters, so a write would be an answer the next read throws away |
+| `motd` | `text`, `level`, `until` | `POST /v1/motd`, and `null` is how one is taken down |
+
+### Ownership comes out at the field, and nobody declared it
+
+`readMembers` cuts one declaration out of the surface and recompiles each unit
+against the rest. `Limits` is a type with three named members, so it cuts
+`Limits.allowNegative` on its own — and the answer is the real output of
+`bun run contract:members`:
+
+```
+member                      alpha   bravo   charlie delta   echo
+Flags.compact
+Flags.showShares                                    uses
+Flags.showTotals                            uses
+Label.emoji                                         uses
+Label.title                                 uses    uses
+Limits.allowNegative                uses
+Limits.max                  uses    uses
+Limits.step                 uses
+Stats.busiest                                       uses
+Stats.total                                 uses
+Stats.updatedAt                                             uses
+User.initials                               uses
+User.colour                 uses    uses    uses    uses    uses
+```
+
+Nothing there is written down anywhere. It is measured, on the bytes being
+published, and it is what `promote` refuses on. Retire `allowNegative` and one
+panel reports it. Remove `Flags.showShares` from the surface and exactly one
+unit stops compiling. `Flags.compact` is read by the frame alone, so no sub-app
+records it — a member `provides` holds and no `uses` names, which was already
+a category §9 had and now has five more examples of.
+
+### What each write does, and to whom
+
+Four `POST`s, no build, no publish, no promote:
+
+```sh
+curl -sX POST $API/v1/flags  -d '{"showShares":false,"showTotals":false,"compact":true}'
+curl -sX POST $API/v1/limits -d '{"step":20,"allowNegative":false}'
+curl -sX POST $API/v1/labels -d '{"alpha":{"title":"Ay","emoji":"!"}}'
+curl -sX POST $API/v1/motd   -d '{"text":"back at 14:00","level":"warn","until":"2026-12-01"}'
+```
+
+| The page, on the next load | Because |
+| --- | --- |
+| alpha's buttons read `+1 +20 +40` | `limits.step` |
+| bravo's `-1` button is **gone**, not disabled | `limits.allowNegative`. A control that is never usable is not a control, and the difference has to be visible from across the room |
+| charlie's totals row is gone | `flags.showTotals` |
+| delta's percentage column is gone | `flags.showShares` |
+| delta's first row reads `! Ay` | `labels.alpha` |
+| the frame carries a red message and is narrower | `motd`, `flags.compact` |
+| alpha's ceiling is still 100 | Nothing in those four writes named `limits.max`. Each write lands where it is read and nowhere else |
+
+`stats.total` is the one field that exists to be **disagreed with**. charlie adds
+the counters up itself and prints both numbers when they differ. Two numbers
+that should match, produced on opposite sides of a network, are the only way a
+page can show that the boundary is there at all.
+
+### Three rules the boundary keeps
+
+| | |
+| --- | --- |
+| **Strict about what the page cannot draw without, tolerant about the rest** | `user.name` and `user.colour` are required. `initials` and `theme` were added later, so absent means an OLDER deploy and not a fault — while a `theme` that IS present and wrong is still refused, by field |
+| **Five routes, five failures** | `readSettings` uses `allSettled`. A service that does not answer `/v1/flags` yet costs the page its flags and not its limits, its labels, its stats or its message. Losing four working resources because a fifth is not deployed would make every addition to the service a breaking change for every shell already published |
+| **Every default is a value a panel can draw** | `{ step: 5, max: 100, allowNegative: true }`, `showShares: true`, `total: 0`, `motd: null`. A service that never answers costs a DIFFERENT page, never a blank one — the same rule the store's `Alex` and `#1f5fd0` follow |
+
+A value the service cannot act on is refused rather than accepted: a `step` of
+0 leaves every button on every page working and adding nothing, which is a page
+that looks alive and is not.
+
+**Proved by `bun run e2e:schema`**, extended to 44 checks in five steps. Step 4
+makes those four writes against the running service and reads all three views
+again: seven panel readings change, `limits.max` does not, and **not one unit id
+moves**.
+
 ## A second region
 
 A machine reads exactly one region's manifest, chosen by its own `FLY_REGION`
@@ -1145,24 +1366,25 @@ under it reaches the delete set.
 ## Verifying
 
 ```sh
-bun test                   # 383 unit tests: src/server, src/web, scripts, features/support, ~20 s
-bun run verify             # 29 @local scenarios, stub store, ~9 s
-bun run contract:matrix    # 5 units x retained contracts, ~0.8 s
-bun run contract:members   # which member of the surface each sub-app uses, ~4.3 s
+bun test                   # 464 unit tests: src/server, src/web, scripts, api, features/support, ~43 s
+bun run verify             # 44 @local scenarios, stub store, ~11 s
+bun run contract:matrix    # 6 units x retained contracts, ~1.7 s
+bun run contract:members   # which member of the surface each sub-app uses, ~34 s
 bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
 bun run verify:live        # 42 @live scenarios against Fly and Tigris, ~11 min
-bun run verify:browser     # 18 @browser scenarios in a real Chrome, ~1 min
-bun run falsify            # 76 architectural mutations, each must turn a check red
+bun run verify:browser     # 20 @browser scenarios in a real Chrome, ~6 min
+bun run falsify            # 87 architectural mutations, each must turn a check red. 58 run locally, all caught
 FALSIFY_LIVE=1 bun run falsify   # including the twenty-two that need the real store
 bun run e2e                # deploy one app, deploy another, roll the first back
 bun run e2e:members        # drop a member, and refuse only the app that used it
 bun run e2e:deprecation    # mint a successor, mark the old contract, read what both commands say
+bun run e2e:schema         # retire a field, change four more, and read what the page does with no unit rebuilt
 bun run measure:preload    # what warming a sub-app's files buys, with a control
 bun run scripts/e2e-version-switcher.ts   # drive the switcher on the LIVE site
 bun run mutate             # Stryker over the server logic
 ```
 
-`bun test` covers four homes. `src/server` is the server's pure logic,
+`bun test` covers five homes. `api` is the service's own. `src/server` is the server's pure logic,
 `features/support` is the harness's own, `src/web` is where build-time code in
 the web tree goes — `views.ts` decides which sub-apps the build must emit — and
 `scripts` is the newest, and holds the three readings that cost real `tsc` runs:
@@ -1244,11 +1466,31 @@ records, met again from the other side. So the browser half runs
 carries `test-qa.localhost` for it, development only. Everything else is real,
 and the machine fingerprint is compared before and after.
 
+### A suite that could only be run once
+
+Two `@browser` scenarios asserted a count by its value — raise alpha six times,
+every panel reads 6. That was true of a page with no service and false of this
+one: the page fills its counters from the service before the first click, and
+the service is shared by every visitor and every earlier run. Each scenario
+passed alone and the pair failed in a full run, which reads as flakiness and was
+not.
+
+Both now assert the two facts they exist for — every panel holds the **same**
+number, and it **moved by** what was clicked — so the value the service happens
+to hold is not the subject. `openView` also waits for the fill to settle before
+any step reads a count: the panels are on screen before the service answers, by
+design, and a step reading a count in that window reads what the page started
+with rather than what it holds.
+
+What this does NOT fix: the live suite writes to the deployed service on every
+click. `alpha` moved 12 → 22 across one run. The channels the suite writes are
+its own; the service is not, and that is recorded in TODO as open.
+
 `@browser` uses the Chrome already on the machine — `channel: "chrome"` — so
 nothing downloads a second browser. The page is the runner's, which is what
 attaches a trace and a screenshot to a failure; the harness used to launch its
 own, and a page it launched itself has neither. Nine of those eighteen scenarios cover what
-nothing else can see: five separately published bundles agreeing about one
+nothing else can see: six separately published bundles agreeing about one
 store. The rest cover the schema they would agree about after a long rollback,
 what the page is allowed to load, what a panel that throws costs, and which
 files are warmed before a view is opened — see below.
@@ -1430,7 +1672,7 @@ which is equally wrong.
 An id names an artefact, and the commit does not identify the artefact. It became
 `<source>-<content>`, and then, when publishing moved to units, `<content>`
 alone: keeping the commit in a *unit* id meant one commit touching only alpha
-changed all five ids and republished all five. The same argument, taken one step
+changed all six ids and republished all six. The same argument, taken one step
 further than it was the first time. The suite refuses two scenario builds that
 publish to one shell id, because without that guard every promotion scenario
 passes by accident: the channel already serves the id being promoted to it.

@@ -26,7 +26,7 @@ export const CONTRACTS_DIR = "contracts";
 export const REGISTRY = join(CONTRACTS_DIR, "registry.json");
 
 /** The units that are published and composed independently. */
-export const UNITS = ["shell", "alpha", "bravo", "charlie", "delta"] as const;
+export const UNITS = ["shell", "alpha", "bravo", "charlie", "delta", "echo"] as const;
 export type Unit = (typeof UNITS)[number];
 export const APPS = UNITS.filter((u) => u !== "shell") as Exclude<Unit, "shell">[];
 

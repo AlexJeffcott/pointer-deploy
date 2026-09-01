@@ -700,7 +700,12 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/index.ts",
     find: "              catalogues.peek(CATALOGUE_URL),",
     replace: "              await catalogues.get(CATALOGUE_URL),",
-    scenario: "A visitor is never made to wait for the store",
+    // Not "A visitor is never made to wait for the store", which this could not
+    // turn red for two reasons at once: the local stub 404'd the catalogue
+    // before it applied its delay, and no local channel had a history, so the
+    // line was never reached. Both are fixed, and the scenario below is the one
+    // that reaches it. TODO §28.
+    scenario: "A visitor whose channel has a history is not made to wait for the catalogue",
   },
   {
     // A history that kept only what is live would make the switcher a control
@@ -962,6 +967,62 @@ const MUTATIONS: Mutation[] = [
     scenario: "The bundles for a view nobody has opened are warmed, not run",
     live: true,
     browser: true,
+  },
+
+  // --- what the service says it holds, §26 ---------------------------------
+
+  {
+    // The document keeps saying the field is going away and every response
+    // carrying it goes quiet. A page reading only the document is unaffected,
+    // which is exactly why a scenario has to read the headers.
+    name: "a response carrying a retired field says nothing about it",
+    file: "api/service.ts",
+    find: "  const going = (top: string) => deprecationHeaders(deprecationsFor(top), url.origin);",
+    replace: "  const going = (_top: string): Record<string, string> => ({});",
+    scenario: "The two headers, on the responses that carry the field",
+  },
+  {
+    // The other half. The headers still warn and the document describes a
+    // service where nothing is going away, so every panel that reads the
+    // document - which is all five - shows a field that is not being retired.
+    name: "the document leaves the retirement off the field",
+    file: "api/service.ts",
+    find: "            const going = deprecated.find((d) => d.path === f.path);",
+    replace: "            const going = deprecated.find(() => false);",
+    scenario: "A retired field is named in the document, with the day it goes",
+  },
+  {
+    // A typed field name is accepted and published to every page as a
+    // deprecation of something the service does not have. Nothing fails, and
+    // the field the operator meant goes on being served with no warning at all.
+    name: "a retirement of a field the service does not answer is accepted",
+    file: "api/service.ts",
+    find: "    if (!known.includes(path)) {",
+    replace: "    if (false) {",
+    scenario: "A retirement naming a field the service does not answer stops it",
+  },
+
+  // --- what the service offers, §27 ----------------------------------------
+
+  {
+    // A step of zero is accepted, every button on every page goes on working
+    // and adds nothing, and no request fails. The page looks alive and is not.
+    name: "the service accepts a limit no page can draw",
+    file: "api/service.ts",
+    find: "      if (step !== null && step < 1) return refuse(\"step\", \"is below 1\");",
+    replace: "      if (false) return refuse(\"step\", \"is below 1\");",
+    scenario: "A limit a page could not draw is refused, and nothing changes",
+  },
+  {
+    // The settings are read from five separate routes and applied in one
+    // write. Replacing instead of merging drops every resource this read did
+    // not name - so one 404 from an older service empties the other four, and
+    // the page draws from nothing rather than from its defaults.
+    name: "one settings read replaces the four the page already had",
+    file: "src/web/shell/api.ts",
+    find: "      settings.value = { ...settings.value, ...next };",
+    replace: "      settings.value = next as Settings;",
+    unitTest: "a resource an older service does not answer costs only that resource",
   },
 
   // --- placement -----------------------------------------------------------

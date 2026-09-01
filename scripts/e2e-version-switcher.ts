@@ -33,7 +33,8 @@ import { chromium, type Page } from "playwright-core";
 const ORIGIN = Bun.env.E2E_ORIGIN ?? "https://pointer-deploy.fly.dev";
 const APP = Bun.env.E2E_APP ?? "alpha";
 /** The view the sub-app appears on. alpha and bravo are on "/". */
-const PATH = Bun.env.E2E_PATH ?? (APP === "charlie" || APP === "delta" ? "/totals" : "/");
+const VIEW_OF: Record<string, string> = { charlie: "/totals", delta: "/totals", echo: "/api" };
+const PATH = Bun.env.E2E_PATH ?? VIEW_OF[APP] ?? "/";
 const TIMEOUT = 30_000;
 
 const failures: string[] = [];

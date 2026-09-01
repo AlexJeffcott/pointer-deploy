@@ -127,6 +127,7 @@ async function markersOnPage(page: Page): Promise<Record<string, string>> {
   for (const [path, apps] of [
     ["/", ["alpha", "bravo"]],
     ["/totals", ["charlie", "delta"]],
+    ["/api", ["echo"]],
   ] as const) {
     const url = `${ADDRESS}${path}`;
     await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -239,7 +240,7 @@ try {
   check("publish uploaded only alpha", uploadedUnits().join(",") === "alpha", `uploaded: ${uploadedUnits().join(",") || "nothing"}`);
   check("alpha's unit id moved", alphaV2.alpha !== v1.alpha);
   check(
-    "the other four unit ids did not",
+    "the other five unit ids did not",
     UNITS.filter((u) => u !== "alpha").every((u) => alphaV2[u] === v1[u]),
   );
 
@@ -251,8 +252,8 @@ try {
   seen = await markersOnPage(page);
   check("alpha renders the new marker", seen.alpha === V2, JSON.stringify(seen));
   check(
-    "bravo, charlie and delta still render the first marker",
-    ["bravo", "charlie", "delta"].every((a) => seen[a] === V1),
+    "bravo, charlie, delta and echo still render the first marker",
+    ["bravo", "charlie", "delta", "echo"].every((a) => seen[a] === V1),
     JSON.stringify(seen),
   );
 
@@ -270,8 +271,8 @@ try {
   check("bravo renders the new marker", seen.bravo === V2, JSON.stringify(seen));
   check("alpha is still at the new marker, not dragged back", seen.alpha === V2, JSON.stringify(seen));
   check(
-    "charlie and delta still render the first marker",
-    ["charlie", "delta"].every((a) => seen[a] === V1),
+    "charlie, delta and echo still render the first marker",
+    ["charlie", "delta", "echo"].every((a) => seen[a] === V1),
     JSON.stringify(seen),
   );
 

@@ -13,29 +13,29 @@ describe("placement", () => {
   });
 
   it("lists each placed app once, in view order", () => {
-    expect(placedApps(VIEWS)).toEqual(["alpha", "bravo", "charlie", "delta"]);
+    expect(placedApps(VIEWS)).toEqual(["alpha", "bravo", "charlie", "delta", "echo"]);
   });
 
   it("reports a built app that no view places", () => {
-    const problems = placementProblems(["alpha", "echo"], views({ "/": ["alpha"] }));
+    const problems = placementProblems(["alpha", "foxtrot"], views({ "/": ["alpha"] }));
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toMatch(/^echo is built and published/);
+    expect(problems[0]).toMatch(/^foxtrot is built and published/);
   });
 
   it("reports a placed app that nothing builds", () => {
-    const problems = placementProblems(["alpha"], views({ "/": ["alpha"], "/totals": ["echo"] }));
+    const problems = placementProblems(["alpha"], views({ "/": ["alpha"], "/totals": ["foxtrot"] }));
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toMatch(/^echo is placed on \/totals/);
+    expect(problems[0]).toMatch(/^foxtrot is placed on \/totals/);
   });
 
   it("names every route a missing app was placed on", () => {
-    const problems = placementProblems([], views({ "/": ["echo"], "/totals": ["echo"] }));
+    const problems = placementProblems([], views({ "/": ["foxtrot"], "/totals": ["foxtrot"] }));
     expect(problems[0]).toContain("placed on /, /totals");
   });
 
   it("cannot see an app moved from one route to another", () => {
-    const moved = views({ "/": ["bravo", "alpha"], "/totals": ["delta", "charlie"] });
-    const swapped = views({ "/": ["charlie", "delta"], "/totals": ["alpha", "bravo"] });
+    const moved = views({ "/": ["bravo", "alpha"], "/totals": ["delta", "charlie", "echo"] });
+    const swapped = views({ "/": ["charlie", "delta"], "/totals": ["alpha", "bravo", "echo"] });
     expect(placementProblems(APPS, moved)).toEqual([]);
     expect(placementProblems(APPS, swapped)).toEqual([]);
   });

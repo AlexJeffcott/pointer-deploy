@@ -10,10 +10,29 @@
       "name": "injected-store-2026-08",
       "hash": "e0160a6",
       "firstSeenCommit": "6bc192b85b536043bbd1e152b70774b1e8d17813",
-      "firstSeenAt": "2026-08-28T11:28:04.046Z"
+      "firstSeenAt": "2026-08-28T11:28:04.046Z",
+      "deprecated": {
+        "reason": "the store carries what the service says it holds, so a sub-app can report on it without fetching",
+        "at": "2026-08-31T15:51:52.594Z",
+        "instead": "63bcf32"
+      }
+    },
+    {
+      "name": "service-report-2026-08",
+      "hash": "63bcf32",
+      "firstSeenCommit": "5ea1657024eb2f71ff912a490f0dd8e2e4a0f928",
+      "firstSeenAt": "2026-08-31T15:51:32.782Z"
+    },
+    {
+      "name": "service-offering-2026-08",
+      "hash": "ac87a8c",
+      "firstSeenCommit": "5ea1657024eb2f71ff912a490f0dd8e2e4a0f928",
+      "firstSeenAt": "2026-08-31T16:21:03.396Z"
     }
   ],
   "retained": [
-    "e0160a6"
+    "e0160a6",
+    "63bcf32",
+    "ac87a8c"
   ]
 }

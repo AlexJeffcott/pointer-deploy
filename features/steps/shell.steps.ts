@@ -8,6 +8,7 @@ import {
   PROPAGATION_WINDOW_MS,
   run,
 } from "../support/world.ts";
+import { historyDoc } from "../support/stub-store.ts";
 
 const LOCAL_TTL_MS = 300;
 const pastTtl = () => Bun.sleep(LOCAL_TTL_MS + 200);
@@ -23,6 +24,13 @@ Given("a visitor has already loaded the {word} origin", async function (this: Po
 
 Given("the server's copy of the manifest is older than its refresh interval", async function () {
   await pastTtl();
+});
+
+// A history turns the version switcher on, and with it the one place the
+// origin reads the unit catalogue while a visitor is waiting. Without it that
+// branch never runs, so nothing local could tell a `peek` there from a `get`.
+Given("the {word} channel has served an earlier build", function (this: PointerWorld, channel: string) {
+  this.stub!.pointHistory(this.storeChannel(channel as Channel), historyDoc(this.idsOf("alpha")));
 });
 
 Given("the store has become slow to answer", function (this: PointerWorld) {

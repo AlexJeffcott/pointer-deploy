@@ -146,6 +146,14 @@ export class PointerWorld {
   serviceBase = "";
   localServer = false;
 
+  /** §14. What the service last said it holds, and what one response carried. */
+  serviceDoc: { serves: string[]; versions?: Record<string, unknown> } | null = null;
+  serviceResponse: Response | null = null;
+  serviceRefusal: { code: number; said: string } | null = null;
+  serviceRead: unknown = null;
+  /** What a counter stood at before a scenario raised it. */
+  countsBefore = new Map<string, number>();
+
   private ids = BUILD_IDS;
 
   page: Page | null = null;
@@ -169,9 +177,16 @@ export class PointerWorld {
     });
   }
 
-  async startServiceAndServer(serves: string): Promise<void> {
+  async startServiceAndServer(serves: string, deprecated = ""): Promise<void> {
     const proc = Bun.spawn(["bun", "api/index.ts"], {
-      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", PORT: "0", API_SERVES: serves },
+      env: {
+        ...process.env,
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+        PORT: "0",
+        API_SERVES: serves,
+        API_DEPRECATED: deprecated,
+      },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -250,6 +265,11 @@ export class PointerWorld {
     this.server = null;
     this.service = null;
     this.serviceBase = "";
+    this.serviceDoc = null;
+    this.serviceResponse = null;
+    this.serviceRefusal = null;
+    this.serviceRead = null;
+    this.countsBefore.clear();
     this.stub = null;
     this.localServer = false;
   }
@@ -739,6 +759,22 @@ export class PointerWorld {
     for (const app of apps) {
       await page.waitForSelector(`[data-app="${app}"] section`, { timeout: 20_000 });
     }
+
+    // The panels are on screen before the service has answered, which is the
+    // design: the page renders from defaults and fills in afterwards. A step
+    // that read a count here would read the value the page STARTED with, not
+    // the one it holds. `data-api` is set once the fill has settled, either way.
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById("__BUILD__");
+        const named = el?.textContent
+          ? Boolean((JSON.parse(el.textContent) as { apiBase?: string }).apiBase)
+          : false;
+        return !named || document.documentElement.dataset.api !== undefined;
+      },
+      undefined,
+      { timeout: 20_000 },
+    );
   }
 
   async machineFingerprint(): Promise<string> {

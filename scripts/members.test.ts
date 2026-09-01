@@ -74,10 +74,66 @@ describe("readMembers, against the surface this repository ships", () => {
       expect(Object.keys(reading.uses.alpha!)).not.toContain("ShellStore.reset");
       expect(Object.keys(reading.uses.charlie!)).not.toContain("ShellStore.reset");
 
-      // Every app reads the store and the user, so these are universal.
+      // Every app asks who the user is, and paints itself in their colour.
       for (const app of APPS) {
+        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.user");
+        expect(Object.keys(reading.uses[app]!)).toContain("User.colour");
+      }
+
+      // The counters are not universal. echo reports on the service and takes
+      // no part in the shared state, so a member removed from the counting half
+      // of the surface costs it nothing.
+      for (const app of APPS.filter((a) => a !== "echo")) {
         expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.increment");
         expect(Object.keys(reading.uses[app]!)).toContain("User.name");
+      }
+      expect(Object.keys(reading.uses.echo!)).not.toContain("ShellStore.increment");
+
+      // The service half, §26, splits the apps the other way: two ask whether
+      // one field is going away, three read the whole report, and each records
+      // only what it asked for.
+      for (const app of ["alpha", "bravo"]) {
+        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.goingAway");
+        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.service");
+      }
+      for (const app of ["charlie", "delta", "echo"]) {
+        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.service");
+        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.goingAway");
+      }
+      // Nothing but the shell writes it.
+      for (const app of APPS) {
+        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.setService");
+        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.setSettings");
+        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.setUser");
+      }
+
+      // §27, and the reading the whole widening was for: ownership at the
+      // FIELD, not at the resource. Removing one field of `Limits` refuses
+      // exactly the apps that draw with it, and `readMembers` says which.
+      const owner: Record<string, string[]> = {
+        "Limits.step": ["alpha"],
+        "Limits.max": ["alpha", "bravo"],
+        "Limits.allowNegative": ["bravo"],
+        "Label.title": ["charlie", "delta"],
+        "Label.emoji": ["delta"],
+        "Flags.showTotals": ["charlie"],
+        "Flags.showShares": ["delta"],
+        "Stats.total": ["charlie"],
+        "Stats.busiest": ["delta"],
+        "Stats.updatedAt": ["echo"],
+        "User.initials": ["charlie"],
+      };
+      for (const [member, expected] of Object.entries(owner)) {
+        const actual = APPS.filter((a) => member in (reading.uses[a] ?? {}));
+        expect(`${member}: ${actual.join(",")}`).toBe(`${member}: ${expected.join(",")}`);
+      }
+
+      // Read by the frame alone, so no sub-app records them. They are still
+      // provided, and a removal would still be refused by the compiler where
+      // the shell reads them - which is a different check, in a different file.
+      for (const member of ["Flags.compact", "Theme.dark", "ShellStore.motd"]) {
+        expect(APPS.filter((a) => member in (reading.uses[a] ?? {}))).toEqual([]);
+        expect(Object.keys(reading.provides)).toContain(member);
       }
 
       // A member nothing can be asked about, because cutting it stops the
