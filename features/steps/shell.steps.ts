@@ -41,6 +41,10 @@ Given("a server that has not yet read any manifest", function (this: PointerWorl
   expect(this.lastResponse).toBeNull();
 });
 
+Given("the server has just started and answered nobody", async function (this: PointerWorld) {
+  await this.restartServer();
+});
+
 Given("the store is unreachable", async function (this: PointerWorld) {
   await this.stub!.goDown();
 });

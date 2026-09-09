@@ -14,7 +14,7 @@ Live: <https://pointer-deploy.fly.dev/>
 | **Unit** | One independently shipped piece of the page, with its own bundle, stylesheet and id. Six: the **shell**, and **sub-apps** alpha, bravo, charlie, delta and echo. |
 | **Shell** | The frame. It owns routing, the shared state, and the slots the sub-apps render into. |
 | **Sub-app** | One panel on the page. Built, published and deployed on its own. |
-| **Object store** | A Tigris bucket on Fly, `pointer-deploy-assets`. Every published unit's files, every channel's pointer and the catalogue sit in it, reached over HTTPS. |
+| **Object store** | A Tigris bucket on Fly, `pointer-deploy-assets`. It contains all published unit's files, every channel's pointer and the catalogue. |
 | **Publish** | Upload a unit's files to the object store. Nobody sees any change. Nothing to undo. |
 | **Channel** | An environment. Four: `qa`, `prod`, and two the test suite owns. The request's `Host` header picks one. |
 | **Pointer manifest** | `manifests/<region>/<channel>.json` — the live id for each of the six units, one file per channel per region. Channels are environments and differ on purpose. A region can move alone, though both normally match and one promote writes both. Called the **pointer** below. |
@@ -22,7 +22,7 @@ Live: <https://pointer-deploy.fly.dev/>
 | **Promote** | The deploy. It writes a new pointer, and does nothing else. |
 | **Contract** | The type surface between the shell and a sub-app. Its identity is a hash of its own content. |
 | **Server** | The one container image that serves the page. It reads a pointer and writes HTML, and holds no unit files. |
-| **Service** | A second app, `pointer-deploy-api`, deployed on its own schedule. It answers the page's data — counters, limits, labels, flags — over 13 routes. |
+| **Service** | A second separate app, `pointer-deploy-api`, deployed on its own schedule. It answers the page's data — counters, limits, labels, flags — over 13 routes. |
 | **Browser** | The visitor's browser. It fetches each unit from the store, checks every file against the digest the page declared, and calls the service itself. |
 
 ---
@@ -51,33 +51,41 @@ The application and the server do not have to be monolithic and coupled by using
 
 The pointer manifest and the unit catalogue are files in the object store, so they are contents rather than parts.
 
-| Part | What it is | Job |
-| --- | --- | --- |
-| **Object store** | A Tigris bucket on Fly | Holds every published unit's files under `units/<name>/<id>/`, the live composition per channel under `manifests/<region>/<channel>.json`, and every reachable unit id at `units/catalogue.json` |
-| **Server** | One container image, `pointer-deploy` | Reads its channel and region's pointer, writes HTML naming each unit's own files, and serves the catalogue at `GET /units` |
-| **Service** | A second app, `pointer-deploy-api`, on its own deploy schedule | Answers the page's data over 13 routes — counters, limits, labels, flags — and publishes which versions it serves and which fields it retires. One `POST` changes what a panel draws, with no deploy |
-| **Browser** | The visitor's browser | Fetches each unit from the store on first load only, checks every file against the digest the page declared, then calls the service itself |
+| Part | Job |
+| --- | --- |
+| **Object store** | Holds every published unit's files under `units/<name>/<id>/`, the live composition per channel under `manifests/<region>/<channel>.json`, and every reachable unit id at `units/catalogue.json` |
+| **Server** | Reads its channel and region's pointer, writes HTML naming each unit's own files, and serves the catalogue at `GET /units` |
+| **Service** | Answers the page's data over 13 routes — counters, limits, labels, flags — and publishes which versions it serves and which fields it retires. One `POST` changes what a panel draws, with no deploy |
+| **Browser** | Fetches each unit from the store on first load only, checks every file against the digest the page declared, then calls the service itself |
 
 ### One request, end to end
 
 ```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant S as Server (one image)
-    participant T as Object store
+flowchart LR
+    B["Browser"]
+    S["Server<br/>one image · no unit files"]
+    A["Service<br/>pointer-deploy-api"]
 
-    B->>S: GET / with Host qa.example.com
-    Note over S: Host picks the channel
-    S->>T: GET manifests/eu/qa.json
-    T-->>S: which unit is live, per unit
-    Note over S: units/catalogue.json is read from cache only,<br/>so a cold or missing catalogue costs the<br/>switcher entries and the visitor no wait
-    S-->>B: HTML naming each unit's own files
-    B->>T: GET units/shell/43ca0019/index-3wgagyzf.js
-    B->>T: GET units/alpha/9b855c4b/alpha-z9ev874b.js
-    B->>T: GET units/bravo/483316f3/bravo-4vf0ywmv.js
+    subgraph ST["Object store"]
+        direction TB
+        M["manifests/eu/qa.json"]
+        U1["units/shell/43ca0019/"]
+        U2["units/alpha/9b855c4b/"]
+        U3["units/bravo/483316f3/"]
+        U4["…and three more units"]
+    end
+
+    B -- "1 · GET / — the Host header picks the channel" --> S
+    S -- "2 · reads the pointer" --> M
+    S -- "3 · HTML naming each unit's own files" --> B
+    B -- "4 · every unit, in parallel" --> U1
+    B --> U2
+    B --> U3
+    B --> U4
+    B -- "5 · counters, limits, labels, flags" --> A
 ```
 
-Note the last two lines. Alpha and bravo come from **different directories**, written at different times.
+The server reads one small JSON file and nothing else. Every unit directory was written at a different time, and the pointer is the only thing that joins them. `units/catalogue.json` is read from cache only, so a cold or missing catalogue costs the switcher its entries and the visitor no wait.
 
 ### The whole deploy
 
@@ -103,7 +111,7 @@ Nobody memorises a hash. `publish` prints the new ids on stdout as JSON, so a sc
 
 ---
 
-## 4. The requirements, and how each is met
+## The requirements, and how each is met
 
 The `.feature` files **are** the requirements. They are also the acceptance suite — one artefact, never paraphrased into a separate test. Every row names the file that holds it and how many scenarios stand behind it; the list under each table says how it is met.
 
@@ -193,7 +201,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 ---
 
-## 5. What this changes for each role
+## What this changes for each role
 
 | Role | What is different |
 | --- | --- |
@@ -204,7 +212,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 ---
 
-## 6. What it costs — measured, not estimated
+## What it costs — measured, not estimated
 
 | | Value |
 | --- | --- |
@@ -219,7 +227,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 ---
 
-## 7. Deliberate limits
+## Deliberate limits
 
 These are decisions, not gaps. Each is written down so nobody mistakes it for an oversight.
 
@@ -236,7 +244,7 @@ These are decisions, not gaps. Each is written down so nobody mistakes it for an
 
 ---
 
-## 8. How it is verified
+## How it is verified
 
 Green checks are a necessary condition for shipping and never a sufficient one, so this project carries several independent kinds of evidence.
 
@@ -264,7 +272,7 @@ Four conventions hold the whole thing up:
 
 ---
 
-## 9. Not done
+## Not done
 
 | | What it needs |
 | --- | --- |

@@ -826,3 +826,49 @@ describe("parseManifest", () => {
     expect(m2.apps.alpha!.marker).toBe("");
   });
 });
+
+describe("priming at boot", () => {
+  test("a primed document is served without a request of its own", async () => {
+    const h = harness();
+    await h.store.prime(URL_QA);
+    expect(h.state.calls).toBe(1);
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(1);
+  });
+
+  test("a primed document is there for the first peek", async () => {
+    const h = harness();
+    await h.store.prime(URL_QA);
+    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(1);
+  });
+
+  // The reason `prime` exists rather than a bare `get`. A boot read that found
+  // nothing must leave the entry as it was: a stamped-and-empty entry reads as
+  // fresh, and every request for a whole TTL is refused without one attempt.
+  test("a prime that found nothing leaves the entry blank", async () => {
+    const h = harness();
+    h.state.respond = async () => new Response("no", { status: 500 });
+    await h.store.prime(URL_QA);
+    expect(h.state.calls).toBe(1);
+
+    h.state.respond = async () => Response.json(doc("alpha"));
+    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(h.state.calls).toBe(2);
+  });
+
+  test("a prime never rejects", async () => {
+    const h = harness();
+    h.state.respond = async () => {
+      throw new Error("the store is unreachable");
+    };
+    expect(await h.store.prime(URL_QA)).toBeUndefined();
+  });
+
+  test("a second prime of the same document reads once", async () => {
+    const h = harness();
+    await h.store.prime(URL_QA);
+    await h.store.prime(URL_QA);
+    expect(h.state.calls).toBe(1);
+  });
+});

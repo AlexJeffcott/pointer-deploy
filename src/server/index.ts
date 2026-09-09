@@ -51,6 +51,29 @@ const apiVersions = API_BASE
 
 const handedOut = createServedLog();
 
+// Every document a request reads, read once before the port opens.
+//
+// Waited for, and that is the whole point: the history and the catalogue are
+// `peek`ed on the request path, so a process that has not read them yet renders
+// a page with NO version switcher on it. Firing these and not waiting leaves
+// exactly that race, because the first request beats the store.
+//
+// The wait costs the first visitor nothing they were not already paying: it is
+// their own request that woke this machine, and without this they would wait on
+// the same read from inside the handler. Every fetch here is bounded by
+// MANIFEST_TIMEOUT_MS and its deadline, so an unreachable store delays the port
+// by that much and never holds it shut. A prime that found nothing leaves no
+// trace, so the first request still makes its own attempt.
+const primed = [
+  catalogues.prime(CATALOGUE_URL),
+  ...(apiVersions ? [apiVersions.prime(apiVersionsUrl(API_BASE))] : []),
+];
+for (const channel of new Set(Object.values(TABLE))) {
+  primed.push(manifests.prime(manifestUrl(MANIFEST_BASE, REGION, channel)));
+  primed.push(histories.prime(historyUrl(MANIFEST_BASE, REGION, channel)));
+}
+await Promise.all(primed);
+
 const json = (body: unknown) =>
   new Response(JSON.stringify(body, null, 2), {
     status: 200,

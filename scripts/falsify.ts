@@ -1038,6 +1038,42 @@ const MUTATIONS: Mutation[] = [
     replace: "    if (false) {",
     unitTest: "reports a built app that no view places",
   },
+
+  // --- the boot prime ------------------------------------------------------
+
+  {
+    // The switcher's two documents are `peek`ed on the request path, so a
+    // process that has read neither renders no switcher at all. Only a
+    // scenario that restarts the server can see it: every other one has
+    // already made a request.
+    name: "the channel history is not read at boot",
+    file: "src/server/index.ts",
+    find: "  primed.push(histories.prime(historyUrl(MANIFEST_BASE, REGION, channel)));",
+    replace: "",
+    scenario: "The first visitor to a machine that has just started is offered the switcher",
+    live: true,
+  },
+  {
+    // Observed red before the wait was added. The reads all start, and the
+    // request that woke the machine beats them, so the page it gets is the one
+    // a process that has read nothing renders.
+    name: "the boot reads are started and not waited for",
+    file: "src/server/index.ts",
+    find: "await Promise.all(primed);",
+    replace: "void Promise.all(primed);",
+    scenario: "The first visitor to a machine that has just started is offered the switcher",
+    live: true,
+  },
+  {
+    // What separates `prime` from a bare `get`. A boot read that failed and
+    // was remembered reads as fresh-and-empty, and every request for a whole
+    // TTL is then refused without one attempt of its own.
+    name: "a failed prime is remembered",
+    file: "src/server/manifest.ts",
+    find: "      if (e.value === null) e.checkedAt = before;",
+    replace: "",
+    unitTest: "a prime that found nothing leaves the entry blank",
+  },
 ];
 
 // The runner, named the long way for the reason playwright.config.ts gives:

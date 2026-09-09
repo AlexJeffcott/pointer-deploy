@@ -50,6 +50,18 @@ Feature: Choosing which build the page runs
     Then the request is refused because this server cannot feed that shell
 
   @live @test-channel
+  Scenario: The first visitor to a machine that has just started is offered the switcher
+    The switcher's options come from two documents the request path only `peek`s,
+    so a process that has read neither has nothing to offer and renders no
+    switcher at all. Both are read once at boot for that reason. Every other
+    scenario here has already made a request before it asserts anything, so this
+    is the only one that can see the difference.
+
+    Given the server has just started and answered nobody
+    When a visitor loads the qa origin
+    Then the page offers a version switcher for every unit
+
+  @live @test-channel
   Scenario: The page says how long the unit it serves has been served
     When a visitor loads the qa origin
     Then the "alpha" unit it serves says it started when build "one"'s stopped

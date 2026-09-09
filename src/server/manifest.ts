@@ -41,6 +41,7 @@ export type Manifest = ManifestV1 | ManifestV2 | ManifestV3;
 export type DocumentStore<T> = {
   get(url: string): Promise<T | null>;
   peek(url: string): T | null;
+  prime(url: string): Promise<void>;
   stateOf(url: string): ManifestState;
 };
 
@@ -290,6 +291,22 @@ export function createDocumentStore<T>(
         ageMs: e && e.fetchedAt !== 0 ? now() - e.fetchedAt : null,
         lastError: e ? e.lastError : null,
       };
+    },
+
+    /**
+     * Reads a document once at boot, so the first request does not pay for it.
+     *
+     * A prime that finds nothing leaves NO trace: `checkedAt` goes back to what
+     * it was. Without that, the first real request reads a fresh-and-empty
+     * entry and is refused for a whole TTL, where with no prime at all it would
+     * have made its own attempt and succeeded. Never rejects.
+     */
+    async prime(url: string): Promise<void> {
+      const e = entryFor(url);
+      if (e.inflight || e.value) return;
+      const before = e.checkedAt;
+      await beginRefresh(url, e);
+      if (e.value === null) e.checkedAt = before;
     },
 
     peek(url: string): T | null {

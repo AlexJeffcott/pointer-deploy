@@ -226,7 +226,26 @@ export class PointerWorld {
     this.localServer = true;
   }
 
+  /**
+   * Starts the server again on the environment it last had.
+   *
+   * The one state no other step can arrange: a process that has read nothing
+   * and answered nobody. Every other scenario has already made a request by the
+   * time it asserts anything, which is exactly the state the boot-time prime is
+   * about.
+   */
+  async restartServer(): Promise<void> {
+    if (!this.lastEnv) throw new Error("no server has been started, so none can be restarted");
+    this.server?.kill();
+    this.server = null;
+    this.lastResponse = null;
+    await this.spawnServer(this.lastEnv);
+  }
+
+  private lastEnv: Record<string, string> | null = null;
+
   private async spawnServer(env: Record<string, string>): Promise<void> {
+    this.lastEnv = env;
     const proc = Bun.spawn(["bun", "src/server/index.ts"], {
       env: {
         ...process.env,
