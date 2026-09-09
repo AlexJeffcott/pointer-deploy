@@ -31,13 +31,13 @@
 
 14. One document, `cache-control: no-store, must-revalidate`. It contains, in order (`src/server/html.ts:230-243`):
     - `<link rel="stylesheet">` — the shell's CSS in the store, with its sha384.
-    - `<script type="importmap">` — five bare specifiers, `preact`, `preact/hooks`, `preact/jsx-runtime`, `@preact/signals` and `@pointer/shell`, all mapped to files in the **shell's** directory. The map's `integrity` section covers every file the page may import, not only those five: the shell's entry, its shared chunks and each panel's bundle — 15 entries in the build measured below.
+    - `<script type="importmap">` — the shell unit's own `imports` map, served as recorded with every file resolved against the **shell's** directory (`src/server/html.ts:85-92`). The server names no specifier, so the count is whatever that shell build wrote. This build writes five: `preact`, `preact/hooks`, `preact/jsx-runtime`, `@preact/signals` and `@pointer/shell` (`build.ts:268-274`). The map's `integrity` section is assembled separately and covers every `.js` file the shell and each app declare, not only the mapped specifiers — the shell's entry, its shared chunks and each panel's bundle, 15 entries in the build measured below (`src/server/html.ts:100-109`).
     - `<div id="app">`.
-    - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, all six unit ids and markers, the contract hash, and `apiBase`.
+    - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, a `units` entry for the shell and every app the manifest carries, each with its id, commit and marker (`src/server/html.ts:17-22`), the contract hash, and `apiBase`. Six units here.
     - `<script id="__APPS__">` — each sub-app's JS URL, CSS URL and CSS digest.
     - `<script id="__VERSIONS__">` — the switcher's options, one entry per unit. Present here, because gate B passed.
     - `<script type="module" src="…units/shell/<id>/index-<hash>.js" integrity="sha384-…">`.
-    - `<link rel="modulepreload">` for **all five** sub-app bundles, and `<link rel="preload" as="style">` for their five stylesheets.
+    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). Five and five in this composition. A sixth sub-app in the pointer produces a sixth pair from the deployed binary, unrebuilt.
 15. The `content-security-policy` header: `default-src 'none'`; `script-src` = the store origin plus the **sha256 of the import map's own bytes**; `style-src` = the store origin; `connect-src` = the service origin and nothing else; `base-uri`, `form-action`, `frame-ancestors` all `'none'`.
 16. Four reading headers: `x-manifest-age`, `x-manifest-refresh`, `x-shell-blocks`, `x-shell-api`.
 17. `handedOut.record()` adds this composition to what `GET /compositions` reports.
@@ -47,7 +47,7 @@
 18. The CSP applies to everything below it.
 19. The shell stylesheet is fetched from the store, checked against its sha384, and blocks the first paint.
 20. The import map is read. It must be parsed before any module import.
-21. The parser reaches the end of `<body>` and starts ten more store fetches: five sub-app bundles and five stylesheets. All are `public, max-age=31536000, immutable`.
+21. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — ten in this composition. All are `public, max-age=31536000, immutable`.
 22. The shell module is fetched and checked. Its imports of `preact` and the rest resolve through the map to more files in the shell's directory, each checked against the map's integrity entry.
 23. Any file whose bytes do not match its digest is **not executed**. That is the only place the refusal is observable.
 
@@ -93,14 +93,14 @@
 
 ## The shape
 
-Three distinct request fans, not one chain: **1 request to the server**, then **19 to the store**, then **10 to the service**.
+Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for plus what each mounted panel asks for. Measured in this composition: **1**, then **19**, then **10**.
 
-| Fan | Count | What |
-| --- | --- | --- |
-| Server | 1 | The HTML |
-| Store | 19 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 10 panel files, one JS and one CSS each |
-| Service | 10 | The 8 the shell asks for at steps 38-40, plus `/v1/counters/alpha` and `/v1/counters/bravo` from the two panels that mount |
+| Fan | What sets the count | Here | What |
+| --- | --- | --- | --- |
+| Server | always 1 | 1 | The HTML |
+| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 19 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 10 panel files |
+| Service | the 8 this shell asks for at steps 38-40, plus one `/v1/counters/<app>` for each panel the view mounts | 10 | `/v1/counters/alpha` and `/v1/counters/bravo` from the two panels `/` mounts |
 
-Only the 9 shell files are needed to paint. Of the 10 panel files, 6 belong to charlie, delta and echo, which the `/` view never mounts.
+Only the shell's own files are needed to paint — 9 of them here. The panel files are fetched for every sub-app the manifest carries, and only the apps the route names are imported, so the rest arrive and are never run: on `/` that is charlie, delta and echo, 6 of the 10 panel files.
 
 Counted in a real Chrome against a six-unit composition, one cold page load. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
