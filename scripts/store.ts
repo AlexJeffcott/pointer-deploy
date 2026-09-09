@@ -290,6 +290,49 @@ export async function getObjectText(cfg: StoreConfig, key: string): Promise<stri
   return res.text();
 }
 
+/**
+ * Two cache lifetimes. The first covers files whose name already names their
+ * bytes. The second sets the propagation window.
+ *
+ * 31536000 s is 365 days, the conventional ceiling for a cache lifetime. The
+ * year is not what pays: a browser evicts under storage pressure long before
+ * it. `immutable` is what pays. Without it a reload revalidates every
+ * subresource that is still fresh, so the browser sends one conditional request
+ * per file. A page here names twelve before the import map's own entries: the
+ * shell's script and stylesheet, and five apps with theirs. With `immutable`
+ * the browser sends none of those. The saving lands on the reload, not on the
+ * first visit.
+ *
+ * A year is safe because a unit id is a hash of the bytes and each file name
+ * carries its own hash, so different bytes always get a different URL, and the
+ * browser checks every file against a sha384 before it runs it. One object
+ * breaks that rule. `unit.json` carries this header and is rewritten in place
+ * when the claims beside the bundle move while the id does not
+ * (scripts/publish.ts:172-215), so anything holding the old copy may keep it
+ * for a year: the promote gate reads it (scripts/promote.ts:319), the catalogue
+ * rebuild reads it, and scripts/e2e-member-gate.ts:162 reads it over the public
+ * URL.
+ *
+ * `bun run scripts/probe-edge-cache.ts` measures it. Write an object, read it
+ * three times to fill any cache, rewrite it in place, and read until the new
+ * bytes come back: 0.17 s on 2026-09-09, on all three paths - unsigned read,
+ * signed read, and the same test at max-age=5. So the store does not serve the
+ * superseded copy and the rewrite above is safe. One client, one region. A read
+ * from inside a Fly machine, and a read at an edge other than the one the
+ * client used, are not measured.
+ *
+ * The pointer manifest, the channel history and the unit catalogue get 5 s.
+ * That number is the rollback window, not a traffic setting. The server caches
+ * the pointer for 10 s and single-flights the refresh (src/server/manifest.ts),
+ * so one machine asks the store at most 6 times a minute whatever the visitor
+ * count. Raising 5 to 60 would save 5 of those 6 requests and add 55 s to every
+ * rollback, and it would let two edges serve different builds for up to a
+ * minute - a visitor who reloads inside that minute can go backwards.
+ *
+ * 5 + 10 is the 15 s window quoted in OVERVIEW.md and README.md and asserted by
+ * PROPAGATION_WINDOW_MS in features/support/world.ts. Change this and change
+ * those.
+ */
 export const CACHE_IMMUTABLE = "public, max-age=31536000, immutable";
 export const CACHE_POINTER = "public, max-age=5";
 
