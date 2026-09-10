@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  admitsMarker,
   hostTable,
   resolveChannel,
   resolveRegion,
@@ -129,5 +130,46 @@ describe("resolveTarget", () => {
 
   test("is null when the host is unknown", () => {
     expect(resolveTarget("nope.example.com", dev, "eu")).toBeNull();
+  });
+});
+
+describe("admitsMarker, §30", () => {
+  const takes = (channel: Parameters<typeof admitsMarker>[0], marker: string) =>
+    admitsMarker(channel)(marker);
+
+  test("every channel takes a build nobody marked", () => {
+    for (const channel of ["prod", "qa", "test-prod", "test-qa"] as const) {
+      expect(`${channel} takes unmarked: ${takes(channel, "")}`).toBe(
+        `${channel} takes unmarked: true`,
+      );
+    }
+  });
+
+  test("qa takes a build a pull request made", () => {
+    expect(takes("qa", "pr-42")).toBe(true);
+    expect(takes("qa", "pr-1")).toBe(true);
+  });
+
+  test("and nothing else that carries a marker", () => {
+    for (const marker of ["e2e", "one", "pr", "pr-", "pr-x", "PR-42", "xpr-42", "pr-42x"]) {
+      expect(`qa takes ${JSON.stringify(marker)}: ${takes("qa", marker)}`).toBe(
+        `qa takes ${JSON.stringify(marker)}: false`,
+      );
+    }
+  });
+
+  test("prod takes no marker at all, a pull request's included", () => {
+    expect(takes("prod", "pr-42")).toBe(false);
+    expect(takes("prod", "e2e")).toBe(false);
+  });
+
+  test("the suite's own channels take every marker, because that is where it promotes", () => {
+    for (const channel of ["test-qa", "test-prod"] as const) {
+      for (const marker of ["", "e2e", "pr-42", "anything"]) {
+        expect(`${channel} takes ${JSON.stringify(marker)}: ${takes(channel, marker)}`).toBe(
+          `${channel} takes ${JSON.stringify(marker)}: true`,
+        );
+      }
+    }
   });
 });

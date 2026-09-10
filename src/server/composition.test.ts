@@ -722,10 +722,47 @@ describe("mergeKnown", () => {
       updatedAt: "t",
       units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
     };
-    expect(mergeKnown(history, withHarness, true).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+    expect(
+      mergeKnown(history, withHarness, () => true).units.alpha?.map((e) => e.unit.unitId),
+    ).toEqual(["a1", "a0", "a7"]);
+  });
+
+  test("the predicate decides one marker at a time, §30", () => {
+    const marked: ChannelHistory = {
+      schema: 1,
+      updatedAt: "t",
+      units: {
+        alpha: [
+          { unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] },
+          { unit: unit("alpha", "a8", { marker: "pr-42" }), contracts: ["c2"] },
+          { unit: unit("alpha", "a9"), contracts: ["c2"] },
+        ],
+      },
+    };
+    const admits = (m: string) => m === "" || m === "pr-42";
+    expect(mergeKnown(history, marked, admits).units.alpha?.map((e) => e.unit.unitId)).toEqual([
       "a1",
       "a0",
-      "a7",
+      "a8",
+      "a9",
+    ]);
+  });
+
+  test("the default takes unmarked builds and nothing else", () => {
+    const marked: ChannelHistory = {
+      schema: 1,
+      updatedAt: "t",
+      units: {
+        alpha: [
+          { unit: unit("alpha", "a8", { marker: "pr-42" }), contracts: ["c2"] },
+          { unit: unit("alpha", "a9"), contracts: ["c2"] },
+        ],
+      },
+    };
+    expect(mergeKnown(history, marked).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+      "a1",
+      "a0",
+      "a9",
     ]);
   });
 

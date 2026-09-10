@@ -14,7 +14,7 @@ import {
   type UnitSurface,
 } from "./composition.ts";
 import { createDocumentStore, createManifestStore, manifestUrl } from "./manifest.ts";
-import { hostTable, resolveRegion, resolveTarget } from "./origins.ts";
+import { admitsMarker, hostTable, resolveRegion, resolveTarget } from "./origins.ts";
 import { shellResponse } from "./html.ts";
 import { blocksWritten } from "./provides.ts";
 import { createServedLog } from "./served.ts";
@@ -139,16 +139,16 @@ const server = Bun.serve({
       // makes a visitor wait on the store, so a catalogue that is not there yet
       // costs an override its target and costs the page nothing.
       //
-      // The suite's own channels take a build the harness made; a real channel
-      // does not, which is the rule `promote` applies at deploy time applied
-      // again where a visitor chooses.
+      // The suite's own channels take every marked build, `qa` takes the ones a
+      // pull request made, and `prod` takes none - which is the rule `promote`
+      // applies at deploy time applied again where a visitor chooses, §30.
       const history =
         channelHistory === null
           ? null
           : mergeKnown(
               channelHistory,
               catalogues.peek(CATALOGUE_URL),
-              target.channel.startsWith("test-"),
+              admitsMarker(target.channel),
             );
       if (history) {
         const wanted = new URL(req.url).searchParams;

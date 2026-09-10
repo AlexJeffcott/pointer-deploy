@@ -34,6 +34,28 @@ const FLY_TO_REGION: Record<string, Region> = {
   lax: "us",
 };
 
+/**
+ * A build a pull request made, and the only marker a real channel will compose
+ * from the catalogue. CI sets `BUILD_MARKER=pr-<number>`, §30.
+ */
+const PREVIEW = /^pr-\d+$/;
+
+/**
+ * Which markers this channel will take from the unit CATALOGUE, §30.
+ *
+ * Not from its own history: a channel that really served a marked unit keeps
+ * it, because it really served it. This decides what a channel may reach for
+ * that it has never served, which is the question a preview asks.
+ *
+ * `prod` is the fallthrough on purpose. A channel added later lands on the
+ * strictest rule and has to be named here to get any other one.
+ */
+export function admitsMarker(channel: Channel): (marker: string) => boolean {
+  if (channel.startsWith("test-")) return () => true;
+  if (channel === "qa") return (marker) => marker === "" || PREVIEW.test(marker);
+  return (marker) => marker === "";
+}
+
 export function hostTable(isProduction: boolean): Record<string, Channel> {
   return isProduction ? DEPLOYED : { ...DEPLOYED, ...LOCAL };
 }

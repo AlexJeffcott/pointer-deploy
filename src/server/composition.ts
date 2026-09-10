@@ -79,18 +79,24 @@ export function catalogueUrl(manifestBase: string): string {
  * only adds ids this channel has never served - which is the point, because
  * that is how an operator looks at a build before deploying it.
  *
- * A build the harness made is added only on a `test-*` channel. The catalogue
- * lists every published unit, marker and all, because a record that leaves out
- * 112 of 129 units is not the record of what has been published. Which of them
- * a channel may serve is a different question, and it is answered here, where
- * the channel is known - the same rule `promote` applies, applied where a
- * visitor chooses. A marked unit already IN a channel's history stays: that
- * channel really served it.
+ * A marked build is added only where the channel admits that marker. The
+ * catalogue lists every published unit, marker and all, because a record that
+ * leaves out 112 of 129 units is not the record of what has been published.
+ * Which of them a channel may serve is a different question, and it is answered
+ * here, where the channel is known - the same rule `promote` applies, applied
+ * where a visitor chooses. A marked unit already IN a channel's history stays:
+ * that channel really served it.
+ *
+ * `admits` is a predicate rather than a flag, because the answer stopped being
+ * yes-or-no when a pull request got a URL: a `test-*` channel takes every
+ * marker, `qa` takes `pr-<number>` as well as none, and `prod` takes none. The
+ * policy itself is `admitsMarker` in `origins.ts`, where a channel is a type,
+ * §30.
  */
 export function mergeKnown(
   history: ChannelHistory,
   catalogue: Catalogue | null,
-  allowMarked = false,
+  admits: (marker: string) => boolean = (marker) => marker === "",
 ): ChannelHistory {
   if (catalogue === null) return history;
   const names = new Set([...Object.keys(history.units), ...Object.keys(catalogue.units)]);
@@ -103,7 +109,7 @@ export function mergeKnown(
       ...served,
       // Stryker disable next-line ArrayDeclaration: the empty array cannot be seen.
       ...(catalogue.units[name] ?? []).filter(
-        (e) => !already.has(e.unit.unitId) && (allowMarked || (e.unit.marker ?? "") === ""),
+        (e) => !already.has(e.unit.unitId) && admits(e.unit.marker ?? ""),
       ),
     ];
   }

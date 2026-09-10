@@ -10,6 +10,12 @@ export type StubStore = {
   pointRaw(channel: string, body: string): void;
   /** Opt-in. Nothing serves a history unless a scenario asks for one. */
   pointHistory(channel: string, body: unknown): void;
+  /**
+   * Opt-in, and separate from the histories on purpose: the catalogue is ONE
+   * object for the whole store, and what a channel may take from it is the
+   * question §30 asks.
+   */
+  pointCatalogue(body: unknown): void;
   goDown(): Promise<void>;
   comeUp(): void;
   setDelay(ms: number): void;
@@ -85,9 +91,36 @@ export function historyDoc(
   };
 }
 
+/**
+ * A catalogue holding one extra unit per name, marked as asked, §30.
+ *
+ * The ids do not collide with `historyDoc`'s, because the point of a catalogue
+ * entry is that the channel has never served it.
+ */
+export function catalogueDoc(
+  ids: string | Partial<Record<"shell" | (typeof APPS)[number], string>>,
+  marker: string,
+  assetBase = "https://assets.test",
+) {
+  const doc = historyDoc(ids, assetBase);
+  const marked = (entries: Array<{ unit: Record<string, unknown>; contracts: string[] }>) =>
+    entries.map((e) => ({ ...e, unit: { ...e.unit, marker } }));
+  return {
+    schema: 1,
+    updatedAt: doc.updatedAt,
+    units: Object.fromEntries(
+      Object.entries(doc.units).map(([name, entries]) => [
+        name,
+        marked(entries as Array<{ unit: Record<string, unknown>; contracts: string[] }>),
+      ]),
+    ),
+  };
+}
+
 export async function startStubStore(region = "eu"): Promise<StubStore> {
   const bodies = new Map<string, string>();
   const histories = new Map<string, string>();
+  let catalogue: string | null = null;
   let delayMs = 0;
   let server: ReturnType<typeof Bun.serve> | null = null;
   let port = 0;
@@ -102,6 +135,14 @@ export async function startStubStore(region = "eu"): Promise<StubStore> {
     // request path went uncaught, because the catalogue is exactly such a key
     // and its 404 came back instantly however slow the store was. TODO §28.
     if (delayMs) await Bun.sleep(delayMs);
+
+    // One key for the whole store, beside `manifests/` rather than inside it -
+    // the server reads it off the manifest base with `../`, so the stub has to
+    // answer it at the same place a bucket would.
+    if (pathname === "/units/catalogue.json") {
+      if (catalogue === null) return new Response("not found", { status: 404 });
+      return new Response(catalogue, { headers: { "content-type": "application/json" } });
+    }
 
     const asHistory = /^\/manifests\/([^/]+)\/([^/]+)\.history\.json$/.exec(pathname);
     if (asHistory) {
@@ -141,6 +182,9 @@ export async function startStubStore(region = "eu"): Promise<StubStore> {
     },
     pointHistory(channel, body) {
       histories.set(channel, JSON.stringify(body));
+    },
+    pointCatalogue(body) {
+      catalogue = JSON.stringify(body);
     },
     async goDown() {
       await server?.stop(true);

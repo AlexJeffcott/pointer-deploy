@@ -623,6 +623,64 @@ const MUTATIONS: Mutation[] = [
     replace: "      const channelHistory = await histories.get(historyUrl(MANIFEST_BASE, target.region, target.channel));",
     scenario: "A visitor is never made to wait for the store",
   },
+  // --- a pull request's preview, §30 ---------------------------------------
+  //
+  // One predicate decides what a channel takes from the catalogue that it has
+  // never served. Every mutation here loosens or tightens it by one step.
+
+  {
+    // The rule this replaced was `allowMarked`, a boolean, and this is what it
+    // would collapse back to on a real channel.
+    name: "qa admits every marker",
+    file: "src/server/origins.ts",
+    find: '  if (channel === "qa") return (marker) => marker === "" || PREVIEW.test(marker);',
+    replace: '  if (channel === "qa") return () => true;',
+    scenario: "A marker qa does not admit is refused",
+  },
+  {
+    // And the other way. A channel that takes no marker at all has no preview,
+    // which is the state this item started from.
+    name: "qa admits no marker",
+    file: "src/server/origins.ts",
+    find: '  if (channel === "qa") return (marker) => marker === "" || PREVIEW.test(marker);',
+    replace: '  if (channel === "qa") return (marker) => marker === "";',
+    scenario: "A build a pull request made can be asked for on qa",
+  },
+  {
+    // The fallthrough is the strict one on purpose, so a channel added later
+    // has to be named to get anything looser. This gives prod qa's rule.
+    name: "every real channel gets qa's rule",
+    file: "src/server/origins.ts",
+    find: '  return (marker) => marker === "";\n}',
+    replace: '  return (marker) => marker === "" || PREVIEW.test(marker);\n}',
+    scenario: "prod takes no marker at all, a pull request's included",
+  },
+  {
+    // A marker is matched whole or not at all. Unanchored at the front, a unit
+    // marked by anything ending in a pull request's marker gets in.
+    name: "the preview pattern matches a marker's tail",
+    file: "src/server/origins.ts",
+    find: "const PREVIEW = /^pr-\\d+$/;",
+    replace: "const PREVIEW = /pr-\\d+$/;",
+    scenario: "A marker with something in front of a pull request's is refused",
+  },
+  {
+    name: "the preview pattern matches a marker's head",
+    file: "src/server/origins.ts",
+    find: "const PREVIEW = /^pr-\\d+$/;",
+    replace: "const PREVIEW = /^pr-\\d+/;",
+    scenario: "A marker with something after a pull request's is refused",
+  },
+  {
+    // The policy is built and then ignored: `mergeKnown` takes every catalogue
+    // entry whatever its marker. Nothing above this line can catch that,
+    // because every one of them mutates the predicate rather than its use.
+    name: "the marker policy is never consulted",
+    file: "src/server/composition.ts",
+    find: '        (e) => !already.has(e.unit.unitId) && admits(e.unit.marker ?? ""),',
+    replace: "        (e) => !already.has(e.unit.unitId),",
+    scenario: "A marker qa does not admit is refused",
+  },
   {
     // Without the rebuild, the catalogue is whatever the last publish that
     // happened to write it left behind, and a unit published after it is
