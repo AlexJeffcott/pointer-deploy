@@ -26,7 +26,7 @@ Open items and what is done. Read this first after a context clear.
 | Contract | `9d1b0a3` (`hello-2026-09`), and it is the only one the registry holds |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
-| Deploy records | `deploys/<taken>-<channel>/`, written by `bun run shoot`. The shots, the pointer bytes for every region, and one hand-written line |
+| Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line |
 | Pull requests | Every change goes through one. `CLAUDE.md` is the rule, `.github/pull_request_template.md` the questions, `bun run pr` the URLs and the two sets of shots |
 | Secrets | `.env.local`, gitignored |
 
@@ -38,7 +38,7 @@ bun run promote qa --from-build          # everything just built
 bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it back
 bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
-bun run shoot --note "..."               # what the channel serves now, into deploys/
+bun run shoot --out <dir>                # the pictures, into the directory promote opened
 bun run pr                               # the review URLs and both sets of shots
 ```
 
@@ -48,21 +48,23 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
-### 34. The deploy record is half written
+### 34. The deploy record is written and not gathered
 
-`bun run shoot` files the images, the pointer bytes for every region and one hand-written line, gated so that no shot can be filed under a composition it is not a picture of. `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
+`bun run promote` opens `deploys/<composedAt>-<channel>/` on a real channel and writes the act and the pointer bytes into it; `bun run shoot --out <dir>` fills in the pictures, gated so that no shot can be filed under a composition it is not a picture of; `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
 
 | Missing | What it costs |
 | --- | --- |
-| `promote` writes no record of its own | Nothing says which command was run, what it refused, or which units it carried rather than moved. `shoot` reads the result and cannot read the act. **This is also the cheapest way to make the durability claim true**: the manifest bytes appended at promote time are a complete record of what was served, in about 200 bytes, and they do not depend on a service, a clock or a browser |
 | No `CHANGELOG.md` | The records are a directory listing, and the line in each `notes.md` is gathered nowhere |
-| `scripts/` is outside the mutate scope | `scripts/record.test.ts` holds 32 tests over every decision `shoot` and `pr` make without a browser, and `stryker.config.json` mutates `src/server` and `api` only. Adding `scripts/record.ts` to that scope is the check on the tests; the score is unmeasured, and `thresholds.break` is 96 for the whole tree |
+| `scripts/` is outside the mutate scope | `scripts/record.test.ts` holds 69 tests over every decision `promote`, `shoot` and `pr` make without a browser or a store, and `stryker.config.json` mutates `src/server` and `api` only. `falsify.ts` now carries five mutations over `scripts/record.ts`, which is a sample and not a score. Adding the file to the mutate scope is the check on the tests; `thresholds.break` is 96 for the whole tree |
+| A promote nobody commits is a record nobody has | The directory is written into the working tree and left there. `bun run pr` refuses a production column that git does not hold at the commit it links, so the failure is caught - one pull request late |
 | A publish from `pr` uses the asset bucket's key | §4 refuses CI that key because it is a production-origin execution key, and `bun run pr` now uses it on a laptop on every pull request. The second Tigris key §4 wants closes both |
 | The picture is not a function of the composition | The gate proves the pointer. `unchecked.apiBase` and `unchecked.renderer` name two of the inputs it does not reach, and the third - `/service` drawing a wall clock - is named in prose and measured by nobody. §29 is the case that bites: the live browser suite writes the greeting audience to the deployed service |
 
 `prod` is not shot at all, and that is §2 rather than this.
 
 **Read cold on 2026-09-10 by `devils-advocate-agent`,** which found 14 defects in the first version. Eight were fixed the same day: the route table iterated production's routes, nothing checked that a linked record was in git, `--out` was an undocumented `--update` that also crossed `deploys/`/`previews/`, the routes came from this tree rather than the deployed nav, `pr` published before checking it could write the body, `git commit` took no pathspec, the newest record was not filtered by channel, and `contract`/`composedAt` came from a different page load than the ids. The rest are the rows above.
+
+**What the promote record closed, and what building it found.** The act is in `promote.json` and the bytes a region's pointer was given are in `manifest.<region>.json`, written where they were PUT rather than read back later from a browser - which is the durability claim, and it now holds for `prod`, where no browser can reach. Two defects surfaced in the verification rather than in review: the record read `dirty` from a tree its own files had just made dirty, and `shoot`'s gate could not tell a promote of the ids a channel already serves from the page that preceded it, because only the stamp moves. Both are fixed, and the second is `servesWanted`. `deploys/2026-09-10T16-33-38Z-qa` is the record of the promote that read them.
 
 ### 31. Claims that need a second unit
 

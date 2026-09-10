@@ -433,7 +433,8 @@ export function staleRefusal(
     return (
       `${dir} holds ${describeIds(record.units)} and ${channel} now serves ${describeIds(live)}. ` +
       `The newest deploy record is not a picture of production, so this run would put a stale ` +
-      `image beside a live one. Run \`bun run shoot\` and commit the record.`
+      `image beside a live one. Run the \`bun run shoot --out <dir>\` line that promote printed - ` +
+      `a bare \`bun run shoot\` would open a second directory for one deploy - and commit the record.`
     );
   }
   return null;
