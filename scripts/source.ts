@@ -29,6 +29,29 @@ const git = (args: string[]): string | null => {
   return r.exitCode === 0 ? new TextDecoder().decode(r.stdout).trim() : null;
 };
 
+/**
+ * git's stdout with the trailing newline gone and NOTHING else.
+ *
+ * `git status --porcelain` puts the path at column 3 of every line, and the
+ * first two columns are a status pair in which a SPACE is a value: " M path"
+ * is "modified in the worktree, unstaged", which is the commonest line there
+ * is. Trimming the whole reading eats that leading space on the first line
+ * alone, and `dirtyPaths` then slices one character into the path.
+ *
+ * Seen in the archive on 2026-09-10: a deploy record read
+ * `dirty tree: cripts/contract.ts`. Every record written from a dirty tree
+ * since the recorder was built has the same character missing from its first
+ * path, and nothing else was wrong - which is why it survived a cold read.
+ */
+export function porcelainOf(stdout: string): string {
+  return stdout.replace(/\n+$/, "");
+}
+
+const gitPorcelain = (args: string[]): string | null => {
+  const r = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  return r.exitCode === 0 ? porcelainOf(new TextDecoder().decode(r.stdout)) : null;
+};
+
 /** What the working directory's source is right now, or null if git cannot say. */
 export function currentSource(): Source | null {
   return readSource()?.source ?? null;
@@ -45,7 +68,7 @@ export function currentSource(): Source | null {
 export function readSource(): { source: Source; porcelain: string } | null {
   const commit = git(["rev-parse", "HEAD"]);
   if (commit === null) return null;
-  const porcelain = git(["status", "--porcelain"]);
+  const porcelain = gitPorcelain(["status", "--porcelain"]);
   if (porcelain === null) return null;
   return { source: { commit, dirty: porcelain !== "" }, porcelain };
 }

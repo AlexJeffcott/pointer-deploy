@@ -37,7 +37,7 @@ Nothing regenerates a shot. A picture of what was served on a date is falsified 
 | | |
 | --- | --- |
 | `bun run typecheck` | |
-| `bun test` | 656 tests on 2026-09-10 |
+| `bun test` | 660 tests on 2026-09-10 |
 | `bun run verify` | the `@local` suite |
 | `bun run falsify` | when the change adds or moves a check |
 | `bun run verify:live` | when the change touches the store, the pointer or the server |

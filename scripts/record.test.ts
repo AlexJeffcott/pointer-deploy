@@ -25,6 +25,7 @@ import {
   unitMoves,
   type ShotEntry,
 } from "./record.ts";
+import { porcelainOf } from "./source.ts";
 import {
   carriedSummary,
   cell,
@@ -560,6 +561,27 @@ describe("servesWanted", () => {
 
   test("a stamp nobody asked for is not compared", () => {
     expect(servesWanted(block, { shell: "s1" }, null)).toBe(true);
+  });
+});
+
+describe("the porcelain a record reads its dirty paths from", () => {
+  // The bug this holds. `git status --porcelain` puts the path at column 3 and
+  // uses a SPACE as a status value, so " M a" means "modified, unstaged" - and
+  // trimming the whole reading eats that space on the first line only.
+  // `dirtyPaths` then slices one character into the path, and the archive says
+  // `cripts/contract.ts`.
+  test("keeps the leading status column and drops only the trailing newline", () => {
+    expect(porcelainOf(" M scripts/contract.ts\n?? deploys/x/\n")).toBe(
+      " M scripts/contract.ts\n?? deploys/x/",
+    );
+    expect(porcelainOf("")).toBe("");
+    expect(porcelainOf("\n")).toBe("");
+  });
+
+  test("and the path survives the round trip", () => {
+    expect(dirtyPaths(porcelainOf(" M scripts/contract.ts\n"))).toEqual([
+      "scripts/contract.ts",
+    ]);
   });
 });
 

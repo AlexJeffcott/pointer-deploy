@@ -44,6 +44,16 @@ mechanism rather than the tree — the readings are real, and they were taken wh
 `hello` existed. `PLAN.md` steps 1, 4 and 5 put three sub-apps back, one per
 step, and each says what it restores.
 
+**And one change in this project's history was not one JSON write.** Going to
+zero sub-apps means a pointer whose `apps` is `{}`, and the image running at the
+time refused one. That is not a change to a unit — it is a change to what a
+manifest may SAY, which is the surface between the pointer and the server, and
+that surface has no gate and no version. A machine already up kept serving what
+it had and said why in `x-manifest-refresh`; a suspended machine woke onto the
+new pointer and answered 503 for its whole region. TODO §36 has the readings and
+the three ways out. Everything below about deploying a unit is unaffected: this
+was a deploy of the server, in the rarer schedule the design already has.
+
 ### The application is deliberately almost nothing
 
 The page is a title, a fixed sidenav and five views, and **not one of them

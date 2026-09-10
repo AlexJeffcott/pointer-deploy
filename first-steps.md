@@ -1,5 +1,26 @@
 # What happens on a first visit
 
+**Read on 2026-09-10, against a composition with one sub-app in it.** `PLAN.md`
+step 0 took the application to the frame alone, so the sub-app half of this
+walkthrough describes a page nothing currently serves. It is kept rather than
+deleted, because steps 1, 4 and 5 put three sub-apps back and every step below
+is the mechanism they will use. Where a step is about a sub-app it says so, and
+the counts at the end carry both readings.
+
+| | With one sub-app, as measured | The frame alone, `PLAN.md` step 0 |
+| --- | --- | --- |
+| Store requests | 11 | **7** — `index.js`, `index.css` and five `shared-*.js` chunks |
+| `<script id="__APPS__">` | present, naming one app | **absent**: `renderShell` writes it only when the manifest names an app |
+| `<link rel="modulepreload">` / `preload` | one of each | **none** |
+| Views | 2 | **5**, and not one of them places a unit |
+
+The frame-alone reading was taken in Chrome against a local server serving
+`test-qa` from the real store, by counting every request the page made. It is
+the same reading the `@browser` scenario in `serving-the-shell.feature` takes,
+one step further on: that scenario counts what a WALK of the whole sidenav costs
+after the load, and the answer is zero.
+
+
 ## 1 · The HTML request
 
 1. The browser sends `GET /` with `Host: pointer-deploy.fly.dev`.

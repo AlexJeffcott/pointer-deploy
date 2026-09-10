@@ -221,6 +221,10 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 
 **What lost its subject.** Going to zero units cost eight checks their subject, on top of the four the previous slate cost. TODO §31 lists every one of them, where it was, and which step brings it back. `bun run e2e` and `bun run e2e:members` exit non-zero rather than passing: a green check that measured nothing is the failure mode `~/projects/CLAUDE.md` exists to name.
 
+**It is not one publish and one promote, and that is the finding.** Every other step in this table is. This one changes what a MANIFEST may say, which is the surface between the pointer and the running image, and that surface has no gate and no version. The first promote wrote a pointer with `apps: {}`, the deployed image threw `manifest names no apps` on it, `ams` kept serving what it had, and `iad` — suspended, so it primed its cache against the new pointer when it woke — answered 503 to every request for `us` until the pointer was put back. TODO §36 carries it, with the readings.
+
+**So step 0 is deployed as far as the running image allows.** `qa` serves the frame with five views, and the composition still names a `hello` unit that no view places: the page warms two files it never imports. Finishing it is a `fly deploy` of the server, and then `bun run promote qa --from-build`. Until that happens the `@live` scenario `The page names no bundle beyond the frame's own` passes against `test-qa` and would fail against the real `qa`.
+
 Steps 1 and 2 are deliberately separate. A planner that forgets everything on reload is not a product, and shipping it first makes persistence a visible increment rather than an assumption nobody watched arrive.
 
 Steps 8 and 12 are the pair to put on one slide: one rolls data back, one rolls code back, and they are the same operation.

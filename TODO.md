@@ -26,7 +26,7 @@ Open items and what is done. Read this first after a context clear.
 | Contract | `9d1b0a3` (`hello-2026-09`), and it is the only one the registry holds |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
-| Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line |
+| Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |
 | Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog`, never written by hand and **gitignored** - every fact in it is already in `deploys/`. `scripts/changelog.test.ts` holds the loader that reads the archive |
 | Pull requests | Every change goes through one. `CLAUDE.md` is the rule, `.github/pull_request_template.md` the questions, `bun run pr` the URLs and the two sets of shots |
 | Secrets | `.env.local`, gitignored |
@@ -74,6 +74,28 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **What the changelog closed.** `CHANGELOG.md` is generated from `deploys/` by `bun run changelog`, never written by hand, and not committed: every fact in it is already in `deploys/`, so a copy in git buys nothing and costs staleness, a check for it, and a conflict on its counts whenever two branches each land a deploy. What has to be right is the archive and the readings, and `scripts/changelog.test.ts` holds the loader against fixtures - the half that had no test at all and had been wrong twice. The archive forced three readings the entry has to get right, each of them a state the records already hold: a promote every one of whose units is `carried` moved nothing and is not a deploy anybody asked for, a record written by `--region eu` names one region and keeps another promote's bytes under an as-served name, and the oldest record has no act at all, so `not recorded` and `nothing` are different cells. The fourth is a state the archive has never held: `warnings` is `[]` in all five records, so the block that lists them is written and tested against the case nobody has seen. Verified by hand on 2026-09-10 with a sixth record staged in the working tree - a moved unit, two warnings, no pictures - which made both tests red, rendered the entry it should, and was then removed.
 
+### 36. A promote can write a pointer the running image cannot parse
+
+`PLAN.md` step 0 took the application to one unit, so `promote qa --from-build` wrote a pointer whose `apps` is `{}`. The image deployed at the time threw `manifest names no apps` on it. Nothing refused the write; the refusal happened later, in every machine, one at a time.
+
+**What it cost, measured on 2026-09-10.** `ams` was already up: it kept the last manifest it could read, went on serving the previous composition, and put the reason in `x-manifest-refresh` — the degradation working exactly as designed. `iad` was suspended. Waking it primed its cache against a pointer it could not parse, and it answered **503** to every request for `us` until the pointer was put back. Three requests with `fly-prefer-region: iad`, all 503. `deploys/2026-09-10T21-07-27Z-qa/notes.md` is the record.
+
+**Why nothing caught it.** The shell-to-server surface has a gate: the server publishes `blocks.provides.json`, the shell records what it reads, and the origin refuses a shell it cannot feed (§11). The **pointer**-to-server surface has neither. `parseManifest` is the only thing that knows which manifests an image accepts, it lives inside the image, and `promote` runs on a laptop.
+
+| | Gated | By what |
+| --- | --- | --- |
+| sub-app needs a member the shell has | yes | `uses` vs `provides`, at promote and at the origin |
+| shell reads a block the server writes | yes | `blocks` vs `blocks.provides.json`, at the origin |
+| **pointer says something the image parses** | **no** | nothing |
+
+**The headline claim does not hold for this change, and that is worth saying plainly.** "A deploy is one JSON write" is true of every change to a unit. This was not a change to a unit: it was a change to what a manifest may say, and it needed a `fly deploy` as well. The project has never had one of those before.
+
+**Three ways out, none built.**
+
+- The origin publishes what it accepts, the way the server publishes its blocks: a `schemas` field on `/healthz` or `/compositions`, and `promote` reads it before writing a real channel and refuses. Costs `promote` a network read of the origin it is about to change, which it does not currently make.
+- `promote` re-reads the pointer through the origin after writing it, and rolls back on a refusal. Catches everything, and only after every visitor in one region has seen it.
+- The parser accepts strictly more, forever, and a manifest field is never removed. That is the rule already; what broke is that a field's ALLOWED VALUES narrowed in the image and widened in the tree, which no version number would have caught either.
+
 ### 35. `falsify` cannot tell a red scenario from a build that failed
 
 A mutation is reported as caught when the scenario's process exits non-zero. Several scenarios build and publish from this working tree in their Background, so a mutation that does not COMPILE makes that build fail, the scenario go red, and `falsify` print `✓ caught by scenario X` — for a reading in which the scenario never ran a step of its own.
@@ -109,6 +131,8 @@ Clearing the slate to one sub-app took the subject away from four readings. `PLA
 | A panel that throws costs its panel and not the frame, and can be mounted again | two `@browser` scenarios and two `falsify` mutations | Step 1. `AsyncAppLoader.tsx` is unexercised until then; the frame's own boundary is still held by `The frame throwing replaces the page and offers a reload` |
 | A sub-app whose script or stylesheet does not match its digest does not run | a `@browser` Scenario Outline and two `falsify` mutations | Step 1. One of the two mutations — the import map carrying no digests — was re-aimed at a `@local` scenario and is now run on every `bun run falsify` rather than skipped |
 | Each sub-app is fetched from its own unit's directory | a `@live` scenario | Step 1. `html.test.ts` holds `loads each sub-app from its own unit's base` |
+
+**Two records this could not keep.** The promote that removed `hello` reads its `before` through `idsInPointer` now, but that fix came after the pointer had moved, so `deploys/2026-09-10T21-07-27Z-qa` does not name `hello` as dropped. And that promote was never served at all — §36 — so the composition live on `qa` still carries a `hello` unit no view places, and will until the server image is deployed. The `@live` scenario `The page names no bundle beyond the frame's own` passes against `test-qa`, which is what `verify:live` uses, and would fail against the real `qa` today. That is the shape `~/projects/CLAUDE.md` warns about and it is named here rather than left to be found.
 
 **One thing closed itself, and by accident rather than by the fix §29 names.** No scenario in the suite now writes to the deployed service: the only `POST` was a panel's audience input, and the panel is gone. §29 stays open, because what closes it is the service changing its subject at step 6 — not a writer losing its keyboard.
 
