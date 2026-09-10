@@ -4,11 +4,11 @@
 
 Every line below is derived from the files in `deploys/`. `scripts/changelog.test.ts` renders `deploys/` again under the ordinary `bun test` and fails when what is on disk differs, so a record committed without regenerating this file is a red test rather than a discovery months later. An edit made here is gone at the next run: to change what an entry says, change the record - `notes.md` is the one file in it a person writes - and run the command again.
 
-5 records on qa. Newest 2026-09-10 17:29:02 UTC, oldest 2026-09-10 11:18:12 UTC.
+5 records on qa, newest first by record directory. The compositions they name run from 2026-09-10 11:18:12 UTC to 2026-09-10 17:29:02 UTC.
 
 0 moved at least one unit, 4 rewrote a pointer to the composition it already named, and 1 holds no act at all.
 
-**No record in this archive moved a unit.** Every promote here rewrote a pointer to the composition it already named, which is a write to a real channel and not a deploy anybody asked for. Each entry below carries the note written with its record. `TODO.md` §34 carries the reading.
+**No record in this archive moved a unit.** Every promote here rewrote a pointer to the composition it already named, which is a write to a real channel and not a deploy anybody asked for. `TODO.md` §34 carries the reading.
 
 No promote in this archive printed a warning, so no entry below lists one.
 
@@ -104,7 +104,7 @@ A promote that carried both units and moved neither: the first record `promote` 
 
 The starter app: the frame, one sub-app on /, and a service reading on /service.
 
-**No act recorded.** This record predates `promote.json`, so what was run, what it carried and what it let through are not in the archive. The pointer bytes and the pictures are. Its directory is named for the moment it was shot, and the entry is dated by the composition the pictures are of.
+**No act recorded.** This record holds no `promote.json`, so what was run, what it carried and what it let through are not in the archive. What it does hold is in the rows below.
 
 | | |
 | --- | --- |

@@ -39,8 +39,17 @@ import {
   movedSummary,
   noteHeadline,
   picturesCell,
+  labelDisagreements,
+  manifestRegions,
+  NOTE_PLACEHOLDER,
+  noteRefusal,
+  recordSuffix,
+  channelFromDir,
+  noteSentence,
   regionsCell,
   renderChangelog,
+  stateOf,
+  composedAtOf,
   sortArchive,
   sourceCell,
   warningsBlock,
@@ -791,7 +800,7 @@ const shotsFile = (over: ShotsFile = {}): ShotsFile => ({
   composedAt: "2026-09-10T17:29:02.358Z",
   units: { shell: "c260", hello: "3bba" },
   manifests: { eu: "manifest.eu.json", us: "manifest.us.json" },
-  shots: [shot("/"), shot("/service", "Service")],
+  shots: [filed("/"), filed("/service", "Service")],
   ...over,
 });
 
@@ -800,7 +809,15 @@ const archived = (over: Partial<ArchiveRecord> = {}): ArchiveRecord => ({
   promote: promoteFile(),
   shots: shotsFile(),
   notes: "A no-op promote to qa.\n\nThe rest of the note.\n",
+  manifestFiles: ["manifest.eu.json", "manifest.us.json"],
   ...over,
+});
+
+// The archive files shots under `shots/`, so a fixture that does not is a
+// fixture that stands in for something the archive does not hold.
+const filed = (route: string, title = route): ShotEntry => ({
+  ...shot(route, title),
+  file: `shots/${route.replace(/^\//, "") || "root"}.png`,
 });
 
 describe("noteHeadline", () => {
@@ -854,9 +871,15 @@ describe("channelOf", () => {
     expect(channelOf(archived({ promote: null, shots: shotsFile({ channel: "prod" }) }))).toBe("prod");
   });
 
-  test("neither half names one", () => {
+  test("the directory name, where neither JSON says", () => {
+    expect(channelOf(archived({ promote: null, shots: shotsFile({ channel: undefined }) }))).toBe("qa");
+  });
+
+  test("nothing names one at all", () => {
     expect(
-      channelOf({ dir: "deploys/x", promote: null, shots: shotsFile({ channel: undefined }), notes: null }),
+      channelOf(
+        archived({ dir: "deploys/scratch", promote: null, shots: shotsFile({ channel: undefined }) }),
+      ),
     ).toBe("unknown channel");
   });
 });
@@ -1052,13 +1075,22 @@ describe("picturesCell", () => {
   test("every view, linked under the record", () => {
     const line = picturesCell(archived());
     expect(line).toContain("2 views");
-    expect(line).toContain("[/](deploys/2026-09-10T17-29-02Z-qa/root.png)");
+    expect(line).toContain("[/](deploys/2026-09-10T17-29-02Z-qa/shots/root.png)");
   });
 
   // A promote that wrote its record and was never shot is a deploy that
   // happened, and pr.ts's scan for shots.json walks straight past it.
   test("a promote nobody shot", () => {
-    expect(picturesCell(archived({ shots: null }))).toContain("no `shots.json`");
+    expect(picturesCell(archived({ shots: null }))).toContain("never shot");
+  });
+
+  // `none` alone is indistinguishable from a qa deploy somebody forgot to
+  // shoot, and prod is the channel where the promote record IS the record.
+  test("a channel no browser can reach says so, rather than reading as an omission", () => {
+    const prod = archived({ shots: null, promote: promoteFile({ channel: "prod" }) });
+    const line = picturesCell(prod);
+    expect(line).toContain("no browser can reach prod");
+    expect(line).toContain("§2");
   });
 
   test("a shots.json naming no view", () => {
@@ -1072,8 +1104,17 @@ describe("picturesCell", () => {
   });
 
   test("a shot from a schema that recorded no panel errors", () => {
-    const old = { ...shot("/"), panelErrors: undefined as unknown as string[] };
+    const old = { ...filed("/"), panelErrors: undefined as unknown as string[] };
     expect(picturesCell(archived({ shots: shotsFile({ shots: [old] }) }))).toContain("1 view");
+  });
+
+  // Every value here comes out of a file this does not control, so a shot entry
+  // missing a field is a render that throws rather than an entry that says so.
+  test("a shot naming no route or file is described rather than thrown over", () => {
+    const bare = { ...filed("/"), route: undefined as unknown as string, file: undefined as unknown as string };
+    const line = picturesCell(archived({ shots: shotsFile({ shots: [bare] }) }));
+    expect(line).toContain("an unnamed route");
+    expect(line).toContain("no file recorded");
   });
 });
 
@@ -1098,7 +1139,7 @@ describe("entryInstant", () => {
 
   test("neither half names an instant", () => {
     expect(
-      entryInstant({ dir: "deploys/x", promote: null, shots: { channel: "qa" }, notes: null }),
+      entryInstant(archived({ promote: null, shots: { channel: "qa" } })),
     ).toBeNull();
   });
 });
@@ -1283,5 +1324,258 @@ describe("renderChangelog", () => {
 
   test("an empty archive still says what the file is", () => {
     expect(renderChangelog([])).toContain("bun run changelog");
+  });
+});
+
+// -- what the cold read of 2026-09-10 found -----------------------------------
+//
+// Every test below is a state a record can be in that the first version of the
+// changelog reported wrongly, silently or not at all.
+
+describe("stateOf, and the label beside it", () => {
+  // The headline argument for the whole document is that a reading comes off
+  // promote.json and not off prose. `state` is a stored word; from/unitId are
+  // what it was derived from, and stopping at the word is stopping one field
+  // short of the argument.
+  test("a unit at the same id was carried, whatever the record calls it", () => {
+    expect(stateOf({ unitId: "a", from: "a" })).toBe("carried");
+    expect(changeKind(promoteFile({ units: { hello: { unitId: "a", from: "a", state: "moved" } } }))).toBe(
+      "no-op",
+    );
+  });
+
+  test("a unit at a different id moved, whatever the record calls it", () => {
+    expect(stateOf({ unitId: "b", from: "a" })).toBe("moved");
+    expect(changeKind(promoteFile({ units: { hello: { unitId: "b", from: "a", state: "carried" } } }))).toBe(
+      "moved",
+    );
+  });
+
+  test("no id on one side is a first promote or a drop", () => {
+    expect(stateOf({ unitId: "b", from: null })).toBe("new");
+    expect(stateOf({ unitId: null, from: "a" })).toBe("dropped");
+  });
+
+  test("a record that agrees with itself has nothing to report", () => {
+    expect(labelDisagreements(promoteFile().units)).toEqual([]);
+    expect(labelDisagreements(undefined)).toEqual([]);
+  });
+
+  test("a record that disagrees with itself is named, not resolved in silence", () => {
+    const [line] = labelDisagreements({ hello: { unitId: "a", from: "a", state: "moved" } });
+    expect(line).toContain("labelled moved");
+    expect(line).toContain("ids read carried");
+  });
+
+  test("the entry says so where they disagree", () => {
+    const text = changelogEntry(
+      archived({ promote: promoteFile({ units: { hello: { unitId: "a", from: "a", state: "moved" } } }) }),
+    ).join("\n");
+    expect(text).toContain("The record disagrees with itself.");
+  });
+});
+
+describe("noteRefusal", () => {
+  // shoot writes notes.md and refuses prod, and promote writes none. So a
+  // promote with no pictures is not a record missing its note - demanding one
+  // would make the first prod deploy a permanently red suite over a record the
+  // design says is correct.
+  test("a promote nobody could shoot is not missing a note", () => {
+    expect(noteRefusal(archived({ shots: null, notes: null }))).toBeNull();
+  });
+
+  test("a record that was shot and holds no line", () => {
+    expect(noteRefusal(archived({ notes: null }))).toContain("says nothing about what the deploy");
+  });
+
+  // The reachable state, and the one the first version was blind to: shoot
+  // writes this line whenever nobody passed --note.
+  test("the placeholder shoot writes is not a first line", () => {
+    const refusal = noteRefusal(archived({ notes: `${NOTE_PLACEHOLDER}\n\nWritten by hand.\n` }));
+    expect(refusal).toContain("--note");
+  });
+
+  test("a note somebody wrote", () => {
+    expect(noteRefusal(archived())).toBeNull();
+  });
+
+  test("the entry says the placeholder is not a reading, rather than printing TODO", () => {
+    const text = changelogEntry(archived({ notes: `${NOTE_PLACEHOLDER}\n` })).join("\n");
+    expect(text).not.toContain("TODO:");
+    expect(text).toContain("nothing in this record says what the deploy demonstrates");
+  });
+});
+
+describe("composedAtOf", () => {
+  // `entryInstant` falls back to when a picture was taken, which is a fine
+  // heading and a false value under a row labelled Composed at: a pointer that
+  // carries no stamp - the state servesWanted supports - would otherwise be
+  // reported as composed at the moment somebody screenshotted it.
+  test("no stamp anywhere is not the moment of the screenshot", () => {
+    const record = archived({ promote: null, shots: shotsFile({ composedAt: null }) });
+    expect(composedAtOf(record)).toBeNull();
+    expect(entryInstant(record)).toBe("2026-09-10T17:29:08.165Z");
+    expect(changelogEntry(record).join("\n")).toContain("| Composed at | not recorded |");
+  });
+});
+
+describe("recordSuffix", () => {
+  // stampOf truncates to the second and freeDir takes the next free name, so
+  // two promotes inside one second are two directories and, without this, one
+  // heading twice.
+  test("two records in one second are two headings", () => {
+    const a = archived({ dir: "deploys/2026-09-10T16-51-30Z-qa" });
+    const b = archived({ dir: "deploys/2026-09-10T16-51-30Z-qa-2" });
+    expect(recordSuffix(a.dir)).toBeNull();
+    expect(recordSuffix(b.dir)).toBe("2");
+    expect(entryTitle(a)).not.toBe(entryTitle(b));
+    expect(entryTitle(b)).toContain("(record 2)");
+  });
+});
+
+describe("manifestRegions", () => {
+  test("a region per manifest file", () => {
+    expect(manifestRegions(["manifest.eu.json", "manifest.us.json"])).toEqual({
+      eu: "manifest.eu.json",
+      us: "manifest.us.json",
+    });
+  });
+
+  // The bytes a promote PUT beat the bytes a shoot filed for a region the
+  // promote did not write.
+  test("as-served does not win over the bytes a promote put", () => {
+    expect(manifestRegions(["manifest.us.as-served.json", "manifest.us.json"])).toEqual({
+      us: "manifest.us.json",
+    });
+  });
+
+  test("a lone as-served reading is still a reading", () => {
+    expect(manifestRegions(["manifest.us.as-served.json"])).toEqual({
+      us: "manifest.us.as-served.json",
+    });
+  });
+
+  test("anything else in the directory is not a manifest", () => {
+    expect(manifestRegions(["shots.json", "notes.md", "manifest.json"])).toEqual({});
+  });
+
+  // writeRecord writes the manifests before promote.json and awaits neither, so
+  // a record holding bytes and no act is a promote that moved a real pointer.
+  test("a record with neither JSON still names its regions", () => {
+    const bytesOnly = archived({ promote: null, shots: null, manifestFiles: ["manifest.eu.json"] });
+    expect(regionsCell(null, null, bytesOnly.manifestFiles)).toContain("eu");
+  });
+});
+
+describe("a preview that reached the archive", () => {
+  // outRefusal guards the shooter. Nothing guards a copy, a `git mv`, or a
+  // record older than that refusal - and the directory was the entire
+  // distinction between what was served and what never was.
+  test("the entry refuses to read as a deploy", () => {
+    const text = changelogEntry(archived({ shots: shotsFile({ kind: "preview" }) })).join("\n");
+    expect(text).toContain("declares itself a preview");
+  });
+
+  test("an ordinary record says nothing about previews", () => {
+    expect(changelogEntry(archived()).join("\n")).not.toContain("preview");
+  });
+});
+
+describe("a promote.json naming no unit", () => {
+  // PromoteFile is a Partial because schema 1 is not the last schema. Telling a
+  // reader the file is absent, above a table quoting its command, is the
+  // document contradicting itself.
+  test("it does not claim the file is missing", () => {
+    const text = changelogEntry(archived({ promote: promoteFile({ units: {} }) })).join("\n");
+    expect(text).toContain("No composition recorded");
+    expect(text).not.toContain("holds no `promote.json`");
+    expect(text).toContain("| Command | `bun run promote qa` |");
+  });
+
+  test("a record with no promote.json at all says that instead", () => {
+    const text = changelogEntry(archived({ promote: null })).join("\n");
+    expect(text).toContain("holds no `promote.json`");
+    expect(text).not.toContain("No composition recorded");
+  });
+});
+
+describe("the summary's range", () => {
+  // The file is ordered by directory and dated by the composition, and the real
+  // archive holds one record where the two disagree by five hours.
+  test("it is taken from the instants, not from the ends of the sort", () => {
+    const shotLate = archived({
+      dir: "deploys/2026-09-10T16-12-51Z-qa",
+      promote: null,
+      shots: shotsFile({ composedAt: "2026-09-10T11:18:12.659Z" }),
+    });
+    const newer = archived({ dir: "deploys/2026-09-10T17-29-02Z-qa" });
+    const text = changelogSummary([shotLate, newer]).join("\n");
+    expect(text).toContain("newest first by record directory");
+    expect(text).toContain("from 2026-09-10 11:18:12 UTC to 2026-09-10 17:29:02 UTC");
+  });
+
+  test("one record names one composition", () => {
+    expect(changelogSummary([archived()]).join("\n")).toContain("The one composition they name");
+  });
+
+  test("records naming no instant claim no range", () => {
+    const undated = archived({ promote: null, shots: { channel: "qa" } });
+    expect(changelogSummary([undated]).join("\n")).toContain("None of them names an instant");
+  });
+});
+
+describe("channelFromDir", () => {
+  // A record holding neither JSON still says which channel it is, because
+  // recordDir put it in the name. `unknown channel` in its place is worse than
+  // a reading: picturesCell then tells a reader no browser can reach a channel
+  // that does not exist.
+  test("the channel recordDir wrote", () => {
+    expect(channelFromDir("deploys/2026-09-10T17-29-02Z-qa")).toBe("qa");
+    expect(channelFromDir("deploys/2026-09-11T09-00-00Z-prod")).toBe("prod");
+  });
+
+  test("a second record in one second is the same channel", () => {
+    expect(channelFromDir("deploys/2026-09-10T17-29-02Z-qa-2")).toBe("qa");
+  });
+
+  test("a directory that is not a record name", () => {
+    expect(channelFromDir("deploys/scratch")).toBeNull();
+  });
+
+  test("a record with no JSON at all is still on its channel", () => {
+    const bytesOnly = archived({
+      dir: "deploys/2026-09-11T10-00-00Z-qa",
+      promote: null,
+      shots: null,
+      manifestFiles: ["manifest.eu.json"],
+    });
+    expect(channelOf(bytesOnly)).toBe("qa");
+    expect(picturesCell(bytesOnly)).toContain("never shot");
+  });
+});
+
+describe("noteSentence", () => {
+  test("the line somebody wrote", () => {
+    expect(noteSentence(archived())).toBe("A no-op promote to qa.");
+  });
+
+  // promote writes no notes.md and shoot cannot reach prod, so a record with no
+  // pictures was never going to have one. Telling its reader that nothing says
+  // what the deploy demonstrates reads as a reproach for a file the tooling
+  // cannot produce.
+  test("a record no shoot run ever touched is not reproached for it", () => {
+    const line = noteSentence(archived({ shots: null, notes: null }));
+    expect(line).toContain("only a `shoot` run writes one");
+    expect(line).not.toContain("nothing in this record says");
+  });
+
+  test("a record that was shot and holds no line", () => {
+    expect(noteSentence(archived({ notes: null }))).toContain("holds no line");
+  });
+
+  test("the placeholder is not printed back at the reader", () => {
+    const line = noteSentence(archived({ notes: `${NOTE_PLACEHOLDER}\n` }));
+    expect(line).not.toContain("TODO:");
+    expect(line).toContain("--note");
   });
 });

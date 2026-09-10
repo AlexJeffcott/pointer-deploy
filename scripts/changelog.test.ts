@@ -13,7 +13,7 @@
 
 import { expect, test } from "bun:test";
 import { readArchive, CHANGELOG, ARCHIVE } from "./changelog.ts";
-import { noteHeadline, renderChangelog } from "./record.ts";
+import { noteRefusal, renderChangelog } from "./record.ts";
 
 test("CHANGELOG.md is what deploys/ renders to", async () => {
   const records = await readArchive();
@@ -35,10 +35,13 @@ test("CHANGELOG.md is what deploys/ renders to", async () => {
   expect(onDisk).toBe(rendered);
 });
 
-// The one file in a record a person writes. Its first line is the entry, so a
-// record without one gets an entry that says what it demonstrates: nothing.
-test("every record holds the hand-written line the changelog gathers", async () => {
+// The one file in a record a person writes. `noteRefusal` carries which records
+// are required to have one and which are not - a promote no browser could shoot
+// never had a run that could write it - and what counts as having one: the line
+// `shoot` writes when nobody passed `--note` is a first line that says nothing,
+// and it is the reachable failure rather than an empty file.
+test("every record that was shot carries a note somebody wrote", async () => {
   const records = await readArchive();
-  const missing = records.filter((r) => noteHeadline(r.notes) === null).map((r) => r.dir);
-  expect(missing).toEqual([]);
+  const refusals = records.map((r) => noteRefusal(r)).filter((r): r is string => r !== null);
+  expect(refusals).toEqual([]);
 });

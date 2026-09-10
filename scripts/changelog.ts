@@ -10,7 +10,10 @@
 // IT IS GENERATED, NEVER HAND-EDITED, and that is a check rather than a
 // convention: `scripts/changelog.test.ts` renders `deploys/` again under the
 // ordinary `bun test` and fails when the file differs, so a record committed
-// without running this is a red test and not a discovery months later.
+// without running this is a red test. There is no CI in this repository, so the
+// check is as good as `CLAUDE.md`'s rule that `bun test` runs before a pull
+// request - and that is a stronger thing than a convention about this file,
+// because it is one rule covering every check rather than one more to remember.
 //
 // This file is the filesystem half only - which directories exist, and what is
 // in them. Every decision about what an entry SAYS is in `scripts/record.ts`,
@@ -31,10 +34,20 @@ export const ROOT = `${import.meta.dir}/..`;
 export const ARCHIVE = `${ROOT}/deploys`;
 export const CHANGELOG = `${ROOT}/CHANGELOG.md`;
 
+/**
+ * One JSON file of a record, or null when there is no such file.
+ *
+ * The path is in the error because the alternative was a bare `JSON Parse
+ * error` out of the one tool that could say which record is corrupt.
+ */
 async function readJson<T>(path: string): Promise<T | null> {
   const file = Bun.file(path);
   if (!(await file.exists())) return null;
-  return (await file.json()) as T;
+  try {
+    return (await file.json()) as T;
+  } catch (err) {
+    throw new Error(`${path} is not readable JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 async function readText(path: string): Promise<string | null> {
@@ -48,12 +61,14 @@ async function readText(path: string): Promise<string | null> {
  * A directory and not a `shots.json`, which is the difference between this and
  * `newestDeploy` in `scripts/pr.ts`: a promote that wrote its record and was
  * never shot has no `shots.json` at all, and a scan for one walks straight past
- * a deploy that happened. The changelog has to hold it, and the entry says the
+ * a deploy that happened. The changelog holds it, and the entry says the
  * pictures are missing rather than the deploy being.
  *
- * A directory holding neither file is not a record and is skipped: `deploys/`
- * is in git, and an empty directory left by a half-finished run is not
- * something to write an entry about.
+ * A directory holding manifest bytes and neither JSON is a record too.
+ * `writeRecord` in `scripts/promote.ts` writes the manifests before
+ * `promote.json` and awaits neither, so that is a reachable state of a promote
+ * that moved a real pointer - and it is exactly the record the archive exists
+ * for. Only a directory holding nothing this can read is skipped.
  */
 export async function readArchive(archive = ARCHIVE): Promise<ArchiveRecord[]> {
   let entries: string[];
@@ -61,23 +76,28 @@ export async function readArchive(archive = ARCHIVE): Promise<ArchiveRecord[]> {
     entries = (await readdir(archive, { withFileTypes: true }))
       .filter((e) => e.isDirectory())
       .map((e) => e.name);
-  } catch {
-    // No archive at all is an empty changelog, not a crash. The header still
-    // says what the file is and how it is written.
+  } catch (err) {
+    // No archive at all is an empty changelog. Anything else - a permission, a
+    // sparse checkout, an unreadable mount - is not, and swallowing it would
+    // overwrite the document with "deploys/ holds no record" and exit 0.
+    if ((err as { code?: string }).code !== "ENOENT") throw err;
     return [];
   }
   const records: ArchiveRecord[] = [];
   for (const name of entries.sort()) {
     const dir = `${archive}/${name}`;
+    const manifestFiles = (await readdir(dir))
+      .filter((f) => /^manifest\..*\.json$/.test(f))
+      .sort();
     const [promote, shots, notes] = await Promise.all([
       readJson<PromoteFile>(`${dir}/promote.json`),
       readJson<ShotsFile>(`${dir}/shots.json`),
       readText(`${dir}/notes.md`),
     ]);
-    if (!promote && !shots) continue;
+    if (!promote && !shots && manifestFiles.length === 0) continue;
     // The path a reader follows, which is relative to the repository root
     // rather than to wherever this was run from.
-    records.push({ dir: `deploys/${name}`, promote, shots, notes });
+    records.push({ dir: `deploys/${name}`, promote, shots, notes, manifestFiles });
   }
   return records;
 }

@@ -66,6 +66,7 @@ import {
   describeIds,
   filedUnderRefusal,
   idsOf,
+  NOTE_PLACEHOLDER,
   outRefusal,
   overrideRefusal,
   pointerIds,
@@ -552,7 +553,7 @@ try {
   if (kind === "deploy") {
     await Bun.write(
       `${out}/notes.md`,
-      `${note || "TODO: one line saying what this deploy demonstrates."}\n\n` +
+      `${note || NOTE_PLACEHOLDER}\n\n` +
         `Written by hand. The first line is the entry in the changelog, so it says what\n` +
         `this promote demonstrates rather than what it changed - the ids beside it already\n` +
         `say what changed.\n`,
