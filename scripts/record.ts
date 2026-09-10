@@ -59,6 +59,33 @@ export const describeIds = (ids: Record<string, string>): string =>
     .map(([n, id]) => `${n}=${id}`)
     .join(" ");
 
+/**
+ * Whether the page this block came from is serving the composition asked for.
+ *
+ * The ids are not the whole reading, and the case that shows it is the one an
+ * operator runs to check a channel: promoting the ids a channel already serves
+ * moves `composedAt` and moves nothing else. MANIFEST_TTL_MS is 10 s and §6
+ * captured an x-manifest-age of 27464 ms, so for that whole window the page is
+ * the composition from BEFORE the promote - and on ids alone it is
+ * indistinguishable from the one after it. That is the trap the shooter exists
+ * to close, and until this it was closed only for a promote that moved an id.
+ *
+ * `publishedAt` in the block IS the pointer's `composedAt`: html.ts renders it
+ * from the composed manifest and `compose` spreads the pointer's own, so an
+ * --override page carries the channel's stamp exactly as an ordinary one does.
+ *
+ * A stamp nobody asked for is not compared. A pointer that carries none gives
+ * its page none either, and the ids are then all that either side has.
+ */
+export function servesWanted(
+  block: BuildBlock,
+  want: Record<string, string>,
+  composedAt: string | null,
+): boolean {
+  if (!sameIds(idsOf(block), want)) return false;
+  return composedAt === null || block.publishedAt === composedAt;
+}
+
 /** The composition a manifest names, from the manifest's own shape. */
 export function pointerIds(doc: unknown): Record<string, string> | null {
   if (!doc || typeof doc !== "object") return null;

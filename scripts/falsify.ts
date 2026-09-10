@@ -1102,6 +1102,17 @@ const MUTATIONS: Mutation[] = [
     unitTest: "a unit at the same id was carried, not deployed",
   },
   {
+    // The gate the shooter exists for, in the case it was blind to until §34:
+    // an operator promoting the ids a channel already serves moves composedAt
+    // and moves no id, so on ids alone the page from before that promote is a
+    // correct reading of the one after it for as long as the TTL lasts.
+    name: "a shot is judged on its ids and not on which promote wrote them",
+    file: "scripts/record.ts",
+    find: "  return composedAt === null || block.publishedAt === composedAt;",
+    replace: "  return true;",
+    unitTest: "the same ids promoted again is not the same page",
+  },
+  {
     // The no-op promote an operator runs to check a channel moves composedAt
     // and moves no id, so the ids alone read a shot of the LATER promote as a
     // picture of this one - and it overwrites the manifest bytes to match.

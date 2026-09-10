@@ -14,6 +14,7 @@ import {
   recordedIds,
   routeRows,
   sameIds,
+  servesWanted,
   shootCommand,
   stampOf,
   staleRefusal,
@@ -462,5 +463,38 @@ describe("filedUnderRefusal", () => {
   // worth filing. The ids are the reading that remains.
   test("a pointer that names no instant is judged on its ids alone", () => {
     expect(filedUnderRefusal(promote, "qa", { ...serving, composedAt: null }, "deploys/x")).toBeNull();
+  });
+});
+
+describe("servesWanted", () => {
+  const block = {
+    channel: "qa",
+    region: "eu",
+    publishedAt: "2026-09-10T16:33:38.633Z",
+    units: { shell: { unitId: "s1", commit: "c", marker: "" } },
+  };
+
+  test("the page the pointer names", () => {
+    expect(servesWanted(block, { shell: "s1" }, "2026-09-10T16:33:38.633Z")).toBe(true);
+  });
+
+  test("a page still serving the composition from before the promote", () => {
+    expect(servesWanted(block, { shell: "s2" }, "2026-09-10T16:33:38.633Z")).toBe(false);
+  });
+
+  // The whole reason the stamp is compared. Promoting the ids a channel already
+  // serves moves composedAt and moves no id, and MANIFEST_TTL_MS means the page
+  // is the earlier composition for up to §6's 27 s - correct on every id.
+  test("the same ids promoted again is not the same page", () => {
+    expect(servesWanted(block, { shell: "s1" }, "2026-09-10T17:00:00.000Z")).toBe(false);
+  });
+
+  test("a page that carries no stamp cannot prove one", () => {
+    const { publishedAt, ...quiet } = block;
+    expect(servesWanted(quiet, { shell: "s1" }, "2026-09-10T16:33:38.633Z")).toBe(false);
+  });
+
+  test("a stamp nobody asked for is not compared", () => {
+    expect(servesWanted(block, { shell: "s1" }, null)).toBe(true);
   });
 });

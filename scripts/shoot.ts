@@ -18,10 +18,16 @@
 //
 // So every shot is gated. Each view is a fresh navigation, the __BUILD__ block
 // is read FROM THE PAGE THAT WAS SHOT - not from a second load, which a promote
-// landing between the two would make disagree - and the unit ids in it must
-// equal the ones the store's pointer names. Views are shot until they all agree
-// with each other as well, so a promote mid-run cannot leave one record holding
-// two compositions.
+// landing between the two would make disagree - and both the unit ids in it and
+// the instant it was composed at must equal what the store's pointer names.
+// Views are shot until they all agree with each other as well, so a promote
+// mid-run cannot leave one record holding two compositions.
+//
+// The stamp is half of that gate because the ids are not enough: promoting the
+// ids a channel already serves - the check an operator runs, and the one that
+// verified the promote record - moves composedAt and moves no id at all, so on
+// ids alone the page from before that promote and the page from after it are
+// the same reading. servesWanted in scripts/record.ts is where both halves are.
 //
 // WHAT THE GATE DOES NOT COVER, and the record says so rather than implying
 // otherwise. The gate proves the COMPOSITION the page was built from. It does
@@ -65,6 +71,7 @@ import {
   pointerIds,
   recordDir,
   sameIds,
+  servesWanted,
   type BuildBlock,
 } from "./record.ts";
 
@@ -308,7 +315,12 @@ async function settle(page: Page): Promise<{ title: string; panelErrors: string[
  * page, and only then settle and shoot it. Reading the ids after the shot would
  * leave a window a promote fits inside.
  */
-async function shootView(page: Page, route: string, want: Record<string, string>): Promise<Shot> {
+async function shootView(
+  page: Page,
+  route: string,
+  want: Record<string, string>,
+  composedAt: string | null,
+): Promise<Shot> {
   const started = Date.now();
   let seen = "nothing";
 
@@ -318,8 +330,8 @@ async function shootView(page: Page, route: string, want: Record<string, string>
 
     if (block) {
       const ids = idsOf(block);
-      seen = describeIds(ids);
-      if (sameIds(ids, want)) {
+      seen = `${describeIds(ids)} at ${block.publishedAt ?? "no stamp"}`;
+      if (servesWanted(block, want, composedAt)) {
         const { title, panelErrors } = await settle(page);
         const bytes = await page.screenshot({ fullPage: true, type: "png" });
         return {
@@ -347,8 +359,8 @@ async function shootView(page: Page, route: string, want: Record<string, string>
         seen === "nothing" ? (await page.evaluate(() => document.body.innerText)).slice(0, 200) : "";
       throw new Error(
         `${route} still served ${seen}${body ? ` (${body})` : ""} after ${waitMs} ms; ` +
-          `this run asked for ${describeIds(want)}. Nothing was written: a shot of one ` +
-          `composition filed under another is the error this refuses.`,
+          `this run asked for ${describeIds(want)} at ${composedAt ?? "no stamp"}. Nothing was ` +
+          `written: a shot of one composition filed under another is the error this refuses.`,
       );
     }
     await Bun.sleep(1000);
@@ -443,7 +455,7 @@ try {
 
   const shots: Shot[] = [];
   for (const route of routes) {
-    const shot = await shootView(page, route, want);
+    const shot = await shootView(page, route, want, pointer.composedAt);
     shots.push(shot);
     const flagged = shot.panelErrors.length ? `  PANEL ERROR ${shot.panelErrors.join(", ")}` : "";
     console.log(`  ${route.padEnd(12)} ${shot.file.padEnd(14)} ${shot.waitedMs} ms${flagged}`);
