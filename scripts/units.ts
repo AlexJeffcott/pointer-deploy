@@ -2,7 +2,7 @@
 // having to remember it.
 //
 //   bun run units                 # every unit an operator may deploy
-//   bun run units alpha           # one unit
+//   bun run units hello           # one unit
 //   bun run units --all           # and the builds the harness made
 //   bun run units --rebuild       # rebuild the catalogue from the store first
 //   bun run units --json          # the catalogue itself, for a script

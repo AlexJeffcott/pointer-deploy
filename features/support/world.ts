@@ -15,6 +15,17 @@ export const MODE: Mode = (Bun.env.HARNESS as Mode) ?? "local";
 
 export const PROPAGATION_WINDOW_MS = 15_000;
 
+/**
+ * How long a suspended machine is given to wake and answer for its own region.
+ *
+ * A wake was measured at one request on 2026-09-10; this is that with room for
+ * a slower one, and it bounds a scenario rather than a visitor.
+ */
+const REGION_WAKE_MS = 45_000;
+
+/** The region each Fly region serves, as the server itself resolves it. */
+const FLY_TO_REGION: Record<string, string> = { ams: "eu", iad: "us" };
+
 const LOCAL_TTL_MS = 300;
 
 const LIVE_ADDRESS = Bun.env.LIVE_ADDRESS ?? "https://pointer-deploy.fly.dev";
@@ -367,21 +378,52 @@ export class PointerWorld {
   routedTo: string | null = null;
   regionsSeen: string[] = [];
 
+  /**
+   * Which region the machine reached through `flyRegion` says it served.
+   *
+   * `fly-prefer-region` is a preference and not a guarantee. The app runs with
+   * `auto_stop_machines = "suspend"`, so the machine in that region is usually
+   * asleep, and the request that wakes it is answered by whichever machine was
+   * already running. Measured on 2026-09-10: the first request through `iad`
+   * woke that machine and was answered by `ams`, which reports `eu`; the next
+   * pair of requests reported `us`.
+   *
+   * So this retries until the reading names the region asked for, inside a
+   * budget. It is bounded, so it still goes red on a server that reads the
+   * wrong manifest - `falsify` pins a mutation to exactly that - and what the
+   * retry absorbs is a cold machine rather than a wrong answer.
+   */
   async regionsServedFrom(channel: Channel, flyRegion: string): Promise<string[]> {
     const headers = { "fly-prefer-region": flyRegion };
-    await this.visit(channel, "/", headers);
-    const res = await this.visit(channel, "/compositions", headers);
-    if (res.status !== 200) {
-      throw new Error(`GET /compositions through ${flyRegion} answered ${res.status}`);
+    const deadline = Date.now() + REGION_WAKE_MS;
+    let seen: string[] = [];
+    let attempts = 0;
+
+    while (Date.now() < deadline) {
+      attempts++;
+      await this.visit(channel, "/", headers);
+      const res = await this.visit(channel, "/compositions", headers);
+      if (res.status !== 200) {
+        throw new Error(`GET /compositions through ${flyRegion} answered ${res.status}`);
+      }
+      const reading = JSON.parse(this.lastBody) as ServedReading;
+      if (reading.compositions.length === 0) {
+        throw new Error(
+          `the machine reached through ${flyRegion} has handed out nothing since ` +
+            `${reading.since}, so it cannot say which region it serves.`,
+        );
+      }
+      seen = [...new Set(reading.compositions.map((c) => c.region))];
+      if (seen.length === 1 && seen[0] === FLY_TO_REGION[flyRegion]) return seen;
+      await Bun.sleep(2000);
     }
-    const reading = JSON.parse(this.lastBody) as ServedReading;
-    if (reading.compositions.length === 0) {
-      throw new Error(
-        `the machine reached through ${flyRegion} has handed out nothing since ` +
-          `${reading.since}, so it cannot say which region it serves.`,
-      );
-    }
-    return [...new Set(reading.compositions.map((c) => c.region))];
+    // Returned rather than thrown: the step is what names the region it wanted,
+    // and a reading that never became the right one is the reading to report.
+    console.error(
+      `[harness] ${flyRegion} still reported ${seen.join(",") || "nothing"} after ` +
+        `${attempts} attempts in ${REGION_WAKE_MS} ms`,
+    );
+    return seen;
   }
 
   async pointerTextInRegion(channel: Channel, region: string): Promise<string | null> {

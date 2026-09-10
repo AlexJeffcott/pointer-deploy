@@ -398,7 +398,7 @@ export async function warmAll(
  * Every file a manifest names, as absolute URLs.
  *
  * Schema 3 has one base per unit, which is what lets a channel take its shell
- * from one build and its alpha from another. Schemas 1 and 2 share one base
+ * from one build and its sub-app from another. Schemas 1 and 2 share one base
  * across everything, so they are joined against that instead.
  */
 export function urlsInManifest(manifest: unknown): string[] {

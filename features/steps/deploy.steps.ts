@@ -103,8 +103,12 @@ Then("no unit is uploaded, because none of them changed", function (this: Pointe
   const said = this.lastRun?.stderr ?? "";
   expect(`code ${this.lastRun?.code}\n${said}`).toBe(`code 0\n${said}`);
   expect(said.includes("uploaded") ? said : "nothing uploaded").toBe("nothing uploaded");
+  // The column width publish pads to is the longest unit name, so it moves
+  // with the unit set. A fixed width here read every line as missing the day
+  // the longest name got shorter.
+  const width = Math.max(...UNITS.map((u) => u.length));
   for (const unit of UNITS) {
-    expect(said.includes(`${unit.padEnd(7)} `) ? unit : `${unit} is missing from:\n${said}`).toBe(unit);
+    expect(said.includes(`${unit.padEnd(width)} `) ? unit : `${unit} is missing from:\n${said}`).toBe(unit);
   }
   const unchanged = (said.match(/unchanged/g) ?? []).length;
   expect(`${unchanged} unchanged\n${said}`).toBe(`${UNITS.length} unchanged\n${said}`);

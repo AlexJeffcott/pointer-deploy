@@ -3,6 +3,12 @@
 Open items and what is done. Read this first after a context clear.
 The README carries the design, the traps and the conventions.
 
+**The slate was cleared on 2026-09-10.** The five demo sub-apps, the counters
+they shared and the service's thirteen routes are gone; two units remain, and
+the object store was emptied and rewritten from one build. Everything under
+**Done** below describes the work as it was done, on the composition that
+existed then. Read a unit name there as a name that was true at the time.
+
 ## Where things are
 
 | | |
@@ -11,11 +17,11 @@ The README carries the design, the traps and the conventions.
 | Fly app | `pointer-deploy`, one machine, region `ams` |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
-| Units | six: `shell`, `alpha`, `bravo`, `charlie`, `delta`, `echo` |
-| Service | `pointer-deploy-api`, its own `fly deploy`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
-| Contract | `ac87a8c` (`service-offering-2026-08`). `63bcf32` and `e0160a6` are retained; `e0160a6` is marked going away |
+| Units | two: `shell` and `hello` |
+| Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
+| Contract | `9d1b0a3` (`hello-2026-09`), and it is the only one the registry holds |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
-| Schema 2 fixture | `legacy/schema-2/2d429c02/`, kept. Named by `features/support/fixtures/schema-2.json` |
+| Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Secrets | `.env.local`, gitignored |
 
 `prod` has no hostname. Reach it with `curl -H "Host: prod.pointer-deploy.test"`.
@@ -23,7 +29,7 @@ The README carries the design, the traps and the conventions.
 ```sh
 bun run build && bun run publish
 bun run promote qa --from-build          # everything just built
-bun run promote qa --app alpha=<id>      # one sub-app. Same command rolls it back
+bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it back
 bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
 ```
@@ -37,6 +43,45 @@ uncommitted tree — and `--no-source-check` overrides the last two.
 
 Numbers are stable identifiers - other sections point at them - so a gap means
 that item moved to Done, not that anything was renumbered.
+
+### 31. Claims that need a second unit
+
+Clearing the slate to one sub-app took the subject away from four readings. None
+of them is wrong; each has nothing to measure. They come back with the second
+unit, and this is the list so nobody has to rediscover it:
+
+| Claim | Where it was | What holds it now |
+| --- | --- | --- |
+| A dropped member refuses the app that used it **and nothing else** | `scripts/e2e-member-gate.ts` | `scripts/members.test.ts`, which asserts a member no app calls shows as used by none |
+| Warming an off-screen unit's files buys something | two `@browser` scenarios, one `falsify` mutation, `scripts/measure-preload.ts` | `html.test.ts` holds the tags' shape. Nothing measures the benefit; every unit is on the route a visitor lands on |
+| Two independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | The frame and the panel share it, held by the same feature and by the `peek` mutation in `falsify` |
+| A published pair reads as not additive | `scripts/contract.test.ts` | Nothing. The registry holds one contract, and the reading needs two |
+
+The first three are one unit away. The fourth arrives the first time the surface
+changes.
+
+### 32. Two member readings at once corrupt each other
+
+`scripts/members.ts` puts its scratch directories under `.contract-members`, a
+fixed path, and clears the whole tree at the start of a run. Two readings at
+once therefore delete each other's cut surfaces mid-compile, and the output is
+not an error — it is a DIFFERENT reading, with members marked used or unused at
+random.
+
+Seen on 2026-09-10 by running `bun test` while `verify:live` was building in
+another process: `members.test.ts` failed claiming `hello` used
+`ServiceReport.serves`, which it does not reference anywhere, and two runs of
+`bun run contract:members` minutes apart disagreed about six members.
+
+That reading is what `promote` refuses on, so a wrong one either refuses a
+composition that works or admits one that does not. Nothing in the repository
+runs two readings concurrently — `build.ts` starts the contract's and the
+blocks' together, and those are two different `spec.name`s under two different
+directories — so this bites a person, not the pipeline.
+
+The fix is one line of naming: put the run's own pid or a random suffix in
+`ROOT`, or take a lock. Until then, do not run a build and a test run at the
+same time.
 
 ### 2. A browser-reachable `prod`
 
@@ -290,9 +335,12 @@ before reaching for this item.
 
 ### 29. The live suite writes to the deployed service
 
-`verify:browser` clicks counters on the live page, and every click is a `POST`
-to `pointer-deploy-api`. Measured on 2026-08-31: `alpha` moved 12 to 22 across
-one run.
+`verify:browser` writes to the live page, and a write is a `POST` to
+`pointer-deploy-api`. On the previous slate, measured on 2026-08-31, a counter
+moved 12 to 22 across one run. On this slate one scenario sets the greeting's
+audience, and `restoreAudience` in the `After` hook puts it back — so the window
+is one scenario long rather than permanent, and the suite still writes to
+production.
 
 The channels are already handled - the suite owns `test-qa` and `test-prod`, and
 a tripwire fails a run that moved a real one. The service has no equivalent, so
@@ -308,7 +356,7 @@ Two ways out, and neither is chosen yet:
 | | |
 | --- | --- |
 | A second service | `pointer-deploy-api-test`, and the local server the `@test-channel` scenarios already spawn is pointed at it. The `@browser` scenarios against the deployed origin cannot be, because that origin's `API_BASE` is its own |
-| A scope on the state | The service keys its state by a header or a query the suite sets, so a suite run writes a different set of counters from the one a visitor sees. One deploy, and the isolation reaches the live origin too |
+| A scope on the state | The service keys its state by a header or a query the suite sets, so a suite run writes a different greeting from the one a visitor sees. One deploy, and the isolation reaches the live origin too |
 
 ### 21. Pin the vendor types the contract references, or stop claiming to
 
@@ -425,9 +473,9 @@ the code already does, and §16 was a defect that reading found.
 with the reading below so it can be picked up without repeating it.
 
 Nothing persists. There is no `localStorage`, `sessionStorage`, `indexedDB` or
-cookie anywhere in `src/`, `features/`, `scripts/` or `build.ts`. `user` and
-`counters` live in memory and die with the tab, so the question has no instance
-in the code and there is no answer already true to write down.
+cookie anywhere in `src/`, `features/`, `scripts/` or `build.ts`. The greeting
+lives in memory and dies with the tab, so the question has no instance in the
+code and there is no answer already true to write down.
 
 It belongs to a family the project now has three of - a surface the contract
 hash does not cover:
@@ -447,9 +495,9 @@ scenario to start from the cold state a fresh visitor sees - empty
 `localStorage`, empty IndexedDB. Adding persistence puts a clear step in all 196
 scenarios, and any scenario that misses it becomes order-dependent.
 
-The demonstration when it is picked up: persist `counters`, publish a shell that
-stores one shape and a shell that stores another, roll back with the newer data
-present, and watch it break. Then decide the fix - a version stamp on the stored
+The demonstration when it is picked up: persist something the shell owns,
+publish a shell that stores one shape and a shell that stores another, roll back
+with the newer data present, and watch it break. Then decide the fix - a version stamp on the stored
 document and a migration owned by the shell, which §15 says is where shared
 state lives.
 

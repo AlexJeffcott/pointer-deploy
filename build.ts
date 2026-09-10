@@ -163,7 +163,7 @@ const versions = await sharedVersions();
 // suite would compare two copies in one working tree and prove less than it
 // looks.
 //
-// Not covered: the route. Moving charlie from "/totals" to "/" leaves both sets
+// Not covered: the route. Moving a sub-app from one route to another leaves both sets
 // identical, so only a scenario catches that.
 const misplaced = placementProblems(APPS);
 if (misplaced.length) {
@@ -176,7 +176,7 @@ if (misplaced.length) {
 // --- markers ---------------------------------------------------------------
 
 // BUILD_MARKER applies to every unit; BUILD_MARKER_<UNIT> overrides one. The
-// live suite needs to publish a new alpha without touching the other four, and
+// live suite needs to publish a new sub-app without touching the shell, and
 // editing the source for that would make the suite depend on its own edits.
 const markerFor = (unit: Unit): string =>
   Bun.env[`BUILD_MARKER_${unit.toUpperCase()}`] ?? Bun.env.BUILD_MARKER ?? "";
@@ -309,7 +309,7 @@ for (const app of APPS) {
   // The invariant the whole design rests on: a sub-app reaches the shared
   // runtime and the store by name, and carries no copy of its own.
   //
-  // Measured on 2026-08-28 by removing this guard for bravo and promoting the
+  // Measured on 2026-08-28 by removing this guard for one sub-app and promoting the
   // result to test-qa: a bundled copy does not quietly stop re-rendering, as
   // this comment used to claim. It THROWS on first render - `preact/hooks`
   // reads `__H` off a component the other copy's renderer never set - and the
@@ -348,7 +348,7 @@ for (const app of APPS) {
  * Bun's [hash] is content-derived, so the emitted names already carry the
  * content. The commit is deliberately not in it: the commit identifies the
  * source, not the artefact, and putting it in the id would mean one commit
- * touching only alpha changed all five ids and republished all five - which
+ * touching only one sub-app changed every id and republished every unit - which
  * removes the point of publishing units separately. The commit is recorded in
  * unit.json instead.
  */

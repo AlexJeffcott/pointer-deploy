@@ -145,7 +145,10 @@ Then("every panel on the page is styled by its own stylesheet", async function (
   const borders = await page.$$eval("[data-app] section", (nodes) =>
     nodes.map((n) => getComputedStyle(n).borderTopWidth),
   );
-  expect(borders.length).toBeGreaterThan(1);
+  // Every panel the view placed, and the count is the view's rather than this
+  // step's: the claim is that each panel got its own stylesheet, not that there
+  // are several of them.
+  expect(borders.length).toBeGreaterThan(0);
   expect(borders).toEqual(borders.map(() => "3px"));
 });
 

@@ -8,7 +8,7 @@
 //
 // A unit id is a hash of that unit's own output, so a unit whose bytes did not
 // change already exists in the store and is skipped. That is what makes
-// "change alpha, publish alpha" upload one directory rather than five.
+// "change hello, publish hello" upload one directory rather than every one.
 
 import {
   CACHE_IMMUTABLE,
@@ -277,5 +277,5 @@ try {
 
 // stdout carries the unit ids and nothing else, so this composes:
 //   ids=$(bun run --silent publish)
-//   bun run promote qa --app "alpha=$(echo "$ids" | jq -r .alpha)"
+//   bun run promote qa --app "hello=$(echo "$ids" | jq -r .hello)"
 console.log(JSON.stringify(published, null, 2));

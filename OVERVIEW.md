@@ -11,19 +11,29 @@ Live: <https://pointer-deploy.fly.dev/>
 
 | Term | What it means |
 | --- | --- |
-| **Unit** | One independently shipped piece of the page, with its own bundle, stylesheet and id. Six: the **shell**, and **sub-apps** alpha, bravo, charlie, delta and echo. |
-| **Shell** | The frame. It owns routing, the shared state, and the slots the sub-apps render into. |
+| **Unit** | One independently shipped piece of the page, with its own bundle, stylesheet and id. Two: the **shell**, and the **sub-app** `hello`. |
+| **Shell** | The frame. It owns the title, the sidenav, routing, the shared state, and the slots the sub-apps render into. |
 | **Sub-app** | One panel on the page. Built, published and deployed on its own. |
 | **Object store** | A Tigris bucket on Fly, `pointer-deploy-assets`. It contains all published unit's files, every channel's pointer and the catalogue. |
 | **Publish** | Upload a unit's files to the object store. Nobody sees any change. Nothing to undo. |
 | **Channel** | An environment. Four: `qa`, `prod`, and two the test suite owns. The request's `Host` header picks one. |
-| **Pointer manifest** | `manifests/<region>/<channel>.json` — the live id for each of the six units, one file per channel per region. Channels are environments and differ on purpose. A region can move alone, though both normally match and one promote writes both. Called the **pointer** below. |
-| **Composition** | The set of six unit ids one page was assembled from. |
+| **Pointer manifest** | `manifests/<region>/<channel>.json` — the live id for each unit, one file per channel per region. Channels are environments and differ on purpose. A region can move alone, though both normally match and one promote writes both. Called the **pointer** below. |
+| **Composition** | The set of unit ids one page was assembled from. |
 | **Promote** | The deploy. It writes a new pointer, and does nothing else. |
 | **Contract** | The type surface between the shell and a sub-app. Its identity is a hash of its own content. |
 | **Server** | The one container image that serves the page. It reads a pointer and writes HTML, and holds no unit files. |
-| **Service** | A second separate app, `pointer-deploy-api`, deployed on its own schedule. It answers the page's data — counters, limits, labels, flags — over 13 routes. |
+| **Service** | A second separate app, `pointer-deploy-api`, deployed on its own schedule. It answers the page's data — one greeting, over two routes — and publishes what it holds and what it is retiring. |
 | **Browser** | The visitor's browser. It fetches each unit from the store, checks every file against the digest the page declared, and calls the service itself. |
+
+---
+
+## Where the application is now
+
+The page is a title, a fixed sidenav and two views. `/` places the one sub-app, which draws a greeting and writes back to it. `/service` is drawn by the frame itself, from the one reading it took of the service. Desktop only, and there is no breakpoint anywhere in the stylesheet.
+
+That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+
+What gets built on this slate is documented as it is built. The process is the thing being shown, more than whatever the application turns out to be.
 
 ---
 
@@ -55,7 +65,7 @@ The pointer manifest and the unit catalogue are files in the object store, so th
 | --- | --- |
 | **Object store** | Holds every published unit's files under `units/<name>/<id>/`, the live composition per channel under `manifests/<region>/<channel>.json`, and every reachable unit id at `units/catalogue.json` |
 | **Server** | Reads its channel and region's pointer, writes HTML naming each unit's own files, and serves the catalogue at `GET /units` |
-| **Service** | Answers the page's data over 13 routes — counters, limits, labels, flags — and publishes which versions it serves and which fields it retires. One `POST` changes what a panel draws, with no deploy |
+| **Service** | Answers the page's data over two routes, and publishes which versions it serves and which fields it retires. One `POST` changes what the panel draws, with no deploy |
 | **Browser** | Fetches each unit from the store on first load only, checks every file against the digest the page declared, then calls the service itself |
 
 ### One request, end to end
@@ -69,10 +79,8 @@ flowchart LR
     subgraph ST["Object store"]
         direction TB
         M["manifests/eu/qa.json"]
-        U1["units/shell/43ca0019/"]
-        U2["units/alpha/9b855c4b/"]
-        U3["units/bravo/483316f3/"]
-        U4["…and three more units"]
+        U1["units/shell/c2601912/"]
+        U2["units/hello/3bba892b/"]
     end
 
     B -- "1 · GET / — the Host header picks the channel" --> S
@@ -80,9 +88,7 @@ flowchart LR
     S -- "3 · HTML naming each unit's own files" --> B
     B -- "4 · every unit, in parallel" --> U1
     B --> U2
-    B --> U3
-    B --> U4
-    B -- "5 · counters, limits, labels, flags" --> A
+    B -- "5 · the greeting, and what the service holds" --> A
 ```
 
 The server reads one small JSON file and nothing else. Every unit directory was written at a different time, and the pointer is the only thing that joins them. `units/catalogue.json` is read from cache only, so a cold or missing catalogue costs an override its target and the visitor no wait.
@@ -90,12 +96,12 @@ The server reads one small JSON file and nothing else. Every unit directory was 
 ### The whole deploy
 
 ```sh
-bun run build                             # six units into dist/units/
+bun run build                             # every unit into dist/units/
 bun run publish                           # uploads only what changed, and rebuilds the catalogue
 bun run promote qa --from-build           # the deploy. Every id read from dist/build.json
-bun run promote qa --app alpha=9b855c4b   # one unit by id. Same command
-bun run promote qa --app alpha=36226fb9   # the rollback. Same command
-bun run promote qa --shell 43ca0019       # the shell alone
+bun run promote qa --app hello=3bba892b   # one unit by id. Same command
+bun run promote qa --app hello=36226fb9   # the rollback. Same command
+bun run promote qa --shell c2601912       # the shell alone
 bun run units                             # which ids there are to name
 ```
 
@@ -105,9 +111,9 @@ Nobody memorises a hash. `publish` prints the new ids on stdout as JSON, so a sc
 
 ### The three rules that make it safe
 
-- **`promote` merges, it does not replace.** It reads the channel's current composition, applies only what you named, and writes the result. Without the merge, "deploy alpha" would silently roll the other five units back to whatever the operator last had on disk.
+- **`promote` merges, it does not replace.** It reads the channel's current composition, applies only what you named, and writes the result. Without the merge, "deploy hello" would silently roll every other unit back to whatever the operator last had on disk.
 - **`publish` writes the unit's own descriptor last**, after every file it names is readable. `promote` refuses a unit without one, so a channel can never point at a half-uploaded unit.
-- **A unit id is the hash of that unit's output, and nothing else.** The commit is deliberately excluded: one commit touching only alpha would otherwise change all six ids and republish all six. Publishing is therefore idempotent per unit — five of the six report `unchanged`.
+- **A unit id is the hash of that unit's output, and nothing else.** The commit is deliberately excluded: one commit touching only `hello` would otherwise change every id and republish every unit. Publishing is therefore idempotent per unit — everything untouched reports `unchanged`.
 
 ---
 
@@ -120,20 +126,20 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
 | A deploy changes which build a channel points at — no image build, no rollout | Operator | `deploying-by-pointer.feature`, 5 scenarios |
-| Ship a change to one sub-app without moving the other five | Operator | `deploying-a-unit.feature`, 8 scenarios |
+| Ship a change to one unit without moving the others | Operator | `deploying-a-unit.feature`, 8 scenarios |
 | One server image serves every environment | Operator | `channel-selection.feature`, 3 scenarios |
 | A published build is permanent, so a page loaded before a deploy still fetches its files | Operator | `publishing-a-build.feature`, 6 scenarios |
 
 - **Changing which build a channel points at** — `promote` writes one JSON object. Machine ids and timestamps are **asserted identical** before and after.
-- **Shipping one sub-app** — each unit has its own id, directory and asset base. `promote --app alpha=<id>` merges into the current composition.
+- **Shipping one sub-app** — each unit has its own id, directory and asset base. `promote --app hello=<id>` merges into the current composition.
 - **One image, every environment** — `Host` selects the channel, `FLY_REGION` the region. Both are pure functions.
 - **A permanent build** — files are written under a content-hash id and never overwritten. A deploy deletes nothing.
 
-### B. Six separate bundles still behave as one application
+### B. Separate bundles still behave as one application
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
-| Every panel agrees about my name, my colour and every count, though the bundles were built separately | Visitor | `shared-state.feature`, 9 scenarios, in a real browser |
+| The frame and the panel agree about what the page says, though the bundles were built separately | Visitor | `shared-state.feature`, 4 scenarios, in a real browser |
 | One panel failing costs me that panel alone | Visitor | `recovering-from-an-error.feature`, 3 scenarios |
 | I see the version live now, never one frozen into the server image | Visitor | `serving-the-shell.feature`, 6 scenarios |
 
@@ -141,22 +147,22 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 - **One panel failing** — a sub-app is a Preact component inside the shell's tree, so the shell's error boundary catches what it throws. A separate render root caught nothing.
 - **The version live now** — the server reads the pointer per request, cached 10 s and served stale while it refreshes.
 
-> **Why this was not assumed:** bundling the UI library into each sub-app was tried. It turned 4 of the 6 browser scenarios red, because each sub-app got its own reactivity runtime and the shell's counters silently stopped re-rendering it.
+> **Why this was not assumed:** bundling the UI library into each sub-app was tried on the previous slate, which had five of them. It turned 4 of the 6 browser scenarios red, because each sub-app got its own reactivity runtime and the shell's state silently stopped re-rendering it.
 
 ### C. A rollback that actually works
 
-Composing units means composing combinations nothing has ever type-checked. A shell that renamed an export, put in front of a six-week-old alpha, is a page where one panel renders an error. Three mechanisms answer that.
+Composing units means composing combinations nothing has ever type-checked. A shell that renamed an export, put in front of a six-week-old `hello`, is a page where one panel renders an error. Three mechanisms answer that.
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
 | A composition that cannot work is refused before it reaches visitors | Operator | `bun run e2e:members`, real store; 5 falsify mutations |
-| An additive change must not force every unit to republish | Developer | `contract:matrix`, 6 units × retained contracts, ~1.7 s |
-| See what a rollback would serve before anyone else does | Operator | `choosing-a-version.feature`, 8 scenarios |
+| An additive change must not force every unit to republish | Developer | `contract:matrix`, every unit × retained contracts, ~0.4 s |
+| See what a rollback would serve before anyone else does | Operator | `choosing-a-version.feature`, 7 scenarios |
 | Rolling back to an older manifest schema must still render | Operator | `rolling-back-onto-an-older-schema.feature`, 2 scenarios |
 
 - **Refusing a composition that cannot work** — each unit records **which members of the shell's surface it uses**, measured by removal: cut the declaration, recompile, see whether it still builds. `promote` refuses a sub-app needing a member this shell lacks, and names both.
 - **An additive change** — contract identity is a content hash. An added export still satisfies every retained contract, so nothing republishes; a breaking change shows at once as a `fail` column in `bun run contract:matrix`.
-- **Seeing a rollback first** — `?alpha=<id>` on the origin's own URL composes that unit for you alone, and moves no channel. An id the channel never served is refused, and so is a composition that cannot work.
+- **Seeing a rollback first** — `?hello=<id>` on the origin's own URL composes that unit for you alone, and moves no channel. An id the channel never served is refused, and so is a composition that cannot work.
 - **Previewing a pull request** — CI builds it with `BUILD_MARKER=pr-<number>` and publishes; the same URL then runs it, because `qa` is the one real channel that admits that marker. `promote` still refuses it, so a preview can be looked at and never deployed. It is not a feature flag: nothing picks for a visitor who did not type the URL, and flags live in the service.
 - **An older manifest schema** — a schema 2 manifest is kept in the store permanently, with a test channel pointed at it, in a real browser.
 
@@ -166,7 +172,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
-| The browser refuses any file whose bytes were not published | Visitor | `checking-what-the-page-loads.feature`, 4 scenarios, 3 in a real browser |
+| The browser refuses any file whose bytes were not published | Visitor | `checking-what-the-page-loads.feature`, 4 scenarios, 3 executable in a real browser |
 | Running the suites and then deploying must not ship a scenario's build to visitors | Operator | `refusing-a-harness-build.feature`, 3 scenarios |
 | A well-formed manifest must not quietly put an older commit in front of visitors | Operator | `refusing-a-stale-build.feature`, 5 scenarios |
 
@@ -178,14 +184,14 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
-| A store outage degrades the deploy system, not the application | Visitor | `store-outage.feature`, 6 scenarios |
+| A store outage degrades the deploy system, not the application | Visitor | `store-outage.feature`, 7 scenarios |
 | A machine in another region must not go on serving what it served before | Operator | `serving-from-two-regions.feature`, 4 scenarios against the deployed machines |
 | Decide a sunset from traffic rather than from a guess | Operator | `counting-what-is-served.feature`, 6 scenarios |
 | Know whether the page can use the service it reads from | Operator | `reading-from-a-service.feature`, 3 scenarios; `bun run e2e:api`, 12 checks |
 | Mark a contract as going away | Developer | `bun run e2e:deprecation`, real store; 16 unit tests |
-| See what is inside the service, and what it is retiring | Operator | `reading-what-the-service-holds.feature`, 8 scenarios; `bun run e2e:schema`, 21 checks in a real browser |
-| Change what the page offers, without deploying anything | Operator | `reading-what-the-service-holds.feature`, 12 scenarios; `bun run e2e:schema`, 44 checks |
-| Know which unit a change to the service will reach | Developer | `contract:members`, 59 members; 11 claims asserted in `members.test.ts` |
+| See what is inside the service, and what it is retiring | Operator | `reading-what-the-service-holds.feature`, 8 scenarios; `bun run e2e:schema`, in a real browser |
+| Change what the page offers, without deploying anything | Operator | `reading-what-the-service-holds.feature`, 3 scenarios; `bun run e2e:schema` |
+| Know which unit a change to the service will reach | Developer | `contract:members`, 26 members; the claims asserted in `members.test.ts` |
 | Read that retirement on the page, without deploying anything | Visitor | `bun run e2e:schema`; 3 falsify mutations |
 | Delete old files without breaking an open tab | Operator | `scripts/retention.ts`; measured live 2026-08-30 |
 
@@ -195,9 +201,9 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 - **Using the service** — the shell records which API versions it accepts, the service publishes what it serves, and the **running server** intersects them into a response header. The page never waits: it renders from defaults and fills in afterwards.
 - **A contract going away** — `contract:deprecate` records a reason, a date and what to move to, beside the hash and never inside it. It **warns and never refuses**, because published units were built against the deprecated contract.
 - **What the service holds** — the service publishes the fields of every version it answers; `API_DEPRECATED` in its environment retires one, with no code change and no rebuild. Responses carrying a retired field say so, in RFC 9745 `Deprecation` and RFC 8594 `Sunset`. A value it cannot act on stops it starting, because a mistaken "nothing is going away" is a false reading rather than silence.
-- **Changing what the page offers** — the service answers 20 fields over 13 routes, five of them writable. One `POST` changes what a panel draws: `limits.step` alpha's buttons, `limits.allowNegative` bravo's, `flags.showTotals` charlie's totals row, `flags.showShares` delta's percentages. A step of 0 is refused, because a page whose every button works and does nothing looks alive and is not.
+- **Changing what the page offers** — the service answers two fields over two routes, one of them writable. A single `POST` changes what the panel draws, on every channel that reads that service, with nothing rebuilt and no id moved. A greeting with no text is refused, because a page whose greeting is blank looks broken rather than empty.
 - **Which unit a change reaches** — ownership is measured at the field, never the resource. `readMembers` cuts one declaration — `Limits.allowNegative`, not `Limits` — and recompiles each unit, so `bun run contract:members` prints which panel needs which field. Nothing declares it, so nothing can get it wrong.
-- **Reading a retirement on the page** — the shell reads the document once and hands it to every panel through the store, so five separately published sub-apps each report it their own way. No unit id moves between the reading before the retirement and the reading after.
+- **Reading a retirement on the page** — the shell reads the document once and hands it to every panel through the store, so a separately published sub-app reports it without calling the service itself. No unit id moves between the reading before the retirement and the reading after.
 - **Deleting old files** — `bun run sweep` removes only what no channel can serve, behind a **90-day floor** on two clocks: the object's age, and when a channel stopped serving it.
 
 ---
@@ -207,7 +213,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 | Role | What is different |
 | --- | --- |
 | **Designers** | A visual change to one panel ships and rolls back on its own, never queueing behind unrelated work in the same release. A URL shows any previously deployed build of any panel, without deploying it. |
-| **Product managers** | The unit of release is a panel. "Ship alpha, hold bravo" is a real operation, never a feature flag. Rollback is the deploy command, and takes seconds rather than a pipeline run. What is still served is a number you read at `/compositions`. |
+| **Product managers** | The unit of release is a panel. "Ship the panel, hold the frame" is a real operation, never a feature flag. Rollback is the deploy command, and takes seconds rather than a pipeline run. What is still served is a number you read at `/compositions`. |
 | **Engineering managers** | Deploy risk is separate from infrastructure risk: an application change means no image build, no rollout, no machine churn. A machine refuses a composition that cannot work before a visitor sees it. Every requirement is a scenario, seen to fail before it was trusted. |
 | **Developers** | Publish is cheap and idempotent per unit; promote is the only thing anyone sees. A breaking change to the shell↔sub-app surface shows as a failing column in a matrix at build time, never in a browser weeks later. Additive changes force no republish. |
 
@@ -217,12 +223,12 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 | | Value |
 | --- | --- |
-| Promotion to every visitor seeing it | **4.7 – 10.2 s** across eight runs |
+| Promotion to every visitor seeing it | **8.8 – 9.1 s** on this slate, 4.7 – 10.2 s across eight runs on the previous one |
 | Propagation window by construction | **15 s** (5 s store pointer cache + 10 s server cache) |
 | First request to a fully stopped machine | 4.59 s (wake, boot, cold pointer read) |
 | First request to a running machine | 0.32 s |
 | Runtime image | 40 MB, no dependencies, no build output |
-| Type-checking added to every build | ~10.5 s, for the contract's 11 members and the server-to-shell surface's 19 |
+| Type-checking added to every build | ~14 s, for the contract's 26 members and the server-to-shell surface's 13 |
 
 **A deploy is fast, not instant.** Two caches sit in front of it, and both are deliberate: the pointer cache is what makes the store cheap, and the server cache is what keeps a visitor from ever waiting on a store read.
 
@@ -238,7 +244,7 @@ These are decisions, not gaps. Each is written down so nobody mistakes it for an
 | A unit cannot be composed with any other | `promote` refuses a sub-app needing a member this shell lacks. That refusal is the feature |
 | The shell owns where a sub-app appears on the page | A layout change is a shell publish and a promote, and rolling the shell back rolls the layout back |
 | A change in behaviour behind an unchanged type is not caught | No type surface can cover it, and saying so beats implying otherwise |
-| A library major version that breaks an old bundle is not caught | Folding library versions into the contract hash would republish all five sub-apps on every patch bump. Versions are recorded and **warned** about |
+| A library major version that breaks an old bundle is not caught | Folding library versions into the contract hash would republish every sub-app on every patch bump. Versions are recorded and **warned** about |
 | The API service surface is checked coarsely | It has no compiler behind it. A version set compared at serve time replaces one, and a version set is coarser than a type |
 | Anyone who can write the pointer can serve an older composition | The digest and the policy stop them running their own code on the origin. The remaining hole is the bucket key's scope |
 | Two promotes at once can lose one | Read-modify-write with no compare-and-set. One operator today; an `If-Match` on the ETag would close it |
@@ -251,16 +257,16 @@ Green checks are a necessary condition for shipping and never a sufficient one, 
 
 | Layer | What it covers | Size |
 | --- | --- | --- |
-| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **464 tests**, ~43 s |
-| `bun run verify` | Scenarios needing an injected failure — unreachable store, corrupt manifest, a retired field | **44** `@local` scenarios, ~11 s |
-| `bun run verify:live` | Everything that publishes or promotes, against the **real** store and deployed machines | **42** `@live` scenarios, ~11 min |
-| `bun run verify:browser` | What only a browser sees: six bundles agreeing on one store, a blocked module script, a panel that throws | **20** `@browser` scenarios, ~6 min |
-| `bun run falsify` | 87 deliberate breakages. **Each must turn a named check red** | 87 mutations, 58 run locally, 0 uncaught |
+| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **417 tests**, ~21 s |
+| `bun run verify` | Scenarios needing an injected failure — unreachable store, corrupt manifest, a retired field | **54** `@local` scenarios, ~8 s |
+| `bun run verify:live` | Everything that publishes or promotes, against the **real** store and deployed machines | **45** `@live` scenarios |
+| `bun run verify:browser` | What only a browser sees: two bundles agreeing on one store, a blocked module script, a panel that throws | **12** `@browser` scenarios |
+| `bun run falsify` | 91 deliberate breakages. **Each must turn a named check red** | 91 mutations, 65 run locally, 0 uncaught |
 | `bun run mutate` | Operator and literal mutation over the server's pure logic | 750 mutants, 750 killed, 0 survivors |
-| `bun run e2e` | Deploy one panel, deploy another, roll the first back, read off the **rendered page** | the question the project exists to answer |
-| `bun run e2e:schema` | Retire a field on the service, change four more, read what all five panels paint — no unit rebuilt, no id moved | 44 checks in a real Chrome |
+| `bun run e2e` | Deploy the panel, deploy the frame, roll the panel back, read off the **rendered page** | the question the project exists to answer |
+| `bun run e2e:schema` | Retire a field on the service, write another, read what the page paints — no unit rebuilt, no id moved | in a real Chrome |
 
-**94 written scenarios** (96 executable, two being outlines) are the specification and the acceptance suite at once.
+**100 written scenarios** (106 executable, three being outlines) are the specification and the acceptance suite at once.
 
 Four conventions hold the whole thing up:
 

@@ -3,14 +3,14 @@
 //
 // It reads the channel's current composition, applies only the units named on
 // the command line, and writes the result. That merge is what makes "deploy
-// alpha" leave bravo where it was, and "roll alpha back" leave bravo at its
+// hello" leave the shell where it was, and "roll hello back" leave the shell at its
 // newer version.
 //
 // No image is built and no machine is restarted. The running servers notice
 // within their manifest TTL.
 //
-//   bun run promote qa --app alpha=9b855c4b        # deploy one app
-//   bun run promote qa --app alpha=36226fb9        # roll that one app back
+//   bun run promote qa --app hello=3bba892b        # deploy one app
+//   bun run promote qa --app hello=36226fb9        # roll that one app back
 //   bun run promote qa --shell 43ca0019            # the shell alone
 //   bun run promote qa --from-build                # everything in dist/build.json
 //
@@ -242,7 +242,7 @@ if (fromBuild) {
     }
   }
 
-  // Explicit flags win, so --from-build --app alpha=<older> is a rollback of
+  // Explicit flags win, so --from-build --app hello=<older> is a rollback of
   // one unit inside an otherwise current composition.
   for (const unit of UNITS) {
     if (!wanted.has(unit) && built.units[unit]) wanted.set(unit, built.units[unit]!.id);

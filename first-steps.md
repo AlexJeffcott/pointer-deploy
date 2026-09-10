@@ -10,7 +10,7 @@
 6. Tigris answers the pointer. It carries `cache-control: public, max-age=5`, so the edge may hand back a copy up to 5 s old (`scripts/store.ts:294`).
 7. `parseManifest` turns those bytes into a value or throws (`src/server/manifest.ts:81`). **The manifest is this same pointer file** — `manifest` is the name the code uses for it. Its top-level `schema` field names the layout, and three are accepted:
     - **1** — `entry: { js, css }`: one bundle, one stylesheet, no sub-apps. Nothing in the repo writes one; it lives in the parser and its tests.
-    - **2** — `shell { js, css }`, one `imports` map, one `apps` record, and **one `assetBase` shared by every unit**, so the six cannot move separately. One test channel points at a fixture kept permanently in `legacy/schema-2/`, because whether such a page still renders is only observable in a browser (`scripts/publish-schema-2-fixture.ts`).
+    - **2** — `shell { js, css }`, one `imports` map, one `apps` record, and **one `assetBase` shared by every unit**, so the units cannot move separately. One test channel points at a fixture kept permanently in `legacy/schema-2/`, because whether such a page still renders is only observable in a browser (`scripts/publish-schema-2-fixture.ts`).
     - **3** — each unit carries its own `unitId`, `assetBase`, `integrity` and `marker`, and the file carries a `contract` and a `composedAt`. Both real channels serve this, and it is the only schema under which one unit can move alone.
 
     Any other value throws `unsupported manifest schema`. A parse failure keeps the last good value and writes the reason into `x-manifest-refresh`; no value at all is a 503 (`src/server/index.ts:129`). `units/catalogue.json` and `<channel>.history.json` carry a `schema` field of their own, numbered separately — a `schema: 1` in those files is not this schema 1.
@@ -23,7 +23,7 @@
     | C | some `?<unit>=<id>` in the query names an id different from the live one | `overridden = false` and `served` stays the pointer as read |
     | D | `refuseComposition` finds nothing to refuse | **400**, `that composition cannot be served: <reason>` |
 
-9. Past gate B. The query string is read once per unit — `?shell=`, `?alpha=` … Each parameter naming a different id goes into `chosen` and sets `overridden`. A plain visit names none, so `chosen` is the live set and gate C stops here.
+9. Past gate B. The query string is read once per unit — `?shell=`, `?hello=`. Each parameter naming a different id goes into `chosen` and sets `overridden`. A plain visit names none, so `chosen` is the live set and gate C stops here.
 10. Past gate D. `compose` rebuilds the manifest around `chosen`, taking each named unit out of the merged history and choosing the newest contract every unit in the new set supports.
 11. Always, whichever gate stopped. `blockRefusal` and `apiRefusal` compare the shell's recorded surface against `blocks.provides.json` (read once at boot) and the service's `serves` list. That surface comes from the history, so a stop at gate A or B leaves it undefined and both headers read `unread` (`src/server/composition.ts:157-181`).
 
@@ -31,12 +31,12 @@
 
 12. One document, `cache-control: no-store, must-revalidate`. It contains, in order (`src/server/html.ts:221-233`):
     - `<link rel="stylesheet">` — the shell's CSS in the store, with its sha384.
-    - `<script type="importmap">` — the shell unit's own `imports` map, served as recorded with every file resolved against the **shell's** directory (`src/server/html.ts:83-92`). The server names no specifier, so the count is whatever that shell build wrote. This build writes five: `preact`, `preact/hooks`, `preact/jsx-runtime`, `@preact/signals` and `@pointer/shell` (`build.ts:268-274`). The map's `integrity` section is assembled separately and covers every `.js` file the shell and each app declare, not only the mapped specifiers — the shell's entry, its shared chunks and each panel's bundle, 15 entries in the build measured below (`src/server/html.ts:100-110`).
+    - `<script type="importmap">` — the shell unit's own `imports` map, served as recorded with every file resolved against the **shell's** directory (`src/server/html.ts:83-92`). The server names no specifier, so the count is whatever that shell build wrote. This build writes five: `preact`, `preact/hooks`, `preact/jsx-runtime`, `@preact/signals` and `@pointer/shell` (`build.ts:268-274`). The map's `integrity` section is assembled separately and covers every `.js` file the shell and each app declare, not only the mapped specifiers — the shell's entry, its shared chunks and each panel's bundle, 12 entries in the build measured below (`src/server/html.ts:100-110`).
     - `<div id="app">`.
-    - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, a `units` entry for the shell and every app the manifest carries, each with its id, commit and marker (`src/server/html.ts:17-22`), the contract hash, and `apiBase`. Six units here.
+    - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, a `units` entry for the shell and every app the manifest carries, each with its id, commit and marker (`src/server/html.ts:17-22`), the contract hash, and `apiBase`. Two units here.
     - `<script id="__APPS__">` — each sub-app's JS URL, CSS URL and CSS digest.
     - `<script type="module" src="…units/shell/<id>/index-<hash>.js" integrity="sha384-…">`.
-    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). Five and five in this composition. A sixth sub-app in the pointer produces a sixth pair from the deployed binary, unrebuilt.
+    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). One and one in this composition, and both are for the panel this route mounts, so they warm nothing that is not about to be fetched anyway. A second sub-app in the pointer produces a second pair from the deployed binary, unrebuilt.
 13. The `content-security-policy` header: `default-src 'none'`; `script-src` = the store origin plus the **sha256 of the import map's own bytes**; `style-src` = the store origin; `connect-src` = the service origin and nothing else; `base-uri`, `form-action`, `frame-ancestors` all `'none'`.
 14. Four reading headers: `x-manifest-age`, `x-manifest-refresh`, `x-shell-blocks`, `x-shell-api`.
 15. `handedOut.record()` adds this composition to what `GET /compositions` reports.
@@ -46,7 +46,7 @@
 16. The CSP applies to everything below it.
 17. The shell stylesheet is fetched from the store, checked against its sha384, and blocks the first paint.
 18. The import map is read. It must be parsed before any module import.
-19. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — ten in this composition. All are `public, max-age=31536000, immutable`.
+19. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — two in this composition. All are `public, max-age=31536000, immutable`.
 20. The shell module is fetched and checked. Its imports of `preact` and the rest resolve through the map to more files in the shell's directory, each checked against the map's integrity entry.
 21. Any file whose bytes do not match its digest is **not executed**. That is the only place the refusal is observable.
 
@@ -58,27 +58,25 @@
 25. `store.setService(awaiting(base))` runs **before** the render, so the first paint says which service is being read and that it has not answered.
 26. `render()` mounts `<ShellBoundary><Shell/></ShellBoundary>`.
 27. `Shell.tsx` reads `__APPS__` at module scope, once.
-28. The route is `location.pathname` = `/`. That view names **alpha and bravo only**. Charlie, delta and echo were preloaded and are not mounted.
-29. A layout effect sets `data-dark` on `<html>` before paint, so the page never shows one theme then the other.
-30. First paint: masthead, name and colour inputs, tabs, and two empty slots marked `data-app-loading`.
+28. The route is `location.pathname` = `/`. That view names `hello`. The `/service` view names no unit at all: the frame draws it.
+29. First paint: the title, the fixed sidenav, the view's own heading and note, and one empty slot marked `data-app-loading`.
 
-## 5 · The two panels
+## 5 · The panel
 
-31. Each panel's effect calls `loadApp(name, assets)`.
-32. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle. Both are usually already in cache from the preload.
-33. A module with no function default export is rejected by name: "alpha has no default export, so it is not a sub-app".
-34. The panel renders inside the shell's tree with the store passed as a prop. A throw is caught by that panel's own boundary, which offers "Mount again". The other panel is untouched.
+30. Each panel's effect calls `loadApp(name, assets)`.
+31. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle. Both are usually already in cache from the preload.
+32. A module with no function default export is rejected by name: "hello has no default export, so it is not a sub-app".
+33. The panel renders inside the shell's tree with the store passed as a prop. A throw is caught by that panel's own boundary, which offers "Mount again". The frame is untouched.
 
 ## 6 · The service, in parallel with all of the above
 
-35. Three reads start together, right after `render()`, and none blocks the paint (`src/web/shell/index.tsx:58-74`).
-36. `readService` → `GET /versions` on `pointer-deploy-api.fly.dev`. Not under a version prefix, because asking at a version needs the answer first.
-37. `readSettings` → five requests at once: `/v1/limits`, `/v1/labels`, `/v1/flags`, `/v1/stats`, `/v1/motd`. `allSettled`, so whatever answers is kept. What did not is written to `data-settings` on `<html>`.
-38. `hydrate` → `GET /v1/user` and `GET /v1/counters` together. It then sets the name, colour and theme, registers each namespace, and applies each count.
-39. Every response's `Sunset` header is remembered and folded into the report. It arrives only because the service sends `access-control-expose-headers`.
-40. `data-api` on `<html>` becomes `ok` or the error text.
-41. Client timeout is 5 s per call.
-42. The page repaints with the real values. Everything before step 42 was defaults.
+34. Two reads start together, right after `render()`, and neither blocks the paint (`src/web/shell/index.tsx:57-66`).
+35. `readService` → `GET /versions` on `pointer-deploy-api.fly.dev`. Not under a version prefix, because asking at a version needs the answer first.
+36. `hydrate` → `GET /v1/greeting`. What comes back is merged into the store's greeting; what does not is left at the default, and the reason goes on `data-api`.
+37. Every response's `Sunset` header is remembered and folded into the report. It arrives only because the service sends `access-control-expose-headers`.
+38. `data-api` on `<html>` becomes `ok` or the error text.
+39. Client timeout is 5 s per call.
+40. The page repaints with the real values. Everything before it was defaults.
 
 ## 7 · What does not happen
 
@@ -92,14 +90,16 @@
 
 ## The shape
 
-Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for plus what each mounted panel asks for. Measured in this composition: **1**, then **19**, then **10**.
+Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for. Measured in this composition: **1**, then **11**, then **2**.
 
 | Fan | What sets the count | Here | What |
 | --- | --- | --- | --- |
 | Server | always 1 | 1 | The HTML |
-| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 19 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 10 panel files |
-| Service | the 8 this shell asks for at steps 36-38, plus one `/v1/counters/<app>` for each panel the view mounts | 10 | `/v1/counters/alpha` and `/v1/counters/bravo` from the two panels `/` mounts |
+| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 11 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files |
+| Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1/greeting` |
 
-Only the shell's own files are needed to paint — 9 of them here. The panel files are fetched for every sub-app the manifest carries, and only the apps the route names are imported, so the rest arrive and are never run: on `/` that is charlie, delta and echo, 6 of the 10 panel files.
+Only the shell's own files are needed to paint — 9 of them here. On this slate the panel files are fetched and also run, because the one sub-app is on the route a visitor lands on. A unit placed on a route nobody opens is fetched and never imported, which is what the preload tags are for.
 
-Counted in a real Chrome against a six-unit composition, one cold page load. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
+Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
+
+That reading was taken while the deployed service still answered the previous slate's surface, so `GET /v1/greeting` returned 404. The count is the same either way — the page makes the call and draws the default when it fails, which is the behaviour, not a fault in the measurement.

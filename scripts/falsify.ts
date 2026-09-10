@@ -297,6 +297,18 @@ const MUTATIONS: Mutation[] = [
     live: true,
   },
   {
+    // The scenario had no mutation until 2026-09-10, so it had only ever been
+    // green. With every machine resolving one region, the machine reached
+    // through iad reports eu, the harness's wake loop never sees us, and the
+    // step fails on the reading rather than on the wait.
+    name: "every machine reads one region's manifest",
+    file: "src/server/origins.ts",
+    find: '  const region = FLY_TO_REGION[flyRegion ?? ""];',
+    replace: '  const region = FLY_TO_REGION["ams"];',
+    scenario: "Each region's machine reads its own region's manifest",
+    live: true,
+  },
+  {
     // Flattening a difference nobody asked to flatten. The merge reads one
     // region, so the other is overwritten with a composition nobody chose.
     name: "a promote flattens a difference between the regions",
@@ -474,7 +486,7 @@ const MUTATIONS: Mutation[] = [
 
   {
     // The merge IS the feature. Without it every promote replaces all five
-    // units, and "deploy alpha" silently rolls bravo back to whatever the
+    // units, and "deploy hello" silently rolls the shell back to whatever the
     // operator last had on disk.
     name: "promote replaces the composition instead of merging into it",
     file: "scripts/promote.ts",
@@ -567,7 +579,7 @@ const MUTATIONS: Mutation[] = [
   },
   {
     // A unit id that carried the commit would change on every commit, so one
-    // change to alpha would republish all five and the independence would only
+    // change to one unit would republish every unit and the independence would only
     // exist in the pointer.
     name: "the unit id carries the commit",
     file: "build.ts",

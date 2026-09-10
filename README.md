@@ -29,25 +29,34 @@ only, and read which version of the app to serve, per request, from a file.
 So a deploy is this, and nothing else:
 
 ```sh
-bun run promote qa --app alpha=9b855c4b
+bun run promote qa --app hello=3bba892b
 ```
 
-That moves alpha. The shell and the other three sub-apps stay exactly where
-they were, and rolling alpha back afterwards leaves alone whatever was deployed
-in between.
+That moves `hello`. The shell stays exactly where it was, and rolling `hello`
+back afterwards leaves alone whatever was deployed in between.
 
-### The page is six bundles that agree with each other
+### The application is deliberately almost nothing
 
-The shell owns the state — a name, a colour, a map of namespaced counters, and
-what the service says it holds. Five sub-apps read it. Two appear on the counters
-view, two on the totals view, and the second pair reads counters the first pair
-created without the two pairs ever being on screen together. The fifth is on its
-own view and writes nothing: it reports what is inside the service, §26.
+The page is a title, a fixed sidenav and two views. `/` places the one sub-app,
+which draws a greeting and writes back to it. `/service` is drawn by the shell
+itself, from the one reading it took of the service. Desktop only: there is no
+breakpoint anywhere in the stylesheet.
+
+That is the whole application, and it is the point. Everything else in this
+repository is the machinery for shipping it — publishing, composing, promoting,
+rolling back, refusing a composition that cannot work — and the machinery is
+the subject. What gets built on top of this slate is documented as it is built,
+because the process is what the project is for.
+
+### The page is bundles that agree with each other
+
+The shell owns the state — a greeting of two fields, and what the service says
+it holds. The sub-app reads it and writes to it, and holds nothing of its own.
 
 Each sub-app is its own **unit**: its own bundle, its own stylesheet, its own id,
 published and promoted on its own and fetched when its view first needs it. That
 is in tension with sharing state: a sub-app carrying its own Preact would have
-its own signals runtime, and the shell's counters would silently stop
+its own signals runtime, and the shell's state would silently stop
 re-rendering it. So exactly one thing is shared, and the manifest carries it:
 
 | | How |
@@ -64,7 +73,10 @@ call to `createStore()`, which would render the sub-app against a store nobody
 else on the page can see.
 
 That this matters was measured, not assumed. Bundling Preact into each app turned
-4 of the 6 browser scenarios red when it was tried.
+4 of the 6 browser scenarios red when it was tried on the previous slate, which
+had five sub-apps. `falsify` keeps the reading alive here: an accessor that
+reads the store with `peek` instead of `value` is what a sub-app with its own
+runtime looks like from outside, and a named browser scenario goes red for it.
 
 ### A sub-app is a component, and is handed the store
 
@@ -98,10 +110,9 @@ sequenceDiagram
     S->>T: GET manifests/eu/qa.json
     T-->>S: which unit is live, per unit
     S-->>B: HTML naming each unit's own files
-    B->>T: GET units/shell/43ca0019/index-3wgagyzf.js
-    B->>T: GET units/shell/43ca0019/index-rc565c4j.css
-    B->>T: GET units/alpha/9b855c4b/alpha-z9ev874b.js
-    B->>T: GET units/bravo/483316f3/bravo-4vf0ywmv.js
+    B->>T: GET units/shell/c2601912/index-b2nncsqx.js
+    B->>T: GET units/shell/c2601912/index-t1mb1e5f.css
+    B->>T: GET units/hello/3bba892b/hello-0kn9vs2b.js
 ```
 
 The server never holds a script or a stylesheet. It is asked which units are
@@ -109,18 +120,17 @@ live, and it writes an HTML page pointing at each of them. Promoting a different
 unit changes one answer to that question, so the next visitor gets a different
 app from the same running machine — and only the part that moved is different.
 
-Note the last two lines. Alpha and bravo come from different directories,
+Note the last two lines. The shell and `hello` come from different directories,
 written at different times. **One `assetBase` per unit is the whole feature.**
 Schema 2 had one base for the entire page, so every file had to come from one
-build directory, which is what made the six bundles deploy and roll back
-together.
+build directory, which is what made every bundle deploy and roll back together.
 
 ### What it costs
 
 | | |
 | --- | --- |
 | A visitor waits for a manifest read | No. It is cached 10 s and served stale while it refreshes |
-| A deploy is instant | No. 7.1 – 10.2 s measured, because two caches sit in front of it |
+| A deploy is instant | No. 8.8 – 9.1 s measured on this slate, because two caches sit in front of it |
 | The store is on the critical path | Only for a cold start. A running server survives an outage on its last good answer |
 | Old units can be deleted | No. A tab opened before the deploy still fetches its own files |
 | A unit can be composed with any other | No. `promote` refuses a sub-app that needs a member this shell does not have |
@@ -135,11 +145,11 @@ lines repeated, and a new image for every commit.
 ## Deploying
 
 ```sh
-bun run build                                 # six units into dist/units/
+bun run build                                 # every unit into dist/units/
 bun run publish                               # uploads only what changed. Affects nobody
-bun run promote qa --app alpha=9b855c4b       # the deploy
-bun run promote qa --app alpha=36226fb9       # the rollback. Same command
-bun run promote qa --shell 43ca0019           # the shell alone
+bun run promote qa --app hello=3bba892b       # the deploy
+bun run promote qa --app hello=36226fb9       # the rollback. Same command
+bun run promote qa --shell c2601912           # the shell alone
 bun run promote qa --from-build               # everything just built
 bun run units                                 # which ids there are to name
 ```
@@ -155,15 +165,15 @@ point at a half-uploaded unit.
 
 `promote` reads the channel's current composition, applies only what you named,
 and writes the result. That merge is the feature: without it every promote
-replaces all six units, and "deploy alpha" silently rolls the other five back
-to whatever the operator last had on disk. `falsify.ts` breaks the merge and
+replaces every unit, and "deploy hello" silently rolls the shell back to
+whatever the operator last had on disk. `falsify.ts` breaks the merge and
 requires a scenario to go red.
 
 ### A unit id is a hash of that unit's output, and nothing else
 
 The commit is deliberately not in it. It used to be — `<source>-<content>` — and
-under per-unit publishing that is wrong: one commit touching only alpha would
-change all six ids and republish all six, which removes the point. The commit
+under per-unit publishing that is wrong: one commit touching only `hello` would
+change every id and republish every unit, which removes the point. The commit
 identifies the source, not the artefact, so it lives in `unit.json` as
 provenance and reaches the served page in the `__BUILD__` block.
 
@@ -171,11 +181,8 @@ The consequence is that publishing is idempotent per unit:
 
 ```
 $ bun run publish
-  shell   43ca0019  unchanged
-  alpha   9b855c4b  uploaded 3 files
-  bravo   483316f3  unchanged
-  charlie 8511a387  unchanged
-  delta   d728f064  unchanged
+  shell c2601912  unchanged
+  hello 3bba892b  uploaded 3 files
 ```
 
 ## What stops a rollback breaking the page
@@ -183,7 +190,7 @@ $ bun run publish
 Composing units means composing combinations that nothing has ever typechecked.
 `tsc --noEmit` at HEAD proves the HEAD combination; rolling one unit back is
 precisely how you get one it never saw. A shell that renamed an export, put in
-front of a six-week-old alpha, is a page where one panel renders an error.
+front of a six-week-old `hello`, is a page where one panel renders an error.
 
 So each unit declares **which contracts it compiles against**, and `promote`
 refuses a composition whose sets do not intersect. That was the whole rule until
@@ -207,12 +214,20 @@ The sets are generated, never written:
 
 ```
 $ bun run contract:matrix
+       9d1b0a3
+shell     pass
+hello     pass
+```
+
+One contract, because the slate minted one. The table earns its keep the moment
+there is a second, and the shape below is what it looked like on the previous
+slate when a breaking change was tried:
+
+```
          9e79879  571be5c
 shell       fail     pass
 alpha       pass     fail
 bravo       pass     fail
-charlie     pass     fail
-delta       pass     fail
 ```
 
 That is one `tsc` per cell, with `@pointer/shell` and `@pointer/subapp`
@@ -220,29 +235,30 @@ re-pointed at that contract's `.d.ts` files — the same `paths` mechanism
 `tsconfig.json` already uses to point them at the sources. Two adapter files
 carry the halves the call sites cannot prove on their own:
 `src/web/shell/contract.ts` (the shell provides at least the contract) and
-`src/web/apps/<name>/contract.ts` (the app provides `mount`).
+`src/web/apps/<name>/contract.ts` (the app is a `SubApp`).
 
 Three consequences, and they are why the matrix is worth its cost:
 
 | | |
 | --- | --- |
 | Nobody can claim a contract they did not compile against | The set is generated output. There is no hand-written claim to get wrong, so it stops being a thing to test and becomes a property |
-| An additive change costs nothing | Every adapter still compiles against the new hash, so it joins every set with no new file and no decision. Adding an export to `api.ts` does not force five republishes |
+| An additive change costs nothing | Every adapter still compiles against the new hash, so it joins every set with no new file and no decision. Adding an export to `api.ts` forces no republish |
 | A breaking change appears as a `fail` column | In the unit that has to move, immediately, rather than in a browser weeks later |
 
-The table above is the real output of making `increment(ns, by = 1)` require
-`by`. The shell stops satisfying the old contract; the four counting apps, which
-all call `increment(NS)` with one argument, stop satisfying the new one; the
-intersection is empty. Each of those four calls `increment`, so the member gate
-below refuses them too — this is a change that genuinely breaks all four. echo is
-the fifth app and calls nothing on the counting half, so the gate lets it through
-where the set intersection would not: exactly the case §7 exists for.
+That second table is the real output, on the previous slate, of making
+`increment(ns, by = 1)` require `by`. The shell stops satisfying the old
+contract; the counting apps, which all called `increment(NS)` with one argument,
+stop satisfying the new one; the intersection is empty. Each of those apps
+called `increment`, so the member gate below refused them too — a change that
+genuinely broke all of them. The one app that called nothing on the counting
+half was let through by the gate where the set intersection would not have let
+it: exactly the case §7 exists for.
 
 `build.ts` refuses to run when the surface at HEAD hashes to something the
 registry does not hold, and names the command:
 
 ```sh
-bun run contract:mint --name counters-2026-08
+bun run contract:mint --name hello-2026-09
 ```
 
 The directory name is for people reading a listing. The hash is the identity.
@@ -328,36 +344,57 @@ drops a member nothing in the composition ever called.
 `bun run contract:members`, on this repository:
 
 ```
-member                alpha   bravo   charlie delta
-ShellStore.countOf    uses    uses    uses    uses
-ShellStore.increment  uses    uses    uses    uses
-ShellStore.register   uses    uses    uses    uses
-ShellStore.reset              uses
-ShellStore.setColour
-ShellStore.setName
-ShellStore.snapshot                   uses    uses
-ShellStore.user       uses    uses    uses    uses
-User.colour           uses    uses    uses    uses
-User.name             uses    uses    uses    uses
-createStore
+member                      hello
+FieldSunset.instead         uses
+FieldSunset.reason
+FieldSunset.since
+FieldSunset.sunset          uses
+Greeting.audience           uses
+Greeting.text               uses
+ServiceField.going
+ServiceField.path
+ServiceField.type
+ServiceReport.base
+ServiceReport.calling
+ServiceReport.error
+ServiceReport.fields
+ServiceReport.headerSunset
+ServiceReport.readAt
+ServiceReport.routes
+ServiceReport.serves
+ServiceReport.state
+ServiceRoute.method
+ServiceRoute.path
+ShellStore.goingAway        uses
+ShellStore.greeting         uses
+ShellStore.service
+ShellStore.setGreeting      uses
+ShellStore.setService
 
-not removable on their own: Counts, ShellStore, User
+not removable on their own: FieldSunset, Greeting, ServiceField, ServiceReport, ServiceRoute, ShellStore
 ```
 
-Six of `ShellStore`'s eighteen members are called by no sub-app. Four of them are writers the shell owns — `setName`, `setColour`, `setUser`, `setSettings`, `setService` — and `motd` is a reader the frame keeps to itself. Under the set
-intersection, removing either refused every composition — because a **published**
-app's contract set was fixed at its build time and cannot name a contract minted
-after it. `createStore` is used by nothing either: the shell reaches `api.ts` by
-relative path, so only the five apps are asked.
+Fourteen of the surface's twenty-six members are called by no sub-app.
+`setService` is a writer the shell owns, `service` is a reader the frame keeps
+to itself for the `/service` view, and the fields under `ServiceReport` are read
+by the frame drawing that view. Under the set intersection, removing any of them
+refused every composition — because a **published** app's contract set was fixed
+at its build time and cannot name a contract minted after it. `createStore` is
+used by nothing either: the shell reaches `api.ts` by relative path, so only the
+sub-apps are asked.
+
+Ownership comes out at the FIELD. `hello` reads two of the four members of a
+sunset — the day it goes and what to move to — so a service that retired
+`reason` would cost this panel nothing, and the reading says so without anybody
+declaring it.
 
 **Use is measured by removal, never parsed.** Cut one declaration out of the
 surface and recompile the consumers against the rest; if it still compiles, they
 do not use it. That is the same definition the rule needs, and `tsc` is the
 oracle for it — the trick `falsify` plays on the scenarios, played on a type
 surface. Two runs per member, one to prove the cut surface still holds and one
-for all five apps at once: 59 members in about 33.7 s, in `build.ts` beside the
-matrix. The members grew with §26 and §27 and so did the time — the lane count
-is not what to tune, the number of members is. A member whose removal stops the surface being a surface — `ShellStore`
+for every app at once: 26 members in about 14 s, in `build.ts` beside the
+matrix. The time follows the member count, never the lane count. A member whose removal stops the surface being a surface — `ShellStore`
 itself — cannot be asked about, and is reported rather than counted.
 
 `unit.json` carries what was derived: `provides` on the shell, `uses` on each
@@ -368,11 +405,11 @@ is set inclusion with matching digests, so `promote` needs no compiler.
 | --- | --- | --- |
 | a member added | allowed | allowed |
 | a member removed that no app uses | **refused** | allowed |
-| `reset` removed | refused | refused, naming bravo and `ShellStore.reset` |
-| a parameter narrowed | refused for all five | refused for the apps that use that member |
+| `goingAway` removed | refused | refused, naming `hello` and `ShellStore.goingAway` |
+| a parameter narrowed | refused for every app | refused for the apps that use that member |
 
 The digest is what keeps the same-name signature change covered; a list of
-member *names* would call a narrowed `increment` the same member.
+member *names* would call a narrowed `setGreeting` the same member.
 
 **The other half is gated whole.** `uses` reads `shell.d.ts`, which a sub-app
 consumes part of. `subapp.d.ts` is what a sub-app *produces* and the shell
@@ -387,24 +424,25 @@ judged on the contract sets, exactly as before. `promote` and the origin call
 one function, so a composition the origin refuses is one the promote would have
 refused too.
 
-**Proved end to end** on 2026-08-29, `bun run e2e:members`, against the real
-store and the real scripts: `reset` removed from `ShellStore`, the shell
-published alone, and the five sub-apps left exactly as they were.
+**Proved end to end** by `bun run e2e:members`, against the real store and the
+real scripts: `goingAway` removed from `ShellStore`, the shell published alone,
+and the sub-app left exactly as it was.
 
 ```
-bravo uses ShellStore.reset, which this shell does not have. Nothing was changed.
-  shell   0523e568  10 members provided
-  alpha   e34063ba  6 members used
-  bravo   38a212eb  7 members used
-  charlie 47c478c4  7 members used
-  delta   a8a66562  7 members used
+hello uses ShellStore.goingAway, which this shell does not have. Nothing was changed.
+  shell   <id>  12 members provided
+  hello   <id>  10 members used
 ```
 
-Sixteen checks, all green. The contract sets in that run were `4cdfc87` for the
-shell and `e0160a6` for alpha — disjoint, so the rule this replaced refused
-alpha, charlie and delta too, none of which had ever called `reset`. Publishing
-the rebuilt bravo made the same promote succeed, and `test-qa` came back to its
-baseline.
+With one sub-app the second half of the claim — *and nothing else* — is not
+measured there. `scripts/members.test.ts` is what holds it until a second unit
+exists: a member no app calls must show as used by none.
+
+The contract sets in such a run are disjoint — the shell satisfies only the
+contract just minted, and the published app only the one it was built against —
+so the rule this replaced refused the composition whole, whether or not the app
+had ever called the member. Publishing the rebuilt `hello` makes the same
+promote succeed, and `test-qa` comes back to its baseline.
 
 Five `falsify` mutations cover the new rule, and writing them found two faults
 in the checks rather than in the code. A scenario asserted only the member's
@@ -506,12 +544,12 @@ blocks were 19 when that was measured and are 13 since 2026-09-10.
 | Limit | Why |
 | --- | --- |
 | A same-name signature change | Covered. This is the case a list of exported *names* would have missed, and hashing the declaration surface catches it |
-| A Preact major that breaks an old bundle | **Not covered.** Vendor types resolve from `node_modules` at HEAD, so a cell testing an old app against an old contract compiles against head Preact anyway — the vendor half would be identity with no verification behind it. Folding versions into the hash would instead force all five apps to republish on every patch bump. `unit.json` records the resolved versions and `promote` **warns** on a major mismatch |
+| A Preact major that breaks an old bundle | **Not covered.** Vendor types resolve from `node_modules` at HEAD, so a cell testing an old app against an old contract compiles against head Preact anyway — the vendor half would be identity with no verification behind it. Folding versions into the hash would instead force every app to republish on every patch bump. `unit.json` records the resolved versions and `promote` **warns** on a major mismatch |
 | A change in behaviour behind an unchanged type | Not covered, and not coverable this way |
 
 Measured, on this repository: the surface hash is stable across runs, unchanged
-by a reworded and reflowed comment, and changed by `increment(ns, by = 1)`
-becoming `increment(ns, by: number)`. Normalisation is `tsc
+by a reworded and reflowed comment, and changed by a parameter that was optional
+becoming required. Normalisation is `tsc
 --emitDeclarationOnly --removeComments`, which is weaker than an API report
 would give; a reformat that survives that would mint a contract everything still
 supports, which costs one registry entry and no false refusal.
@@ -561,7 +599,7 @@ deploy, which is worse than the fault it would be reporting.
 
 | | Value |
 | --- | --- |
-| Promotion to every visitor seeing it | 4.7 – 10.2 s across eight runs, against a 15 s window |
+| Promotion to every visitor seeing it | 8.8 – 9.1 s on this slate, 4.7 – 10.2 s across eight runs on the previous one, against a 15 s window |
 | Propagation window by construction | 15 s: 5 s Tigris pointer cache + 10 s server cache |
 | First request to a fully stopped machine | 4.59 s (wake, boot, cold manifest read) |
 | First request to a running machine | 0.32 s |
@@ -590,7 +628,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `api/service.ts` | The service: what it answers, what it publishes about itself, and the retirement it was told about |
 | `src/web/vendor/` | One re-export per shared specifier. These are what the import map points at |
 | `contracts/<name>/` | One retained contract: `shell.d.ts`, `subapp.d.ts`, and the hash of the two |
-| `build.ts` | Six `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
+| `build.ts` | One `Bun.build` per unit → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
 | `scripts/contract.ts` | Surface emit, the hash, the registry, the matrix, and the direction reading |
 | `scripts/members.ts` | The removal prober: what a surface provides, and which member each consumer uses |
 | `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__` and `__APPS__`, declared once |
@@ -600,7 +638,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
 | `scripts/promote.ts` | Read the composition, merge what was named, test the member gate, write |
 | `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
-| `scripts/e2e-service-schema.ts` | Retires a field and changes four more with nothing rebuilt, and reads what all five panels then paint |
+| `scripts/e2e-service-schema.ts` | Retires a field and writes another with nothing rebuilt, and reads what the page then paints |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
 | `features/support/bdd.ts` | The bindings, and the one file that names the runner |
 | `features/support/hooks.ts` | Every hook, in the order they must run |
@@ -608,8 +646,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 87 ways; each break must turn one check red, and a `find` that names more than one place is refused |
-| `scripts/measure-preload.ts` | What warming a sub-app's files buys, in a real Chrome, with a control |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts 91 ways; each break must turn one check red, and a `find` that names more than one place is refused |
 | `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve and the retention floor allows |
 | `scripts/retention.ts` | The floor itself: how long a superseded build is kept, decided against a clock the caller passes in |
 | `stryker.config.json` | Mutation testing over the server logic |
@@ -626,9 +663,13 @@ step definitions, with nothing tying the copies together.
 `src/web/shell/views.ts` decides which of them appear, on which route, in what
 order. **The manifest names bundles and chooses nothing.** Two consequences
 follow and both are accepted as the price of that answer: a layout change is a
-shell publish and a promote, so alpha cannot be moved from `/` to `/totals` by
-pointing a channel somewhere else; and rolling the shell back rolls the layout
-back with it, because they are one unit.
+shell publish and a promote, so `hello` cannot be moved from one route to
+another by pointing a channel somewhere else; and rolling the shell back rolls
+the layout back with it, because they are one unit.
+
+A view that names no app is a legitimate view. `/service` is one: the frame
+draws it, nothing is fetched for it, and it is how a route exists before a unit
+has been built for it.
 
 `views.ts` is imported by the shell, by `build.ts` and by the step definitions,
 so it holds no CSS, no JSX and nothing only a browser provides. `build.ts`
@@ -636,7 +677,7 @@ refuses a build where the two disagree:
 
 ```
 the shell's views and the units this build emits do not agree:
-  charlie is built and published, and no view places it, so nothing ever fetches it
+  hello is built and published, and no view places it, so nothing ever fetches it
 ```
 
 Both directions, and only one of them ever reported itself. An app a view places
@@ -653,13 +694,13 @@ step definitions removes that drift; it does not tie the harness to the
 than it looks.
 
 Not covered, and asserted so nobody mistakes it for coverage: the **route**.
-Moving charlie from `/totals` to `/` leaves both sets identical.
+Moving a sub-app from one route to another leaves both sets identical.
 
 ## Warming a sub-app's files before its view is opened
 
-A sub-app's bundle is fetched when its view first appears, so moving from `/` to
-`/totals` used to wait on a network fetch that could have happened while the
-visitor was reading the first view. The shell now emits a hint per file:
+A sub-app's bundle is fetched when its view first appears, so a navigation used
+to wait on a network fetch that could have happened while the visitor was
+reading the first view. The shell emits a hint per file:
 `<link rel="modulepreload">` per app script, `<link rel="preload" as="style">`
 per stylesheet, from `appUrls(served)` and `moduleIntegrity(served)`.
 
@@ -672,28 +713,33 @@ a sub-app the visitor never opens would have its top-level code run — and when
 that runs is a behaviour a sub-app can notice. A preload fills the HTTP cache
 and does nothing else.
 
-Four things had to be checked and none of them assumed. `bun run measure:preload`
-is the check: it runs the server from this tree against the real store, drives a
-real Chrome, and then repeats itself with the tags removed as a control.
+**Nothing measures it on this slate.** Every unit this repository builds is on
+the view a visitor lands on, so there is no off-screen bundle to warm and no
+reading to take. The tags are still emitted, and `html.test.ts` holds their
+shape. What is gone until a second unit exists: the two `@browser` scenarios
+that watched the network for them, the `falsify` mutation that stripped the
+tags, and `scripts/measure-preload.ts`, which ran the server against the real
+store and repeated itself with the tags removed as a control.
+
+The readings that script took on the previous slate, kept because they are what
+a second unit will be measured against:
 
 | | Reading |
 | --- | --- |
 | The policy | No refusal. `script-src` and `style-src` are already derived from the origins the manifest names, so neither hint needs a policy change |
 | The digest | Each off-screen bundle and stylesheet is fetched **once** across the navigation. The import reuses the preloaded response rather than fetching a second time |
 | The composition | The URLs follow the override, held by a unit test that composes one and asserts the preload moved with it |
-| The cost | Four modulepreload and four style preload tags per load. Over doing nothing, that is the other view's two bundles and two stylesheets for a visitor who never navigates |
+| The cost | One modulepreload and one style preload per off-screen unit per load, for a visitor who may never navigate |
 
-`loader.ts` needed no change: `addStylesheet` and the `loading` map still run at
-mount, and a preload only warms the cache.
+`loader.ts` needs no change for any of it: `addStylesheet` and the `loading` map
+still run at mount, and a preload only warms the cache.
 
 **A scenario was written for this, measured, and deleted.** "Opening a view
-costs no further request for its bundles" is green with the preload tags and
-green without them: the control shows the count after the navigation is 1 either
-way, because with no preload the import does the one fetch itself. It
+costs no further request for its bundles" was green with the preload tags and
+green without them: the control showed the count after the navigation was 1
+either way, because with no preload the import does the one fetch itself. It
 discriminated nothing. The question needs a control, and a control is a thing a
-script can have and a scenario cannot — so it lives in `measure-preload.ts`.
-What stayed in the suite is the reading the control does move: the bundles for a
-view nobody has opened have been fetched, and no sub-app on that view has run.
+script can have and a scenario cannot.
 
 ## Two failure rules, on purpose
 
@@ -759,12 +805,12 @@ An operator can run an older unit on a channel without promoting it, and see
 what a rollback would serve before anybody else does.
 
 ```
-https://qa.example.com/?alpha=36226fb9
+https://qa.example.com/?hello=36226fb9
 ```
 
 One parameter per unit, named by the unit and carrying the id. A unit the query
 string does not name keeps following the channel, so a link that overrides one
-sub-app still picks up every promote of the other five.
+sub-app still picks up every promote of the rest.
 
 **There was a `select` in the shell, one per unit, and it went on 2026-09-10.**
 It drew its options from a `__VERSIONS__` block the server rendered, and the
@@ -861,11 +907,11 @@ not make any id already in a channel's history unreachable: the shell goes on
 compiling against the retained contract, each published unit keeps the set it
 was built with, and the intersection stays non-empty.
 
-| Change to `api.ts` | shell x the old contract | alpha x the old contract | Promote |
+| Change to `api.ts` | shell x the old contract | `hello` x the old contract | Promote |
 | --- | --- | --- | --- |
 | baseline | pass | pass | allowed |
 | one export ADDED | pass | pass | allowed |
-| one export REMOVED | fail | pass | allowed since 2026-08-29, if alpha never called it |
+| one export REMOVED | fail | pass | allowed since 2026-08-29, if `hello` never called it |
 
 That last row used to read *refused, correctly*, and it was neither. See
 **Compatible, not identical**.
@@ -896,7 +942,7 @@ a `pr-` build is refused there exactly like a build the harness made.
 
 **Nothing else was built.** The link lives as long as the retention floor, 90
 days, because a unit no channel has served is held by the floor and by nothing
-else. The composition is judged by the same five refusals. The reviewer is
+else. The composition is judged by the same refusals. The reviewer is
 marked `overridden` in the served log rather than counted as a visitor. The
 catalogue is `peek`ed, so a preview costs no visitor a wait.
 
@@ -905,12 +951,12 @@ because the query string looks like one. A flag picks a branch for a visitor who
 did not choose it; this picks a bundle for a visitor who typed the URL. There is
 no cohort and no percentage, and adding one would put product state in the thing
 that serves the pointer. This repository already has a flag channel and it is
-the **service**: `store.flags()` reads `showShares`, `showTotals` and `compact`
-from `GET /settings`, which an operator changes with no unit rebuilt and no
-image deployed. The other kind of flag - the one that exists only because a
-release is all-or-nothing - is what the per-unit deploy replaces.
+the **service**: what a panel draws comes out of `GET /v1/greeting`, which an
+operator changes with no unit rebuilt and no image deployed. The other kind of
+flag - the one that exists only because a release is all-or-nothing - is what
+the per-unit deploy replaces.
 
-**What proves it.** Ten `@local` scenarios in
+**What proves it.** Seven `@local` scenarios in
 `features/previewing-a-pull-request.feature`, six `falsify` mutations that
 loosen or tighten the predicate by one step each, and `bun run e2e:preview`,
 which builds and publishes a marked unit to the real store and then asks a
@@ -933,16 +979,15 @@ Every publish writes `units/<name>/<id>/unit.json`, so the store has always held
 
 ```sh
 bun run units                 # every unit an operator may deploy
-bun run units alpha           # one unit
+bun run units hello           # one unit
 bun run units --all           # and the builds the harness made
 bun run units --rebuild       # read the store again and write the file
 bun run units --json          # the catalogue itself, for a script
 ```
 
 ```
-shell    2738edb9  2026-08-29  f4155335+dirty  11 members provided
-alpha    e34063ba  2026-08-28  2c08a50a        6 members used
-alpha    a3bba92a  2026-08-28  b2c81542        e0160a6
+shell    c2601912  2026-09-10  83318092  12 members provided
+hello    3bba892b  2026-09-10  83318092  10 members used
 ```
 
 **It is derived, and rebuilt rather than appended to.** `publish` reads the store's own LIST and writes the file from scratch, so a write lost to a crash or to two publishers at once heals on the next publish. An appended file would carry that loss forever, and a file that can silently disagree with the store is what this exists to replace. Nothing here is the only record of anything: every entry restates what one `unit.json` already says.
@@ -1104,8 +1149,8 @@ to start on anything it cannot act on:
 
 ```sh
 fly secrets set -a pointer-deploy-api API_DEPRECATED='[{
-  "path": "user.colour", "since": "2026-08-31", "sunset": "2026-11-30",
-  "reason": "the colour moves into a theme object", "instead": null
+  "path": "greeting.audience", "since": "2026-09-10", "sunset": "2026-12-10",
+  "reason": "the audience moves onto the visitor", "instead": null
 }]'
 ```
 
@@ -1113,9 +1158,9 @@ Refusing is the point. A service that ignored a malformed value would publish
 "nothing is going away", and that is not silence — it is a false reading, and the
 operator who set the variable cannot tell it from a service that read it. So a
 path this deploy does not answer stops it, and names what it does answer:
-`user.color` is a plausible thing to type, and accepted it would deprecate a
-field nobody has while the one the operator meant went on being served with no
-warning at all. `instead` may be `null` and may not be absent, for the reason
+`greeting.audiance` is a plausible thing to type, and accepted it would
+deprecate a field nobody has while the one the operator meant went on being
+served with no warning at all. `instead` may be `null` and may not be absent, for the reason
 `contract:deprecate --instead none` exists: no successor is a legitimate reading
 and has to be said out loud rather than left behind by a forgotten flag.
 
@@ -1125,8 +1170,8 @@ Every response carrying a retired field says so, whatever read the document:
 
 ```
 HTTP/1.1 200 OK
-deprecation: @1788134400
-sunset: Mon, 30 Nov 2026 00:00:00 GMT
+deprecation: @1788998400
+sunset: Thu, 10 Dec 2026 00:00:00 GMT
 link: <https://pointer-deploy-api.fly.dev/versions>; rel="deprecation"
 ```
 
@@ -1168,37 +1213,32 @@ fact from "this deploy has no fields" and is drawn differently. Unknown members
 are ignored for the mirror-image reason — the service is on its own schedule, so
 a member added there this afternoon has to reach a shell published last month.
 
-### What each unit does with it
+### What the units do with it
 
-The five sub-apps read the same reading and each says a different thing about
-it, so a promote of one is visible on screen without reading a single id:
+The frame draws `/service` from the reading: the state, the version it calls,
+the versions the service answers, every field with its type, what is going away
+and why, and the `Sunset` a data response carried. The sub-app draws its own
+half — the field it reads, the day that field goes, and what to move to — beside
+the greeting it paints.
 
 | Unit | What it shows | Members it records in `uses` |
 | --- | --- | --- |
-| alpha | Names the retired field and the day it goes, beside the count it paints in that colour | `ShellStore.goingAway` |
-| bravo | How many days are left, and turns red under thirty | `ShellStore.goingAway` |
-| charlie | Which version the counts were read over, at what time, and how many fields are still current | `ShellStore.service` |
-| delta | Greys its bars while the reading is not good: the shares are a claim about the whole set, and an unanswered service means this tab's own counts | `ShellStore.service` |
-| echo | The document itself: versions, routes, every field with its type, what is going away and why, and the `Sunset` a data response carried | `ShellStore.service` |
+| shell | The document itself, on `/service` | reads `ShellStore.service`, and records nothing: the frame is not a sub-app |
+| `hello` | The field it reads, the day it goes, and what to move to | `ShellStore.goingAway`, `FieldSunset.sunset`, `FieldSunset.instead` |
 
-echo is the fifth sub-app and the first that registers no counter. It reports on
-the service and takes no part in the shared state, so the totals views count
-four namespaces whether anybody has opened `/api` or not — and the member gate
-reads the difference: echo records no use of `increment`, `register`, `countOf`
-or `snapshot`, so a change to the counting half of the surface cannot refuse it.
-
-The new members mint a contract. `service-report-2026-08` (`63bcf32`) is
-additive, so nothing published against `injected-store-2026-08` breaks — and
-that predecessor is marked going away, with `63bcf32` named to move to.
+The member gate reads the difference. `hello` records no use of
+`ShellStore.service`, so a change to the report's own shape cannot refuse it;
+and it records two of the four members of a sunset, so a service retiring
+`reason` costs it nothing.
 
 **Proved end to end by `bun run e2e:schema`**, in a real Chrome, against the real
-store and the real bundles. It builds and publishes all six units, promotes them
-to `test-qa`, reads all three views, then retires `user.colour` on the service
-alone — no build, no publish, no promote — and reads all three views again. 44
-checks across five steps. Two of them are the whole claim: every panel changed, and **not one unit
-id moved between the two readings**. It finishes by taking the service away
-entirely, because a page that cannot reach it must be a different page and never
-a blank one.
+store and the real bundles. It builds and publishes both units, promotes them to
+`test-qa`, reads both views, then retires `greeting.audience` on the service
+alone — no build, no publish, no promote — and reads both views again. Two of
+its checks are the whole claim: the page changed, and **not one unit id moved
+between the two readings**. It finishes by taking the service away entirely,
+because a page that cannot reach it must be a different page and never a blank
+one.
 
 The service is a LOCAL process in that run, and that is the one thing it does not
 prove. Changing `API_DEPRECATED` twice in a run against the deployed service
@@ -1207,94 +1247,80 @@ would be changing what the live site is told while a visitor is reading it.
 
 ## What the service offers, and who reads which field
 
-§26 gave the service a way to say what it holds. What it held was three fields,
-and all five sub-apps read two of them — so a retirement could only ever hit
-every panel at once, and nothing could show a change reaching one unit and not
-another. The service now answers **20 fields over 13 routes**.
+§26 gave the service a way to say what it holds. What it holds now is one
+resource of two fields, over two routes:
 
 | Resource | Fields | Written at runtime |
 | --- | --- | --- |
-| `user` | `name`, `colour`, `initials`, `theme.colour`, `theme.dark` | `POST /v1/user` |
-| `counters` | `<ns>` | `POST /v1/counters/<ns>` |
-| `limits` | `step`, `max`, `allowNegative` | `POST /v1/limits` |
-| `labels` | `<ns>.title`, `<ns>.emoji` | `POST /v1/labels`, merged per namespace |
-| `flags` | `showShares`, `showTotals`, `compact` | `POST /v1/flags` |
-| `stats` | `total`, `busiest`, `updatedAt` | **No.** Derived from the counters, so a write would be an answer the next read throws away |
-| `motd` | `text`, `level`, `until` | `POST /v1/motd`, and `null` is how one is taken down |
+| `greeting` | `text`, `audience` | `POST /v1/greeting`, merged per field |
+
+Two fields rather than one, and that is deliberate. A single field cannot be
+retired in favour of anything, so the service could only ever publish a
+deprecation with nothing to move to — and the notice period is the part of §26
+worth having.
+
+Beside them, outside any version prefix: `GET /versions`, the discovery
+document, and `GET /healthz`, which depends on nothing.
 
 ### Ownership comes out at the field, and nobody declared it
 
 `readMembers` cuts one declaration out of the surface and recompiles each unit
-against the rest. `Limits` is a type with three named members, so it cuts
-`Limits.allowNegative` on its own — and the answer is the real output of
+against the rest. `FieldSunset` is a type with four named members, so it cuts
+`FieldSunset.reason` on its own — and the answer is the real output of
 `bun run contract:members`:
 
 ```
-member                      alpha   bravo   charlie delta   echo
-Flags.compact
-Flags.showShares                                    uses
-Flags.showTotals                            uses
-Label.emoji                                         uses
-Label.title                                 uses    uses
-Limits.allowNegative                uses
-Limits.max                  uses    uses
-Limits.step                 uses
-Stats.busiest                                       uses
-Stats.total                                 uses
-Stats.updatedAt                                             uses
-User.initials                               uses
-User.colour                 uses    uses    uses    uses    uses
+member                      hello
+FieldSunset.instead         uses
+FieldSunset.reason
+FieldSunset.since
+FieldSunset.sunset          uses
+Greeting.audience           uses
+Greeting.text               uses
+ServiceReport.base
+ServiceReport.calling
+ServiceReport.error
+ShellStore.goingAway        uses
+ShellStore.greeting         uses
+ShellStore.service
+ShellStore.setGreeting      uses
+ShellStore.setService
 ```
 
 Nothing there is written down anywhere. It is measured, on the bytes being
-published, and it is what `promote` refuses on. Retire `allowNegative` and one
-panel reports it. Remove `Flags.showShares` from the surface and exactly one
-unit stops compiling. `Flags.compact` is read by the frame alone, so no sub-app
-records it — a member `provides` holds and no `uses` names, which was already
-a category §9 had and now has five more examples of.
+published, and it is what `promote` refuses on. Remove `Greeting.audience` from
+the surface and exactly one unit stops compiling. `ShellStore.service` is read
+by the frame alone, so no sub-app records it — a member `provides` holds and no
+`uses` names, which is a category §9 already had.
 
-### What each write does, and to whom
+### What a write does, and to whom
 
-Four `POST`s, no build, no publish, no promote:
+One `POST`, no build, no publish, no promote:
 
 ```sh
-curl -sX POST $API/v1/flags  -d '{"showShares":false,"showTotals":false,"compact":true}'
-curl -sX POST $API/v1/limits -d '{"step":20,"allowNegative":false}'
-curl -sX POST $API/v1/labels -d '{"alpha":{"title":"Ay","emoji":"!"}}'
-curl -sX POST $API/v1/motd   -d '{"text":"back at 14:00","level":"warn","until":"2026-12-01"}'
+curl -sX POST $API/v1/greeting -d '{"text":"Hei","audience":"Oslo"}'
 ```
 
 | The page, on the next load | Because |
 | --- | --- |
-| alpha's buttons read `+1 +20 +40` | `limits.step` |
-| bravo's `-1` button is **gone**, not disabled | `limits.allowNegative`. A control that is never usable is not a control, and the difference has to be visible from across the room |
-| charlie's totals row is gone | `flags.showTotals` |
-| delta's percentage column is gone | `flags.showShares` |
-| delta's first row reads `! Ay` | `labels.alpha` |
-| the frame carries a red message and is narrower | `motd`, `flags.compact` |
-| alpha's ceiling is still 100 | Nothing in those four writes named `limits.max`. Each write lands where it is read and nowhere else |
+| the panel reads `Hei, Oslo` | `greeting.text` and `greeting.audience` |
+| nothing else on the page moves | Each write lands where it is read and nowhere else |
 
-`stats.total` is the one field that exists to be **disagreed with**. charlie adds
-the counters up itself and prints both numbers when they differ. Two numbers
-that should match, produced on opposite sides of a network, are the only way a
-page can show that the boundary is there at all.
+A write naming one field leaves the other where it was, which is the same merge
+rule `promote` follows one layer up.
 
 ### Three rules the boundary keeps
 
 | | |
 | --- | --- |
-| **Strict about what the page cannot draw without, tolerant about the rest** | `user.name` and `user.colour` are required. `initials` and `theme` were added later, so absent means an OLDER deploy and not a fault — while a `theme` that IS present and wrong is still refused, by field |
-| **Five routes, five failures** | `readSettings` uses `allSettled`. A service that does not answer `/v1/flags` yet costs the page its flags and not its limits, its labels, its stats or its message. Losing four working resources because a fifth is not deployed would make every addition to the service a breaking change for every shell already published |
-| **Every default is a value a panel can draw** | `{ step: 5, max: 100, allowNegative: true }`, `showShares: true`, `total: 0`, `motd: null`. A service that never answers costs a DIFFERENT page, never a blank one — the same rule the store's `Alex` and `#1f5fd0` follow |
+| **Strict about what the page cannot draw without, tolerant about the rest** | `greeting.text` is required. `audience` was added later, so absent means an OLDER deploy and not a fault — while an `audience` that IS present and wrong is still refused, by field |
+| **A route that does not answer costs that route** | The reads are separate: a service that does not answer `/v1/greeting` yet costs the page the greeting and not the discovery document. Losing a working resource because another is not deployed would make every addition to the service a breaking change for every shell already published |
+| **Every default is a value a panel can draw** | `{ text: "Hello", audience: "world" }`. A service that never answers costs a DIFFERENT page, never a blank one |
 
-A value the service cannot act on is refused rather than accepted: a `step` of
-0 leaves every button on every page working and adding nothing, which is a page
-that looks alive and is not.
-
-**Proved by `bun run e2e:schema`**, extended to 44 checks in five steps. Step 4
-makes those four writes against the running service and reads all three views
-again: seven panel readings change, `limits.max` does not, and **not one unit id
-moves**.
+A value the service cannot act on is refused rather than accepted: a `text` of
+`""` leaves the page with no greeting at all, which looks broken rather than
+empty. An `audience` of `""` is accepted, because a greeting addressed to nobody
+in particular is a thing a page can draw.
 
 ## A second region
 
@@ -1313,7 +1339,7 @@ which is exactly why nothing else would catch it. `--region us` writes one
 region on purpose, and that is the only way to make the regions differ.
 
 **Two regions that already differ stop a promote.** The merge that makes "deploy
-alpha, leave bravo where it was" possible reads ONE region, so writing both
+`hello`, leave the shell where it was" possible reads ONE region, so writing both
 would replace the other with a composition nobody chose for it. The refusal
 names the units that differ and the flag that resolves it. A region with no
 pointer at all is not a difference - it is what a first promote is for, and
@@ -1339,7 +1365,7 @@ fly scale count 1 --region iad               # the machine that reads manifests/
 
 **The scenario that proves it had to compare documents, not ids.** "Every region
 names build alpha" passed against a promote that wrote one region: the other was
-already at alpha from an earlier run, because a build marker produces the same
+already at that build from an earlier run, because a build marker produces the same
 unit ids every time. `falsify` is what found that - the mutation stayed green.
 The scenario now reads the whole pointer from every region and requires the
 bytes to match, `composedAt` included, which only one promote writing both can
@@ -1385,8 +1411,9 @@ stopped being served, because only the promote that displaces it knows.
 `promote` now stamps `supersededAt` on the entry it moves off the head, keeps
 the stamp an entry already carries, and leaves the head unstamped - a rollback
 puts an id back at the head and it is being served again. Measured on
-`test-qa`, 2026-08-30: rolling `alpha` back stamped `e34063ba` at the second the
-promote ran, and rolling forward again cleared it and stamped `d6c9f501`.
+`test-qa`, 2026-08-30, on the previous slate: rolling a sub-app back stamped
+`e34063ba` at the second the promote ran, and rolling forward again cleared it
+and stamped `d6c9f501`.
 
 An entry written before the stamp existed counts as the last time that history
 was written, which is the latest moment it could have stopped being served. The
@@ -1403,8 +1430,8 @@ bun run sweep --floor-days 0   # the control: the rule without the floor
 bun run sweep --delete         # irreversible
 ```
 
-Measured against the real store on 2026-08-30, minutes after an e2e run
-published and superseded five units:
+Measured against the real store on 2026-08-30, on the previous slate, minutes
+after an e2e run published and superseded five units:
 
 | Floor | Objects it would remove | History entries dropped |
 | --- | --- | --- |
@@ -1419,21 +1446,20 @@ under it reaches the delete set.
 ## Verifying
 
 ```sh
-bun test                   # 464 unit tests: src/server, src/web, scripts, api, features/support, ~43 s
-bun run verify             # 44 @local scenarios, stub store, ~11 s
-bun run contract:matrix    # 6 units x retained contracts, ~1.7 s
-bun run contract:members   # which member of the surface each sub-app uses, ~34 s
-bun run blocks:record      # what the server writes into its three JSON blocks, ~6.5 s
-bun run verify:live        # 42 @live scenarios against Fly and Tigris, ~11 min
-bun run verify:browser     # 20 @browser scenarios in a real Chrome, ~6 min
-bun run falsify            # 87 architectural mutations, each must turn a check red. 58 run locally, all caught
-FALSIFY_LIVE=1 bun run falsify   # including the twenty-two that need the real store
-bun run e2e                # deploy one app, deploy another, roll the first back
+bun test                   # 417 unit tests: src/server, src/web, scripts, api, features/support, ~21 s
+bun run verify             # 54 @local scenarios, stub store, ~8 s
+bun run contract:matrix    # every unit x retained contracts, ~0.4 s
+bun run contract:members   # which member of the surface each sub-app uses, ~14 s
+bun run blocks:record      # what the server writes into its JSON blocks, ~4.5 s
+bun run verify:live        # 45 @live scenarios against Fly and Tigris
+bun run verify:browser     # 12 @browser scenarios in a real Chrome
+bun run falsify            # 91 architectural mutations, each must turn a check red. 65 run locally, all caught
+FALSIFY_LIVE=1 bun run falsify   # including the twenty-six that need the real store
+bun run e2e                # deploy the panel, deploy the frame, roll the panel back
 bun run e2e:members        # drop a member, and refuse only the app that used it
 bun run e2e:deprecation    # mint a successor, mark the old contract, read what both commands say
-bun run e2e:schema         # retire a field, change four more, and read what the page does with no unit rebuilt
+bun run e2e:schema         # retire a field, write another, and read what the page does with no unit rebuilt
 bun run e2e:preview        # publish a pull request's build and ask the qa origin for it, §30
-bun run measure:preload    # what warming a sub-app's files buys, with a control
 bun run mutate             # Stryker over the server logic
 ```
 
@@ -1507,9 +1533,10 @@ which run locally.
 and it is the only one that can. The unit tests construct compositions by hand.
 The `@live` scenarios read unit ids out of the served HTML, which is the
 manifest talking about itself. `e2e` drives the documented commands and then
-reads the **rendered DOM** — the marker each sub-app painted — because that is
-the only place "alpha moved and bravo did not" is a fact about the application
-rather than a fact about a JSON file. It writes only `test-*` channels.
+reads the **rendered DOM** — the marker each unit painted — because that is
+the only place "`hello` moved and the shell did not" is a fact about the
+application rather than a fact about a JSON file. It writes only `test-*`
+channels.
 
 One thing in it is not the deployed machine, and the script says so at the top.
 `Host` is forbidden to `setExtraHTTPHeaders` and Fly routes on SNI, so no
@@ -1521,12 +1548,12 @@ and the machine fingerprint is compared before and after.
 
 ### A suite that could only be run once
 
-Two `@browser` scenarios asserted a count by its value — raise alpha six times,
-every panel reads 6. That was true of a page with no service and false of this
-one: the page fills its counters from the service before the first click, and
-the service is shared by every visitor and every earlier run. Each scenario
-passed alone and the pair failed in a full run, which reads as flakiness and was
-not.
+Two `@browser` scenarios on the previous slate asserted a count by its value —
+raise a counter six times, every panel reads 6. That was true of a page with no
+service and false of that one: the page filled its counters from the service
+before the first click, and the service is shared by every visitor and every
+earlier run. Each scenario passed alone and the pair failed in a full run, which
+reads as flakiness and was not.
 
 Both now assert the two facts they exist for — every panel holds the **same**
 number, and it **moved by** what was clicked — so the value the service happens
@@ -1535,28 +1562,28 @@ any step reads a count: the panels are on screen before the service answers, by
 design, and a step reading a count in that window reads what the page started
 with rather than what it holds.
 
-What this does NOT fix: the live suite writes to the deployed service on every
-click. `alpha` moved 12 → 22 across one run. The channels the suite writes are
-its own; the service is not, and that is recorded in TODO as open.
+What this does NOT fix: the live suite writes to the deployed service. A
+scenario that sets the audience is writing what every visitor then reads. It is
+put back in an `After` hook, and the channels the suite writes are its own; the
+service is not, and that is recorded in TODO as open.
 
 `@browser` uses the Chrome already on the machine — `channel: "chrome"` — so
 nothing downloads a second browser. The page is the runner's, which is what
 attaches a trace and a screenshot to a failure; the harness used to launch its
-own, and a page it launched itself has neither. Nine of those eighteen scenarios cover what
-nothing else can see: six separately published bundles agreeing about one
-store. The rest cover the schema they would agree about after a long rollback,
-what the page is allowed to load, what a panel that throws costs, and which
-files are warmed before a view is opened — see below.
+own, and a page it launched itself has neither. Four of the twelve cover what
+nothing else can see: separately published bundles agreeing about one store.
+The rest cover the schema they would agree about after a long rollback, what the
+page is allowed to load, and what a panel that throws costs.
 
 **Which composition a @browser scenario reads is the whole difference between
 two that look the same.** Without `@test-channel` it loads the live address and
 reads what is DEPLOYED, which is a check on the deploy and cannot be falsified
 by an edit here. With `@test-channel` its Background builds and promotes from
 this tree, so the browser loads the bundles this edit produced.
-`shared-state.feature` carries the same two scenarios under both, as two Rules,
+`shared-state.feature` carries the same scenario under both, as two Rules,
 because each answers a question the other cannot. Measured, not argued: making
-`user()` read `peek()` — the store still holds the name and subscribes nobody —
-reddens the @test-channel copies and leaves the deployed copies green.
+`greeting()` read `peek()` — the store still holds the value and subscribes
+nobody — reddens the @test-channel copy and leaves the deployed one green.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
 mutates operators and literals in the pure logic. It found a real gap: every entry in `FLY_TO_REGION`
@@ -1599,11 +1626,11 @@ violate the invariant it checks, kept because it states what a second call site
 would have to keep.
 
 Reaching 100% on `manifest.ts` changed the shape of its assertions, and that is
-the transferable part. `toThrow("apps.alpha")` passes on ANY throw carrying that
+the transferable part. `toThrow("apps.hello")` passes on ANY throw carrying that
 text — including the TypeError from one line further in, which is exactly what a
 deleted guard produces. The tests now assert the parser's own message, anchored,
-naming the field: `^manifest field apps\.alpha `. The trailing space is what
-pins the depth. Without it a failure one field deeper, at `apps.alpha.js`,
+naming the field: `^manifest field apps\.hello `. The trailing space is what
+pins the depth. Without it a failure one field deeper, at `apps.hello.js`,
 satisfies the same assertion, and a guard that stops rejecting malformed apps
 passes.
 
@@ -1687,12 +1714,13 @@ refuses any live target not prefixed `test-`, and the run records what `qa` and
 The second repairs nothing on purpose: a restore hook that fails leaves the
 channel wrong and reports success.
 
-Five of the eighteen `@browser` scenarios load `pointer-deploy.fly.dev`, so they
+Three of the twelve `@browser` scenarios load `pointer-deploy.fly.dev`, so they
 read the real `qa` channel — no browser can be made to send a `Host` header.
-They write nothing. Promote a build to `qa` before running them, or they check
-whatever was last deployed.
+One of them writes the greeting and puts it back; the rest write nothing.
+Promote a build to `qa` before running them, or they check whatever was last
+deployed.
 
-The twenty `@test-channel` scenarios do write, because what they are about is a
+The fifteen `@test-channel` scenarios do write, because what they are about is a
 channel pointing somewhere no promote would put it. They take the same way out
 `e2e` does — `bun src/server/index.ts` locally against the real store, reached
 at `test-qa.localhost` — write `test-qa`, and put the exact bytes back
@@ -1724,8 +1752,8 @@ which is equally wrong.
 
 An id names an artefact, and the commit does not identify the artefact. It became
 `<source>-<content>`, and then, when publishing moved to units, `<content>`
-alone: keeping the commit in a *unit* id meant one commit touching only alpha
-changed all six ids and republished all six. The same argument, taken one step
+alone: keeping the commit in a *unit* id meant one commit touching one sub-app
+changed every id and republished every unit. The same argument, taken one step
 further than it was the first time. The suite refuses two scenario builds that
 publish to one shell id, because without that guard every promotion scenario
 passes by accident: the channel already serves the id being promoted to it.
@@ -1787,7 +1815,7 @@ whole page and resolved the import map against it; schema 3 gives each unit its
 own. Both channels a visitor can reach are schema 3, so no browser had ever
 loaded the older shape. `manifest.test.ts` parses a schema 2 document, which
 proves the parser and says nothing about the page — and the page is where the
-question lives, because whether five bundles fetched from one directory still
+question lives, because whether bundles fetched from one directory still
 share one signals runtime is not something a parser can answer.
 
 `bun run fixture:schema-2` writes one, once: every unit's files into a single
@@ -1798,10 +1826,10 @@ a channel at a manifest instead of building one, which is the operation an
 operator would perform.
 
 Two `@browser` scenarios read it. The page reports one build id and no
-composition, every file it fetched came from that one directory, and a count
-raised in alpha is read by charlie two views away. The first of those is what
-stops the pair passing on a channel that never moved: schema 3 renders a working
-page too, and it is the page the other seven scenarios are already looking at.
+composition, and a value written in the panel comes back through the frame's
+store. The first of those is what stops the pair passing on a channel that never
+moved: schema 3 renders a working page too, and it is the page every other
+scenario is already looking at.
 
 `falsify` breaks both halves — the parser's schema 2 branch, and the import map
 schema 2 resolves against the shared base — and each turns its scenario red.
@@ -1834,7 +1862,8 @@ neither is sufficient alone.
 records it in `dist/build.json`; `publish.ts` writes it into the unit's
 `unit.json`; `promote.ts` copies it into the composition. So the digests travel
 with the **unit**, not with the composition — a channel rolled back to an older
-alpha gets that alpha's digests, and the check keeps working across a rollback.
+`hello` gets that `hello`'s digests, and the check keeps working across a
+rollback.
 
 `BuildArtifact.hash` is **not** this, despite what an earlier version of this
 file said: it is an 8-character content hash Bun uses for `[hash]` in a file
@@ -1849,8 +1878,8 @@ Three places carry a digest, because three different mechanisms fetch the files:
 | A sub-app's stylesheet | The `__APPS__` block, and `loader.ts` sets it on the `link` | A stylesheet is not a module and never resolves through the import map |
 
 The middle row is the one that is easy to miss. A digest on the shell's tag
-covers `index-*.js` and nothing behind it: the five `shared-*.js` chunks that
-entry imports, and the four sub-apps, are all fetched without one.
+covers `index-*.js` and nothing behind it: the `shared-*.js` chunks that entry
+imports, and every sub-app, are all fetched without one.
 
 **A policy.** `content-security-policy` on the shell response, derived from the
 manifest rather than configured — which store a composition is served from is
@@ -1919,16 +1948,17 @@ Do not rediscover these.
 | Tigris sets no `Access-Control-Allow-Origin` | A cross-origin `<script type="module">` is blocked and the page renders blank while `curl` returns correct HTML. `bun run setup:store` sets it through the S3 API; flyctl has no flag |
 | Bun's `S3Client` cannot set `Cache-Control` | `scripts/store.ts` signs SigV4 directly. The manifest's 5 s cache is what sets the propagation window |
 | A build id keyed on the commit alone | Two builds from one commit collide and one silently overwrites the other |
-| A *unit* id with the commit in it | One commit touching only alpha changes all five ids and republishes all five, so independence survives only in the pointer. A unit id is the content hash alone |
-| A promote that writes what it was given | It replaces all five units, so "deploy alpha" silently rolls the other four back to whatever was last on disk. `promote` reads, merges, then writes |
+| A *unit* id with the commit in it | One commit touching one sub-app changes every id and republishes every unit, so independence survives only in the pointer. A unit id is the content hash alone |
+| A promote that writes what it was given | It replaces every unit, so "deploy `hello`" silently rolls the shell back to whatever was last on disk. `promote` reads, merges, then writes |
 | One `assetBase` for the whole page | Every unit id in the manifest is right and every sub-app 404s, because they are fetched from the shell's directory. One base per unit |
 | A hand-bumped contract version | Somebody has to remember, and an edit to a published contract breaks every unit that claimed it, silently. The identity is the hash of the surface |
-| Folding vendor versions into the contract hash | Every Preact patch bump invalidates all four apps and forces four republishes. Versions are recorded and warned about, not enforced |
+| Folding vendor versions into the contract hash | Every Preact patch bump invalidates every app and forces a republish of each. Versions are recorded and warned about, not enforced |
 | A cold Tigris edge | The first visitor after a deploy waited over 30 s once. `promote.ts` warms every file the manifest names before reporting success |
 | `curl` and a browser disagree | Only a browser sees a blocked module script or an edge-cached shell. Check user-facing changes in a browser, never with `curl` alone |
 | Bun pools HTTP connections per origin | Counting requests a stub store received measures the client, not the server. A scenario built on that went red on two runs in five and was deleted |
+| Two builds at once | `scripts/members.ts` clears a fixed scratch path at the start of every run, so a second run deletes the first one's cut surfaces mid-compile. The output is not an error, it is a different reading — and that reading is what `promote` refuses on. See `TODO.md` §32 |
 | A scenario green on its first run | Not yet evidence. `bun run falsify` exists for this and has found three checks that proved nothing |
-| The runner deciding what a command's output looks like | Playwright sets `FORCE_COLOR` for its workers; Bun colours `console.error` when it sees it; the harness passed `process.env` to every child it spawns and then PARSED what came back. `"  alpha ... uploaded"` became `"\u001b[0m\u001b[31m  alpha ..."`, which trims to an escape sequence. One assertion broke, because it read by position. The rest read with `includes` and kept passing, which is the worse half. A process whose output is parsed is told `FORCE_COLOR=0` and `NO_COLOR=1` |
+| The runner deciding what a command's output looks like | Playwright sets `FORCE_COLOR` for its workers; Bun colours `console.error` when it sees it; the harness passed `process.env` to every child it spawns and then PARSED what came back. `"  hello ... uploaded"` became `"\u001b[0m\u001b[31m  hello ..."`, which trims to an escape sequence. One assertion broke, because it read by position. The rest read with `includes` and kept passing, which is the worse half. A process whose output is parsed is told `FORCE_COLOR=0` and `NO_COLOR=1` |
 | A check with no control | "The bundle was fetched once after the navigation" is true whether or not the page preloaded it, because with no preload the import does the one fetch itself. A reading that does not move when the mechanism is removed measures nothing. Where a scenario cannot carry a control, a script must |
 | A `@browser` scenario read as proof of an edit | Without `@test-channel` it loads the deployed composition, so it goes on passing against the last build that was promoted. Measured: a mutation that reddens the `@test-channel` copy leaves the deployed copy green |
 | Two copies of the layout | `Shell.tsx` placed the apps and the step definitions listed them again. Nothing tied the copies together, so the harness held its own idea of what it was checking. One exported table, and a build-time check against the units |
