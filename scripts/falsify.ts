@@ -1122,6 +1122,36 @@ const MUTATIONS: Mutation[] = [
     replace: "  if (false) {",
     unitTest: "the same composition promoted again is a different promote",
   },
+  {
+    // The reading CHANGELOG.md exists to get right. Four of the five records in
+    // deploys/ are promotes that moved nothing, and an archive that lists them
+    // as deploys anybody asked for is a false reading of its own source.
+    name: "a promote that carried every unit reads as a deploy",
+    file: "scripts/record.ts",
+    find: '  return Object.values(units).every((u) => u.state === "carried") ? "no-op" : "moved";',
+    replace: '  return "moved";',
+    unitTest: "every unit carried is a no-op",
+  },
+  {
+    // A --region run leaves the other region where it was and the record keeps
+    // that region's bytes under an as-served name. Reading the kept manifests
+    // as the regions this promote wrote claims a deploy that did not happen.
+    name: "a one-region promote reads as having written every region",
+    file: "scripts/record.ts",
+    find: "  const others = Object.keys(kept)\n    .filter((r) => !written.includes(r))\n    .sort();",
+    replace: "  const others: string[] = [];",
+    unitTest: "a one-region promote names the region it did not write",
+  },
+  {
+    // The one line in a record a person wrote. A note that opens with a blank
+    // line would be gathered as a blank entry, which is the changelog silently
+    // dropping the only sentence saying what a deploy demonstrates.
+    name: "the note's first line is taken blank or not",
+    file: "scripts/record.ts",
+    find: "    if (trimmed) return trimmed;",
+    replace: "    return trimmed;",
+    unitTest: "a leading blank line is not the first line",
+  },
 ];
 
 // The runner, named the long way for the reason playwright.config.ts gives:

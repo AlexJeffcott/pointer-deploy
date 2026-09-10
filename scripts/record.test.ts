@@ -25,6 +25,30 @@ import {
   unitMoves,
   type ShotEntry,
 } from "./record.ts";
+import {
+  carriedSummary,
+  cell,
+  changeKind,
+  changelogEntry,
+  changelogIndex,
+  changelogSummary,
+  channelOf,
+  entryInstant,
+  entryTitle,
+  humanTime,
+  movedSummary,
+  noteHeadline,
+  picturesCell,
+  regionsCell,
+  renderChangelog,
+  sortArchive,
+  sourceCell,
+  warningsBlock,
+  warningsCell,
+  type ArchiveRecord,
+  type PromoteFile,
+  type ShotsFile,
+} from "./record.ts";
 
 const shot = (route: string, title = route): ShotEntry => ({
   route,
@@ -727,5 +751,537 @@ describe("filedUnderRefusal, when a promote wrote one region", () => {
       "deploys/x",
     );
     expect(refusal).toContain("promoted again");
+  });
+});
+
+// -- the archive, gathered ----------------------------------------------------
+//
+// `CHANGELOG.md` is generated from `deploys/` and never written by hand, so
+// every reading below is the only thing standing between a record and a
+// document that misreports it. scripts/changelog.test.ts renders the real
+// archive; these put each reading in the state that breaks it.
+
+const carried = (id: string) => ({ unitId: id, from: id, state: "carried" as const });
+
+const promoteFile = (over: PromoteFile = {}): PromoteFile => ({
+  schema: 1,
+  kind: "promote",
+  channel: "qa",
+  argv: ["qa"],
+  command: "bun run promote qa",
+  startedAt: "2026-09-10T17:29:01.726Z",
+  composedAt: "2026-09-10T17:29:02.358Z",
+  writtenAt: "2026-09-10T17:29:03.026Z",
+  regions: ["eu", "us"],
+  source: { commit: "b8268f7626174754c18ca7365a90b10a403f22fb", dirty: false },
+  contract: "9d1b0a3",
+  units: { shell: carried("c260"), hello: carried("3bba") },
+  warnings: [],
+  manifests: { eu: "manifest.eu.json", us: "manifest.us.json" },
+  ...over,
+});
+
+const shotsFile = (over: ShotsFile = {}): ShotsFile => ({
+  schema: 2,
+  takenAt: "2026-09-10T17:29:08.165Z",
+  kind: "deploy",
+  channel: "qa",
+  region: "eu",
+  contract: "9d1b0a3",
+  composedAt: "2026-09-10T17:29:02.358Z",
+  units: { shell: "c260", hello: "3bba" },
+  manifests: { eu: "manifest.eu.json", us: "manifest.us.json" },
+  shots: [shot("/"), shot("/service", "Service")],
+  ...over,
+});
+
+const archived = (over: Partial<ArchiveRecord> = {}): ArchiveRecord => ({
+  dir: "deploys/2026-09-10T17-29-02Z-qa",
+  promote: promoteFile(),
+  shots: shotsFile(),
+  notes: "A no-op promote to qa.\n\nThe rest of the note.\n",
+  ...over,
+});
+
+describe("noteHeadline", () => {
+  test("the first line is the entry", () => {
+    expect(noteHeadline("what it demonstrates\n\nthe rest\n")).toBe("what it demonstrates");
+  });
+
+  // A note that opens with a blank line still says what its deploy
+  // demonstrates, and rendering the blank would drop the one sentence in the
+  // record a person wrote.
+  test("a leading blank line is not the first line", () => {
+    expect(noteHeadline("\n\n  what it demonstrates\n")).toBe("what it demonstrates");
+  });
+
+  test("no notes.md at all", () => {
+    expect(noteHeadline(null)).toBeNull();
+  });
+
+  test("a file with nothing in it", () => {
+    expect(noteHeadline("")).toBeNull();
+  });
+
+  test("a file of whitespace", () => {
+    expect(noteHeadline("   \n\t\n")).toBeNull();
+  });
+});
+
+describe("cell", () => {
+  // notes.md is hand-written and warnings are whatever a promote printed. A
+  // pipe in either ends the cell and shifts every column after it.
+  test("a pipe is escaped rather than ending the cell", () => {
+    expect(cell("a | b")).toBe("a \\| b");
+  });
+
+  test("a newline is collapsed rather than ending the row", () => {
+    expect(cell("one\ntwo")).toBe("one two");
+  });
+
+  test("a run of whitespace becomes one space", () => {
+    expect(cell("  one   two  ")).toBe("one two");
+  });
+});
+
+describe("channelOf", () => {
+  test("the promote's channel", () => {
+    expect(channelOf(archived())).toBe("qa");
+  });
+
+  // The oldest record has no promote.json, and its channel is in the shots.
+  test("the shots' channel when there is no act", () => {
+    expect(channelOf(archived({ promote: null, shots: shotsFile({ channel: "prod" }) }))).toBe("prod");
+  });
+
+  test("neither half names one", () => {
+    expect(
+      channelOf({ dir: "deploys/x", promote: null, shots: shotsFile({ channel: undefined }), notes: null }),
+    ).toBe("unknown channel");
+  });
+});
+
+describe("changeKind", () => {
+  // The reading the changelog exists to get right: four of the five records in
+  // deploys/ are promotes that moved nothing, and listing them as deploys
+  // anybody asked for is a false reading of the archive.
+  test("every unit carried is a no-op", () => {
+    expect(changeKind(promoteFile())).toBe("no-op");
+  });
+
+  test("one unit moved is a deploy", () => {
+    expect(
+      changeKind(
+        promoteFile({ units: { shell: carried("c260"), hello: { unitId: "9f2", from: "3bba", state: "moved" } } }),
+      ),
+    ).toBe("moved");
+  });
+
+  test("a first promote is a deploy", () => {
+    expect(changeKind(promoteFile({ units: { hello: { unitId: "9f2", from: null, state: "new" } } }))).toBe(
+      "moved",
+    );
+  });
+
+  test("a dropped unit is a deploy", () => {
+    expect(
+      changeKind(promoteFile({ units: { hello: { unitId: null, from: "3bba", state: "dropped" } } })),
+    ).toBe("moved");
+  });
+
+  test("no promote.json at all", () => {
+    expect(changeKind(null)).toBe("unrecorded");
+  });
+
+  // Not "no-op": a promote naming no unit recorded no movement either way, and
+  // saying nothing moved would be a claim the file does not make.
+  test("a promote naming no unit is unrecorded, not a no-op", () => {
+    expect(changeKind(promoteFile({ units: {} }))).toBe("unrecorded");
+  });
+});
+
+describe("movedSummary", () => {
+  test("every unit carried", () => {
+    expect(movedSummary(promoteFile().units)).toBe("nothing");
+  });
+
+  test("a move names both sides", () => {
+    expect(movedSummary({ hello: { unitId: "9f2", from: "3bba", state: "moved" } })).toBe(
+      "hello 3bba → 9f2",
+    );
+  });
+
+  test("a first promote says so rather than naming a side it has not got", () => {
+    expect(movedSummary({ hello: { unitId: "9f2", from: null, state: "new" } })).toBe(
+      "hello 9f2 (first promote)",
+    );
+  });
+
+  test("a dropped unit names the id it was at", () => {
+    expect(movedSummary({ hello: { unitId: null, from: "3bba", state: "dropped" } })).toBe(
+      "hello dropped (was 3bba)",
+    );
+  });
+
+  // Sorted, so two readings of one promote read the same however the JSON was
+  // written.
+  test("sorted by name", () => {
+    expect(
+      movedSummary({
+        shell: { unitId: "s2", from: "s1", state: "moved" },
+        hello: { unitId: "h2", from: "h1", state: "moved" },
+      }),
+    ).toBe("hello h1 → h2, shell s1 → s2");
+  });
+
+  test("no units recorded is not the same as nothing moved", () => {
+    expect(movedSummary(undefined)).toBe("not recorded");
+  });
+});
+
+describe("carriedSummary", () => {
+  test("what the merge carried", () => {
+    expect(carriedSummary(promoteFile().units)).toBe("hello 3bba, shell c260");
+  });
+
+  test("a promote that carried none", () => {
+    expect(carriedSummary({ hello: { unitId: "9f2", from: "3bba", state: "moved" } })).toBe("nothing");
+  });
+
+  test("no units recorded", () => {
+    expect(carriedSummary(undefined)).toBe("not recorded");
+  });
+});
+
+describe("regionsCell", () => {
+  test("a promote of every region", () => {
+    expect(regionsCell(promoteFile(), shotsFile())).toBe("eu, us");
+  });
+
+  // The record written by `--region eu` holds manifest.us.as-served.json, which
+  // is a different deploy's pointer under a name that says so. An entry reading
+  // the manifests as the regions this promote wrote claims a deploy that did
+  // not happen.
+  test("a one-region promote names the region it did not write", () => {
+    const line = regionsCell(
+      promoteFile({ regions: ["eu"], manifests: { eu: "manifest.eu.json" } }),
+      shotsFile({ manifests: { eu: "manifest.eu.json", us: "manifest.us.as-served.json" } }),
+    );
+    expect(line).toContain("eu only");
+    expect(line).toContain("manifest.us.as-served.json");
+    expect(line).toContain("not written by this promote");
+  });
+
+  test("no act, so which region an act wrote is not recorded", () => {
+    const line = regionsCell(null, shotsFile());
+    expect(line).toStartWith("not recorded");
+    expect(line).toContain("eu, us");
+  });
+
+  test("no act and no manifests either", () => {
+    expect(regionsCell(null, shotsFile({ manifests: {} }))).toBe("not recorded");
+  });
+});
+
+describe("sourceCell", () => {
+  test("a clean tree, at a short commit", () => {
+    expect(sourceCell(promoteFile().source)).toBe("b8268f7, clean tree");
+  });
+
+  // dirty: true is a true reading and a misleading one on its own: the second
+  // of two promotes made without committing is dirty because of the FIRST one's
+  // record, which is not source at all.
+  test("a dirty tree names what made it dirty", () => {
+    expect(
+      sourceCell({ commit: "21a3566f26f4bf", dirty: true, dirtyPaths: ["deploys/2026-09-10T16-51-30Z-qa/"] }),
+    ).toBe("21a3566, dirty tree: deploys/2026-09-10T16-51-30Z-qa/");
+  });
+
+  test("a dirty tree that recorded no paths", () => {
+    expect(sourceCell({ commit: "21a3566f26f4bf", dirty: true })).toBe("21a3566, dirty tree");
+  });
+
+  test("a promote that read no git at all", () => {
+    expect(sourceCell(null)).toBe("not recorded");
+  });
+
+  test("no promote.json", () => {
+    expect(sourceCell(undefined)).toBe("not recorded");
+  });
+});
+
+describe("warnings", () => {
+  // `[]` and "no such field" are two different states and the archive holds
+  // both: every promote so far printed nothing, and the record that predates
+  // promote.json has no field to be empty.
+  test("an empty array is none, and a missing one is not recorded", () => {
+    expect(warningsCell(promoteFile())).toBe("none");
+    expect(warningsCell(promoteFile({ warnings: undefined }))).toBe("not recorded");
+    expect(warningsCell(null)).toBe("not recorded");
+  });
+
+  test("none is no block at all", () => {
+    expect(warningsBlock(promoteFile())).toEqual([]);
+  });
+
+  // Never seen in the archive, which is the reason to write it for the case
+  // that is not the empty one.
+  test("one warning is singular", () => {
+    const block = warningsBlock(promoteFile({ warnings: ["COLD https://example/a.js"] })).join("\n");
+    expect(block).toContain("1 warning");
+    expect(block).toContain("let it through");
+    expect(block).toContain("- COLD https://example/a.js");
+  });
+
+  test("several warnings are a list, one line each", () => {
+    const block = warningsBlock(
+      promoteFile({ warnings: ["COLD https://example/a.js", "hello carries no digests"] }),
+    );
+    expect(warningsCell(promoteFile({ warnings: ["a", "b"] }))).toBe("2, listed below");
+    expect(block.filter((l) => l.startsWith("- "))).toHaveLength(2);
+    expect(block.join("\n")).toContain("let them through");
+  });
+
+  test("a warning holding a pipe or a newline does not rewrite the document", () => {
+    const block = warningsBlock(promoteFile({ warnings: ["a | b\nc"] })).join("\n");
+    expect(block).toContain("- a \\| b c");
+  });
+});
+
+describe("picturesCell", () => {
+  test("every view, linked under the record", () => {
+    const line = picturesCell(archived());
+    expect(line).toContain("2 views");
+    expect(line).toContain("[/](deploys/2026-09-10T17-29-02Z-qa/root.png)");
+  });
+
+  // A promote that wrote its record and was never shot is a deploy that
+  // happened, and pr.ts's scan for shots.json walks straight past it.
+  test("a promote nobody shot", () => {
+    expect(picturesCell(archived({ shots: null }))).toContain("no `shots.json`");
+  });
+
+  test("a shots.json naming no view", () => {
+    expect(picturesCell(archived({ shots: shotsFile({ shots: [] }) }))).toContain("names no view");
+  });
+
+  test("a panel that rendered its error state is named", () => {
+    const withError = { ...shot("/service", "Service"), panelErrors: ["hello"] };
+    const line = picturesCell(archived({ shots: shotsFile({ shots: [withError] }) }));
+    expect(line).toContain("/service drew hello in an error state");
+  });
+
+  test("a shot from a schema that recorded no panel errors", () => {
+    const old = { ...shot("/"), panelErrors: undefined as unknown as string[] };
+    expect(picturesCell(archived({ shots: shotsFile({ shots: [old] }) }))).toContain("1 view");
+  });
+});
+
+describe("entryInstant", () => {
+  test("the composition the act wrote", () => {
+    expect(entryInstant(archived())).toBe("2026-09-10T17:29:02.358Z");
+  });
+
+  // The oldest record predates promote.json: its directory is named for when it
+  // was shot, and the composition it is a picture of was composed hours before.
+  test("the pictures' composedAt where there is no act", () => {
+    expect(
+      entryInstant(archived({ promote: null, shots: shotsFile({ composedAt: "2026-09-10T11:18:12.659Z" }) })),
+    ).toBe("2026-09-10T11:18:12.659Z");
+  });
+
+  test("a record whose shots carry no composedAt falls back to when they were taken", () => {
+    expect(entryInstant(archived({ promote: null, shots: shotsFile({ composedAt: null }) }))).toBe(
+      "2026-09-10T17:29:08.165Z",
+    );
+  });
+
+  test("neither half names an instant", () => {
+    expect(
+      entryInstant({ dir: "deploys/x", promote: null, shots: { channel: "qa" }, notes: null }),
+    ).toBeNull();
+  });
+});
+
+describe("humanTime", () => {
+  test("to the second, in UTC", () => {
+    expect(humanTime("2026-09-10T17:29:02.358Z")).toBe("2026-09-10 17:29:02 UTC");
+  });
+
+  // Two promotes 18 seconds apart are two records. To the minute their headings
+  // are one line twice, which is a duplicate anchor and two entries a reader
+  // cannot tell apart.
+  test("two promotes in one minute read as two instants", () => {
+    expect(humanTime("2026-09-10T16:51:30.399Z")).not.toBe(humanTime("2026-09-10T16:51:48.488Z"));
+  });
+
+  test("an offset is normalised", () => {
+    expect(humanTime("2026-09-10T19:29:02.358+02:00")).toBe("2026-09-10 17:29:02 UTC");
+  });
+
+  // Invalid Date in a generated document hides which record has the problem.
+  test("a string that is not a time is shown as written", () => {
+    expect(humanTime("whenever")).toBe("whenever");
+  });
+});
+
+describe("entryTitle", () => {
+  test("a no-op says so rather than listing a deploy", () => {
+    expect(entryTitle(archived())).toBe("2026-09-10 17:29:02 UTC · qa · nothing moved");
+  });
+
+  test("a record with no act", () => {
+    expect(entryTitle(archived({ promote: null }))).toContain("no act recorded");
+  });
+
+  test("a deploy names what moved", () => {
+    const moved = promoteFile({ units: { hello: { unitId: "9f2", from: "3bba", state: "moved" } } });
+    expect(entryTitle(archived({ promote: moved }))).toContain("hello 3bba → 9f2");
+  });
+});
+
+describe("sortArchive", () => {
+  test("newest first", () => {
+    const a = archived({ dir: "deploys/2026-09-10T16-12-51Z-qa" });
+    const b = archived({ dir: "deploys/2026-09-10T17-29-02Z-qa" });
+    expect(sortArchive([a, b]).map((r) => r.dir)).toEqual([b.dir, a.dir]);
+  });
+
+  test("it does not reorder the array it was given", () => {
+    const a = archived({ dir: "deploys/2026-09-10T16-12-51Z-qa" });
+    const b = archived({ dir: "deploys/2026-09-10T17-29-02Z-qa" });
+    const given = [a, b];
+    sortArchive(given);
+    expect(given[0]).toBe(a);
+  });
+});
+
+describe("changelogSummary", () => {
+  const moved = archived({
+    dir: "deploys/2026-09-11T09-00-00Z-qa",
+    promote: promoteFile({
+      composedAt: "2026-09-11T09:00:00.000Z",
+      units: { hello: { unitId: "9f2", from: "3bba", state: "moved" } },
+    }),
+  });
+
+  test("an empty archive is a file that says so, not a crash", () => {
+    expect(changelogSummary([]).join("\n")).toContain("holds no record");
+  });
+
+  test("the counts are counted", () => {
+    const text = changelogSummary([archived(), moved, archived({ promote: null })]).join("\n");
+    expect(text).toContain("3 records on qa");
+    expect(text).toContain("1 moved at least one unit");
+    expect(text).toContain("1 rewrote a pointer");
+    expect(text).toContain("1 holds no act at all");
+  });
+
+  // The reading the archive's own contents force: every record in it so far is
+  // a promote that moved nothing.
+  test("an archive where nothing moved says so at the top", () => {
+    expect(changelogSummary([archived(), archived({ dir: "deploys/2026-09-10T16-33-38Z-qa" })]).join("\n")).toContain(
+      "No record in this archive moved a unit",
+    );
+  });
+
+  test("one deploy is enough to drop that reading", () => {
+    expect(changelogSummary([archived(), moved]).join("\n")).not.toContain(
+      "No record in this archive moved a unit",
+    );
+  });
+
+  test("an archive of nothing but unrecorded acts claims nothing about movement", () => {
+    expect(changelogSummary([archived({ promote: null })]).join("\n")).not.toContain(
+      "No record in this archive moved a unit",
+    );
+  });
+
+  test("warnings are counted, both ways", () => {
+    expect(changelogSummary([archived()]).join("\n")).toContain("No promote in this archive printed a warning");
+    const warned = archived({ promote: promoteFile({ warnings: ["COLD https://example/a.js"] }) });
+    expect(changelogSummary([warned]).join("\n")).toContain("1 promote printed a warning");
+  });
+
+  test("an archive of records with no act says nothing about warnings", () => {
+    expect(changelogSummary([archived({ promote: null })]).join("\n")).not.toContain("warning");
+  });
+});
+
+describe("changelogIndex", () => {
+  test("one row per record, newest first", () => {
+    const rows = changelogIndex([
+      archived({ dir: "deploys/2026-09-10T16-12-51Z-qa" }),
+      archived({ dir: "deploys/2026-09-10T17-29-02Z-qa" }),
+    ]).filter((l) => l.startsWith("| deploys") || l.startsWith("| 2026"));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain("2026-09-10T17-29-02Z-qa");
+  });
+
+  test("an empty archive gets no table at all", () => {
+    expect(changelogIndex([])).toEqual([]);
+  });
+});
+
+describe("changelogEntry", () => {
+  test("the hand-written line is the entry's first sentence", () => {
+    expect(changelogEntry(archived()).join("\n")).toContain("A no-op promote to qa.");
+  });
+
+  test("a record with no notes.md says nothing was written rather than nothing happened", () => {
+    expect(changelogEntry(archived({ notes: null })).join("\n")).toContain("holds no line");
+  });
+
+  test("a no-op carries the reading, and a deploy does not", () => {
+    expect(changelogEntry(archived()).join("\n")).toContain("Nothing moved.");
+    const moved = promoteFile({ units: { hello: { unitId: "9f2", from: "3bba", state: "moved" } } });
+    expect(changelogEntry(archived({ promote: moved })).join("\n")).not.toContain("Nothing moved.");
+  });
+
+  test("every row the task asks an entry to carry", () => {
+    const text = changelogEntry(archived()).join("\n");
+    for (const row of ["Composed at", "Contract", "Regions", "Moved", "Carried", "Command", "Source", "Warnings", "Pictures", "Record"]) {
+      expect(text).toContain(`| ${row} |`);
+    }
+    expect(text).toContain("](deploys/2026-09-10T17-29-02Z-qa)");
+  });
+
+  test("a note holding a pipe does not rewrite the table", () => {
+    const text = changelogEntry(archived({ notes: "a | b\n" })).join("\n");
+    expect(text).toContain("a \\| b");
+  });
+});
+
+describe("renderChangelog", () => {
+  const text = renderChangelog([archived(), archived({ dir: "deploys/2026-09-10T16-12-51Z-qa", promote: null })]);
+
+  // Not negotiable: the file says what it is in its own first lines, because a
+  // generated file that does not is a file somebody edits by hand.
+  test("the first lines say it is generated and not hand-edited", () => {
+    const first = text.split("\n").slice(0, 4).join("\n");
+    expect(first).toContain("bun run changelog");
+    expect(first).toContain("Nothing in this file is written by hand");
+  });
+
+  test("newest first", () => {
+    const entries = text.split("\n").filter((l) => l.startsWith("## "));
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toContain("17:29:02");
+  });
+
+  test("one trailing newline, and no run of blank lines", () => {
+    expect(text.endsWith("\n")).toBe(true);
+    expect(text.endsWith("\n\n")).toBe(false);
+    expect(text).not.toContain("\n\n\n");
+  });
+
+  // Rendered twice from one archive is the same bytes, which is what makes the
+  // comparison against the file on disk a check rather than a coin toss.
+  test("rendering is a function of the archive", () => {
+    expect(renderChangelog([archived()])).toBe(renderChangelog([archived()]));
+  });
+
+  test("an empty archive still says what the file is", () => {
+    expect(renderChangelog([])).toContain("bun run changelog");
   });
 });

@@ -580,3 +580,409 @@ export function staleRefusal(
   }
   return null;
 }
+
+// -- the archive, gathered ----------------------------------------------------
+//
+// `deploys/` is one directory per deploy and nothing reads it, so the archive is
+// a directory listing and the hand-written line in each `notes.md` is gathered
+// nowhere. `CHANGELOG.md` is that archive as a document: one entry per record,
+// newest first, written by `bun run changelog` and never by hand.
+//
+// Everything below is a function of what a record HOLDS. The filesystem half -
+// which directories exist and what is in them - is scripts/changelog.ts, so
+// scripts/record.test.ts can put each reading in the state that breaks it, and
+// scripts/changelog.test.ts renders the real archive and fails when the file on
+// disk differs.
+
+/** A record's `shots.json`, as far as the changelog reads it. */
+export type ShotsFile = {
+  schema?: number;
+  takenAt?: string;
+  kind?: "deploy" | "preview";
+  channel?: string;
+  region?: string;
+  contract?: string;
+  composedAt?: string | null;
+  units?: Record<string, string>;
+  manifests?: Record<string, string>;
+  shots?: ShotEntry[];
+};
+
+/**
+ * A record's `promote.json`.
+ *
+ * Every field optional, because schema 1 is not the last schema and the oldest
+ * record in the archive has no such file at all. A reading that assumed the
+ * shape would render `undefined` into a document whose whole claim is that it
+ * restates the archive.
+ */
+export type PromoteFile = Partial<PromoteRecord>;
+
+/** One directory under `deploys/`, read. */
+export type ArchiveRecord = {
+  dir: string;
+  promote: PromoteFile | null;
+  shots: ShotsFile | null;
+  /** The whole of `notes.md`, or null where there is no such file. */
+  notes: string | null;
+};
+
+/**
+ * The hand-written line, or null when there is not one.
+ *
+ * The first NON-EMPTY line: a note that opens with a blank line still says what
+ * its deploy demonstrates, and rendering the blank would drop the one sentence
+ * in the record a person wrote.
+ */
+export function noteHeadline(notes: string | null): string | null {
+  if (notes === null) return null;
+  for (const line of notes.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+/**
+ * Free text, safe inside a markdown table cell.
+ *
+ * A `|` in a note, a warning or an argv ends the cell and shifts every column
+ * after it, so a record holding one would silently rewrite the table it appears
+ * in. A newline does the same to the row. Both come from files this does not
+ * control: `notes.md` is hand-written and `warnings` is whatever a promote
+ * printed.
+ */
+export function cell(text: string): string {
+  return text.replace(/\s+/g, " ").trim().replace(/\|/g, "\\|");
+}
+
+/** What a record says its channel is, from whichever half of it survives. */
+export function channelOf(record: ArchiveRecord): string {
+  return record.promote?.channel ?? record.shots?.channel ?? "unknown channel";
+}
+
+/**
+ * What a record's act amounts to.
+ *
+ * `no-op` is the reading this exists for. A promote every one of whose units was
+ * CARRIED rewrote a pointer to the composition it already named: a real write to
+ * a real channel, and not a deploy anybody asked for. Four of the five records
+ * in the archive are that, made to exercise the recorder, and a changelog that
+ * listed them as deploys would be a false reading of its own source.
+ *
+ * `unrecorded` is the oldest record, which predates `promote.json`: pictures and
+ * pointer bytes, and no act to report.
+ */
+export type ChangeKind = "moved" | "no-op" | "unrecorded";
+
+export function changeKind(promote: PromoteFile | null): ChangeKind {
+  const units = promote?.units;
+  if (!units || Object.keys(units).length === 0) return "unrecorded";
+  return Object.values(units).every((u) => u.state === "carried") ? "no-op" : "moved";
+}
+
+const byName = ([a]: [string, unknown], [b]: [string, unknown]): number => a.localeCompare(b);
+
+/** Which units this promote moved, in one line, or why there is no answer. */
+export function movedSummary(units: Record<string, UnitMove> | undefined): string {
+  if (!units || Object.keys(units).length === 0) return "not recorded";
+  const parts = Object.entries(units)
+    .sort(byName)
+    .filter(([, u]) => u.state !== "carried")
+    .map(([name, u]) => {
+      if (u.state === "dropped") return `${name} dropped (was ${u.from ?? "an id it did not record"})`;
+      if (u.state === "new") return `${name} ${u.unitId} (first promote)`;
+      return `${name} ${u.from} → ${u.unitId}`;
+    });
+  return parts.length ? parts.join(", ") : "nothing";
+}
+
+/**
+ * Which units the merge carried.
+ *
+ * The half no later reading can recover: the pointer holds the whole
+ * composition however few units the operator named, so `promote.json` is the
+ * only place a carried unit is distinguishable from a re-deployed one.
+ */
+export function carriedSummary(units: Record<string, UnitMove> | undefined): string {
+  if (!units || Object.keys(units).length === 0) return "not recorded";
+  const parts = Object.entries(units)
+    .sort(byName)
+    .filter(([, u]) => u.state === "carried")
+    .map(([name, u]) => `${name} ${u.unitId}`);
+  return parts.length ? parts.join(", ") : "nothing";
+}
+
+/**
+ * Which regions this act wrote, and which the record only KEPT.
+ *
+ * `--region eu` writes one region and leaves the other where it was, §3's
+ * supported exception - and the record then holds `manifest.us.as-served.json`
+ * beside `manifest.eu.json`, which is a different deploy's pointer under a name
+ * that says so. An entry reading the manifests as the regions this promote
+ * wrote would claim a deploy that did not happen.
+ */
+export function regionsCell(promote: PromoteFile | null, shots: ShotsFile | null): string {
+  const kept = shots?.manifests ?? promote?.manifests ?? {};
+  const written = promote?.regions;
+  if (!written) {
+    const names = Object.keys(kept).sort();
+    return names.length
+      ? `not recorded. The record keeps pointer bytes for ${names.join(", ")}, and with no promote.json nothing says which of them an act wrote`
+      : "not recorded";
+  }
+  const others = Object.keys(kept)
+    .filter((r) => !written.includes(r))
+    .sort();
+  if (others.length === 0) return written.join(", ");
+  const named = others.map((r) => `${r} (\`${kept[r]}\`)`).join(", ");
+  return `${written.join(", ")} only. ${named} ${others.length === 1 ? "was" : "were"} not written by this promote, and the bytes kept under that name are what another promote put there`;
+}
+
+/** The tree the command was run from, and what made it dirty. */
+export function sourceCell(source: PromoteFile["source"] | undefined): string {
+  if (!source) return "not recorded";
+  const commit = source.commit ? source.commit.slice(0, 7) : "an unread commit";
+  if (!source.dirty) return `${commit}, clean tree`;
+  const paths = source.dirtyPaths?.length ? `: ${source.dirtyPaths.map(cell).join(", ")}` : "";
+  return `${commit}, dirty tree${paths}`;
+}
+
+/**
+ * How many warnings this promote let through, or that nothing recorded any.
+ *
+ * `none` and `not recorded` are two different states and the archive holds
+ * both: every promote so far printed nothing, and the record that predates
+ * `promote.json` has no such field to be empty.
+ */
+export function warningsCell(promote: PromoteFile | null): string {
+  const warnings = promote?.warnings;
+  if (!warnings) return "not recorded";
+  if (warnings.length === 0) return "none";
+  return `${warnings.length}, listed below`;
+}
+
+/**
+ * The warnings, as a block under the table.
+ *
+ * Not a cell: a promote can print several, each of them a sentence, and a table
+ * cell holding four sentences joined by semicolons is a cell nobody reads. The
+ * empty case is the only one the archive has so far, which is exactly why this
+ * is written for the other one.
+ */
+export function warningsBlock(promote: PromoteFile | null): string[] {
+  const warnings = promote?.warnings ?? [];
+  if (warnings.length === 0) return [];
+  return [
+    "",
+    `This promote printed ${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"} and let ${warnings.length === 1 ? "it" : "them"} through:`,
+    "",
+    ...warnings.map((w) => `- ${cell(w)}`),
+  ];
+}
+
+/** The pictures, linked, and any panel that rendered its error state. */
+export function picturesCell(record: ArchiveRecord): string {
+  if (!record.shots) return "none. This record holds no `shots.json`";
+  const shots = record.shots.shots ?? [];
+  if (shots.length === 0) return "none. `shots.json` names no view";
+  const links = shots.map((s) => `[${cell(s.route)}](${record.dir}/${s.file})`).join(", ");
+  const failed = shots.filter((s) => (s.panelErrors ?? []).length > 0);
+  if (failed.length === 0) return `${shots.length} ${shots.length === 1 ? "view" : "views"}: ${links}`;
+  const drew = failed
+    .map((s) => `${cell(s.route)} drew ${s.panelErrors.map(cell).join(", ")} in an error state`)
+    .join("; ");
+  return `${shots.length} ${shots.length === 1 ? "view" : "views"}: ${links}. ${drew}`;
+}
+
+/**
+ * The instant this entry is about.
+ *
+ * The composition's own `composedAt` where an act recorded one, because that is
+ * the moment the channel was pointed at it. A record with no act falls back to
+ * the pictures, which is a reading of the same pointer taken later - and the
+ * oldest record shows the gap: named for 16:12, when it was shot, of a
+ * composition composed at 11:18.
+ */
+export function entryInstant(record: ArchiveRecord): string | null {
+  return record.promote?.composedAt ?? record.shots?.composedAt ?? record.shots?.takenAt ?? null;
+}
+
+/**
+ * An instant a person reads, or the string as written when it is not one.
+ *
+ * A record naming a time nothing can parse is a record with a problem, and
+ * `Invalid Date` in a generated document hides which record it was.
+ *
+ * To the second, which is what the directory names are to. Two promotes 18
+ * seconds apart are two records, and to the minute their headings are the same
+ * line twice - which is a duplicate anchor in the document and, worse, two
+ * entries a reader cannot tell apart.
+ */
+export function humanTime(at: string): string {
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) return at;
+  const iso = new Date(ms).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
+}
+
+/** When an entry is about, for a heading and for the index. */
+export function entryWhen(record: ArchiveRecord): string {
+  const at = entryInstant(record);
+  return at ? humanTime(at) : (record.dir.split("/").at(-1) ?? record.dir);
+}
+
+export function entryTitle(record: ArchiveRecord): string {
+  const kind = changeKind(record.promote);
+  const what =
+    kind === "unrecorded"
+      ? "no act recorded"
+      : kind === "no-op"
+        ? "nothing moved"
+        : movedSummary(record.promote?.units);
+  return `${entryWhen(record)} · ${channelOf(record)} · ${cell(what)}`;
+}
+
+/** Newest first, by the directory name, which is the order the archive itself has. */
+export function sortArchive(records: readonly ArchiveRecord[]): ArchiveRecord[] {
+  return [...records].sort((a, b) => b.dir.localeCompare(a.dir));
+}
+
+const NO_OP_READING =
+  "**Nothing moved.** Every unit was carried, so the pointer was rewritten to the composition it already named. That is a real write to a real channel and it is not a deploy anybody asked for.";
+
+const UNRECORDED_READING =
+  "**No act recorded.** This record predates `promote.json`, so what was run, what it carried and what it let through are not in the archive. The pointer bytes and the pictures are. Its directory is named for the moment it was shot, and the entry is dated by the composition the pictures are of.";
+
+const table = (rows: ReadonlyArray<readonly [string, string]>): string[] => [
+  "| | |",
+  "| --- | --- |",
+  ...rows.map(([name, value]) => `| ${name} | ${value} |`),
+];
+
+/** One record, as an entry. */
+export function changelogEntry(record: ArchiveRecord): string[] {
+  const promote = record.promote;
+  const kind = changeKind(promote);
+  const note = noteHeadline(record.notes);
+  const shots = record.shots;
+  const contract = promote?.contract ?? shots?.contract ?? null;
+  const at = entryInstant(record);
+
+  const lines = [`## ${entryTitle(record)}`, ""];
+  lines.push(
+    note
+      ? cell(note)
+      : "`notes.md` holds no line, so nothing in this record says what the deploy demonstrates.",
+    "",
+  );
+  if (kind === "no-op") lines.push(NO_OP_READING, "");
+  if (kind === "unrecorded") lines.push(UNRECORDED_READING, "");
+
+  lines.push(
+    ...table([
+      ["Composed at", at ?? "not recorded"],
+      ["Contract", contract ? `\`${cell(contract)}\`` : "not recorded"],
+      ["Regions", regionsCell(promote, shots)],
+      ["Moved", cell(movedSummary(promote?.units))],
+      ["Carried", cell(carriedSummary(promote?.units))],
+      ["Command", promote?.command ? `\`${cell(promote.command)}\`` : "not recorded"],
+      ["Source", sourceCell(promote?.source)],
+      ["Warnings", warningsCell(promote)],
+      ["Pictures", picturesCell(record)],
+      [
+        "Shot at",
+        shots?.takenAt
+          ? `${shots.takenAt}${shots.region ? `, from ${cell(shots.region)}` : ""}`
+          : "not shot",
+      ],
+      ["Record", `[\`${record.dir}\`](${record.dir})`],
+    ]),
+  );
+  lines.push(...warningsBlock(promote));
+  lines.push("");
+  return lines;
+}
+
+/** What the archive as a whole says, counted rather than asserted. */
+export function changelogSummary(records: readonly ArchiveRecord[]): string[] {
+  if (records.length === 0) {
+    return ["`deploys/` holds no record, so there is nothing to gather yet.", ""];
+  }
+  const sorted = sortArchive(records);
+  const channels = [...new Set(sorted.map(channelOf))].sort();
+  const kinds = sorted.map((r) => changeKind(r.promote));
+  const moved = kinds.filter((k) => k === "moved").length;
+  const noop = kinds.filter((k) => k === "no-op").length;
+  const unrecorded = kinds.filter((k) => k === "unrecorded").length;
+  const warned = sorted.filter((r) => (r.promote?.warnings?.length ?? 0) > 0).length;
+  const promotes = sorted.filter((r) => r.promote !== null).length;
+
+  const lines = [
+    `${records.length} ${records.length === 1 ? "record" : "records"} on ${channels.join(", ")}. ` +
+      `Newest ${entryWhen(sorted[0]!)}, oldest ${entryWhen(sorted.at(-1)!)}.`,
+    "",
+    `${moved} moved at least one unit, ${noop} rewrote a pointer to the composition it already ` +
+      `named, and ${unrecorded} ${unrecorded === 1 ? "holds" : "hold"} no act at all.`,
+    "",
+  ];
+  if (moved === 0 && noop > 0) {
+    lines.push(
+      "**No record in this archive moved a unit.** Every promote here rewrote a pointer to the " +
+        "composition it already named, which is a write to a real channel and not a deploy " +
+        "anybody asked for. Each entry below carries the note written with its record. " +
+        "`TODO.md` §34 carries the reading.",
+      "",
+    );
+  }
+  if (promotes > 0) {
+    lines.push(
+      warned === 0
+        ? "No promote in this archive printed a warning, so no entry below lists one."
+        : warned === 1
+          ? "1 promote printed a warning, and its entry lists what it let through."
+          : `${warned} promotes printed warnings, and each of those entries lists what it let through.`,
+      "",
+    );
+  }
+  return lines;
+}
+
+/** The index, so the archive can be read without reading every entry. */
+export function changelogIndex(records: readonly ArchiveRecord[]): string[] {
+  if (records.length === 0) return [];
+  return [
+    "| When | Channel | What moved | Record |",
+    "| --- | --- | --- | --- |",
+    ...sortArchive(records).map(
+      (r) =>
+        `| ${entryWhen(r)} | ${cell(channelOf(r))} | ${cell(movedSummary(r.promote?.units))} | ` +
+        `[\`${r.dir}\`](${r.dir}) |`,
+    ),
+    "",
+  ];
+}
+
+export const CHANGELOG_HEADER = [
+  "# Deploy changelog",
+  "",
+  "**Generated by `bun run changelog` from the records in `deploys/`. Nothing in this file is written by hand.**",
+  "",
+  "Every line below is derived from the files in `deploys/`. `scripts/changelog.test.ts` renders `deploys/` again under the ordinary `bun test` and fails when what is on disk differs, so a record committed without regenerating this file is a red test rather than a discovery months later. An edit made here is gone at the next run: to change what an entry says, change the record - `notes.md` is the one file in it a person writes - and run the command again.",
+  "",
+];
+
+/** The whole file. */
+export function renderChangelog(records: readonly ArchiveRecord[]): string {
+  const sorted = sortArchive(records);
+  const lines = [
+    ...CHANGELOG_HEADER,
+    ...changelogSummary(sorted),
+    ...changelogIndex(sorted),
+    ...sorted.flatMap((r) => changelogEntry(r)),
+  ];
+  // One trailing newline, and no run of blank lines: every section here ends
+  // with one already, so joining them without this leaves the file's shape
+  // depending on how many sections happened to be empty.
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+}

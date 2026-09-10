@@ -30,12 +30,14 @@ It refuses to run when the newest `deploys/` record disagrees with what `qa` ser
 
 Nothing regenerates a shot. A picture of what was served on a date is falsified by re-shooting it.
 
+`bun run changelog` gathers `deploys/` into `CHANGELOG.md`, which is generated and never hand-edited. `bun test` renders the archive again and fails when the file differs, so a record and the changelog land in one commit.
+
 ## Before a pull request is ready
 
 | | |
 | --- | --- |
 | `bun run typecheck` | |
-| `bun test` | 493 tests on 2026-09-10 |
+| `bun test` | 602 tests on 2026-09-10 |
 | `bun run verify` | the `@local` suite |
 | `bun run falsify` | when the change adds or moves a check |
 | `bun run verify:live` | when the change touches the store, the pointer or the server |

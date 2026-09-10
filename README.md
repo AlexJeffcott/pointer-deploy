@@ -1116,9 +1116,32 @@ So every shot is gated three ways, and nothing is written until all three pass:
 
 **Nothing regenerates a shot, and that is a refusal rather than a convention.** A run into a directory that already holds a `shots.json` stops. `--out` was `--update` while nothing checked - it overwrote every image and rewrote the record, and it was the flag this repository's own tooling passed. `outRefusal` in `scripts/record.ts` also refuses a preview into `deploys/` and a channel shot into `previews/`, because the directory was the entire distinction between what was served and what never was. Measured on 2026-09-10: two views, 27 kB and 43 kB, 88 kB for the whole record including both pointers.
 
-**What holds it.** `scripts/record.ts` carries every decision that needs no browser and no store, and `scripts/record.test.ts` puts each one in the state that breaks it - 99 tests. `scripts/` is outside `stryker.config.json`'s mutate scope, so those tests have no mutation score yet; §34 carries that.
+**What holds it.** `scripts/record.ts` carries every decision that needs no browser and no store, and `scripts/record.test.ts` puts each one in the state that breaks it - 176 tests, of which 99 are the shooter's and the rest are the changelog's. `scripts/` is outside `stryker.config.json`'s mutate scope, so those tests have no mutation score yet; §34 carries that.
 
 **What it does not cover yet.** `prod` is not in the origin table, because it is reached by a `Host` header and no browser can be made to send one - the same wall `scripts/e2e-independent-deploy.ts` runs its browser half locally to get around. §2 is what puts it in, and until it lands a `prod` deploy is `promote.json` and the pointer bytes with no pictures beside them.
+
+## The archive as a document
+
+`deploys/` is one directory per deploy and, until this, nothing read it. What a channel served on a date was a directory listing, and the one hand-written line in each `notes.md` - the line that says what the deploy demonstrates - was gathered nowhere.
+
+```sh
+bun run changelog             # write CHANGELOG.md from deploys/
+bun run changelog --check     # exit 1 when the file on disk is not what deploys/ renders to
+```
+
+`CHANGELOG.md` is one entry per record, newest first. An entry carries the instant the composition was composed at, the channel, which units MOVED and which the merge carried, the contract it resolved at, the regions the act wrote, the command, the commit and whether that tree was dirty, the warnings it let through, a link to each picture and a link to the record itself. The first line of `notes.md` is the entry's first sentence, and an index at the top is the whole archive in one table.
+
+**It is generated, and that is a check rather than a sentence at the top of the file.** A generated file whose generator nobody runs stops describing its source in silence, and the discovery comes months later in the shape of an entry that is not there. `scripts/changelog.test.ts` renders `deploys/` again under the ordinary `bun test` and fails when what is on disk differs, so a record committed without running `bun run changelog` is a red test. The same file refuses a record whose `notes.md` has no first line, because the entry would then say what that deploy demonstrates, which is nothing.
+
+**A promote that moved nothing is not a deploy anybody asked for, and the entry says so.** Four of the five records in the archive are promotes made to exercise the recorder itself - a pointer rewritten to the composition it already named - and each one's note says so. Presenting them as deploys would be a false reading of the archive by the one document whose whole claim is that it restates it. So the reading is taken from `promote.json` rather than from the prose beside it: a promote every one of whose units is `carried` moved nothing, its entry is titled `nothing moved`, and it carries a sentence saying that a no-op promote is a real write to a real channel and not a deploy anybody asked for. The summary counts the three kinds, and while no record in the archive has moved a unit it says so in a line of its own. §34 carries the underlying problem, which is that the archive is mostly its own verification traffic; this makes that visible rather than fixing it.
+
+**A record with no act still gets an entry.** The oldest one predates `promote.json`: pointer bytes and pictures, and nothing saying what was run. Its rows read `not recorded` rather than `nothing`, which are two different claims. The difference matters most on `warnings`, where `[]` is a promote that printed nothing and a missing field is a record that could not have printed anything - and every record so far is the first of those, which is the reason the warning block is written for the case the archive has never held.
+
+**A one-region promote does not read as a deploy of every region.** `deploys/2026-09-10T16-51-30Z-qa` was written by `--region eu` and holds `manifest.us.as-served.json` beside `manifest.eu.json`; the second is another deploy's pointer, under a name that says so. `promote.json` names one region, so the entry names one region and then names the region this promote did not write. Reading the kept manifests as the regions the act wrote would claim a deploy that did not happen, and the manifests are what a reader has in front of them.
+
+**What it does not claim.** It restates the archive and checks nothing against the world. An entry saying `qa` served a composition is a statement about `deploys/` and not about what the pointer holds now - `bun run pr` is what compares the newest record to the live pointer, and it refuses rather than re-shooting. The check is that the file matches the archive, which is not a check that the archive holds every promote that happened: a promote nobody committed is invisible to both, and `pendingRefusal` catches that one pull request later. Nothing here re-reads a manifest, opens a browser or contacts the store.
+
+Measured on 2026-09-10: five records render to 6.6 kB. `scripts/record.ts` holds every decision about what an entry says and `scripts/record.test.ts` puts each one in the state that breaks it; `scripts/falsify.ts` carries three mutations over them, which is a sample and not a score.
 
 ## Which compositions are being handed out
 

@@ -27,6 +27,7 @@ Open items and what is done. Read this first after a context clear.
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line |
+| Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog` and never written by hand. `scripts/changelog.test.ts` regenerates it under `bun test` and fails when the file differs |
 | Pull requests | Every change goes through one. `CLAUDE.md` is the rule, `.github/pull_request_template.md` the questions, `bun run pr` the URLs and the two sets of shots |
 | Secrets | `.env.local`, gitignored |
 
@@ -39,6 +40,7 @@ bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it ba
 bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
 bun run shoot --out <dir>                # the pictures, into the directory promote opened
+bun run changelog                        # the archive as CHANGELOG.md. Run it whenever a record is added
 bun run pr                               # the review URLs and both sets of shots
 ```
 
@@ -48,27 +50,27 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
-### 34. The deploy record is written and not gathered
+### 34. What the deploy record does not reach
 
-`bun run promote` opens `deploys/<composedAt>-<channel>/` on a real channel and writes the act and the pointer bytes into it; `bun run shoot --out <dir>` fills in the pictures, gated so that no shot can be filed under a composition it is not a picture of; `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
+`bun run promote` opens `deploys/<composedAt>-<channel>/` on a real channel and writes the act and the pointer bytes into it; `bun run shoot --out <dir>` fills in the pictures, gated so that no shot can be filed under a composition it is not a picture of; `bun run changelog` gathers the archive into `CHANGELOG.md`, and a test regenerates it so it cannot go stale; `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
 
 | Missing | What it costs |
 | --- | --- |
-| No `CHANGELOG.md` | The records are a directory listing, and the line in each `notes.md` is gathered nowhere |
-| `scripts/` is outside the mutate scope | `scripts/record.test.ts` holds 99 tests over every decision `promote`, `shoot` and `pr` make without a browser or a store, and `stryker.config.json` mutates `src/server` and `api` only. `falsify.ts` now carries five mutations over `scripts/record.ts`, which is a sample and not a score. Adding the file to the mutate scope is the check on the tests, and it is NOT one line: `commandRunner.command` is `bun test src/server api`, so adding `scripts/record.ts` to `mutate` without also widening the runner leaves every mutant surviving and drops the tree under `thresholds.break: 96` for a reason that has nothing to do with the tests |
+| `scripts/` is outside the mutate scope | `scripts/record.test.ts` holds 176 tests over every decision `promote`, `shoot`, `pr` and the changelog make without a browser or a store, and `stryker.config.json` mutates `src/server` and `api` only. `falsify.ts` now carries eight mutations over `scripts/record.ts`, which is a sample and not a score. Adding the file to the mutate scope is the check on the tests, and it is NOT one line: `commandRunner.command` is `bun test src/server api`, so adding `scripts/record.ts` to `mutate` without also widening the runner leaves every mutant surviving and drops the tree under `thresholds.break: 96` for a reason that has nothing to do with the tests |
 | A promote nobody commits is a record nobody has | The directory is written into the working tree and left there. `bun run pr` refuses a production column that git does not hold at the commit it links, so the failure is caught - one pull request late |
 | A publish from `pr` uses the asset bucket's key | §4 refuses CI that key because it is a production-origin execution key, and `bun run pr` now uses it on a laptop on every pull request. The second Tigris key §4 wants closes both |
 | The picture is not a function of the composition | The gate proves the pointer. `unchecked.apiBase` and `unchecked.renderer` name two of the inputs it does not reach, and the third - `/service` drawing a wall clock - is named in prose and measured by nobody. §29 is the case that bites: the live browser suite writes the greeting audience to the deployed service |
-
 | A kept manifest outlives the units it names | `retentionPlan` deletes a superseded unit at 90 days and the sweep reads channel pointers, never `deploys/`. So an archived manifest's `assetBase` URLs eventually 404 and the pictures are the only artefact left - the durability argument the other way round. Either the sweep reads the archive, or the README says the record is what the composition WAS and not a way to serve it again |
 | No suite reaches the record write | Every suite channel is `test-*` and `keepsRecord` short-circuits there, by design. So the whole evidence for the wiring is manual promotes: five of them now, all `qa`, all `carried`, all `warnings: []`, and the `catch` that guards a partly-written promote has never run |
-| The archive is mostly its own verification | Four of the five records in `deploys/` are no-op promotes made to exercise the recorder, each saying so in its `notes.md`. The reason `test-*` is excluded - records of compositions no visitor was served - now applies to the archive's own contents |
+| The archive is mostly its own verification | Four of the five records in `deploys/` are no-op promotes made to exercise the recorder, each saying so in its `notes.md`. The reason `test-*` is excluded - records of compositions no visitor was served - now applies to the archive's own contents. `CHANGELOG.md` reads that off `promote.json` rather than off the prose and says it in a line of its own, so the state is visible; it is not fixed, and the fix is a deploy that moves a unit |
 
 `prod` is not shot at all, and that is §2 rather than this.
 
 **Read cold on 2026-09-10 by `devils-advocate-agent`,** which found 14 defects in the first version. Eight were fixed the same day: the route table iterated production's routes, nothing checked that a linked record was in git, `--out` was an undocumented `--update` that also crossed `deploys/`/`previews/`, the routes came from this tree rather than the deployed nav, `pr` published before checking it could write the body, `git commit` took no pathspec, the newest record was not filtered by channel, and `contract`/`composedAt` came from a different page load than the ids. The rest are the rows above.
 
 **What the promote record closed, and what building it found.** The act is in `promote.json` and the bytes a region's pointer was given are in `manifest.<region>.json`, written where they were PUT rather than read back later from a browser - which is the durability claim, and it now holds for `prod`, where no browser can reach. Two defects surfaced in the verification rather than in review: the record read `dirty` from a tree its own files had just made dirty, and `shoot`'s gate could not tell a promote of the ids a channel already serves from the page that preceded it, because only the stamp moves. Both are fixed, and the second is `servesWanted`. `deploys/2026-09-10T16-33-38Z-qa` is the record of the promote that read them.
+
+**What the changelog closed.** `CHANGELOG.md` is generated from `deploys/` by `bun run changelog` and never written by hand, and `scripts/changelog.test.ts` regenerates it under the ordinary `bun test`, so a record committed without running the command is a red test rather than a file that quietly stopped describing its source. The archive forced three readings the entry has to get right, each of them a state the records already hold: a promote every one of whose units is `carried` moved nothing and is not a deploy anybody asked for, a record written by `--region eu` names one region and keeps another promote's bytes under an as-served name, and the oldest record has no act at all, so `not recorded` and `nothing` are different cells. The fourth is a state the archive has never held: `warnings` is `[]` in all five records, so the block that lists them is written and tested against the case nobody has seen. Verified by hand on 2026-09-10 with a sixth record staged in the working tree - a moved unit, two warnings, no pictures - which made both tests red, rendered the entry it should, and was then removed.
 
 ### 31. Claims that need a second unit
 
