@@ -17,6 +17,8 @@ import {
   servesWanted,
   shootCommand,
   stampOf,
+  dirtyPaths,
+  pendingRefusal,
   staleRefusal,
   unitMoves,
   type ShotEntry,
@@ -496,5 +498,72 @@ describe("servesWanted", () => {
 
   test("a stamp nobody asked for is not compared", () => {
     expect(servesWanted(block, { shell: "s1" }, null)).toBe(true);
+  });
+});
+
+describe("dirtyPaths", () => {
+  test("a clean tree", () => {
+    expect(dirtyPaths("")).toEqual([]);
+  });
+
+  test("the path, not the status letters", () => {
+    expect(dirtyPaths("?? deploys/2026-09-10T16-33-38Z-qa/\n M scripts/promote.ts")).toEqual([
+      "deploys/2026-09-10T16-33-38Z-qa/",
+      "scripts/promote.ts",
+    ]);
+  });
+
+  // The whole reason it exists: a second promote made before the first record
+  // was committed reads as dirty, and the dirt is the record.
+  test("a previous record is visible as the thing that made the tree dirty", () => {
+    expect(dirtyPaths("?? deploys/2026-09-10T16-33-38Z-qa/")).toEqual([
+      "deploys/2026-09-10T16-33-38Z-qa/",
+    ]);
+  });
+
+  test("a trailing newline adds no empty path", () => {
+    expect(dirtyPaths(" M a.ts\n")).toEqual(["a.ts"]);
+  });
+});
+
+describe("pendingRefusal", () => {
+  const shot = { dir: "deploys/2026-01-01T00-00-00Z-qa", channel: "qa", hasPromote: true, hasShots: true };
+  const pending = { dir: "deploys/2026-02-02T00-00-00Z-qa", channel: "qa", hasPromote: true, hasShots: false };
+
+  test("nothing pending", () => {
+    expect(pendingRefusal([shot], "qa")).toBeNull();
+  });
+
+  test("a promote nobody shot names the directory and the command", () => {
+    const refusal = pendingRefusal([shot, pending], "qa");
+    expect(refusal).toContain(pending.dir);
+    expect(refusal).toContain(`--out ${pending.dir}`);
+  });
+
+  test("another channel's pending promote is not this run's business", () => {
+    expect(pendingRefusal([{ ...pending, channel: "prod" }], "qa")).toBeNull();
+  });
+
+  // A record with pictures and no promote.json is every record written before
+  // promote kept one. It is complete, and it is not pending.
+  test("a shot record with no promote record is not pending", () => {
+    expect(pendingRefusal([{ ...shot, hasPromote: false }], "qa")).toBeNull();
+  });
+
+  test("the newest pending one is named, and the rest are counted", () => {
+    const older = { ...pending, dir: "deploys/2026-01-15T00-00-00Z-qa" };
+    const refusal = pendingRefusal([older, pending], "qa");
+    expect(refusal).toContain(pending.dir);
+    expect(refusal).toContain("1 older one is waiting");
+  });
+
+  test("three pending reads as plural", () => {
+    const a = { ...pending, dir: "deploys/2026-01-15T00-00-00Z-qa" };
+    const b = { ...pending, dir: "deploys/2026-01-16T00-00-00Z-qa" };
+    expect(pendingRefusal([a, b, pending], "qa")).toContain("2 older ones are waiting");
+  });
+
+  test("a channel with no directories at all", () => {
+    expect(pendingRefusal([], "qa")).toBeNull();
   });
 });

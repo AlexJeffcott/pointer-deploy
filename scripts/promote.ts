@@ -39,7 +39,7 @@ import {
 import { composedUnit, surfaceOfManifest } from "./catalogue.ts";
 import { regionDrift, regionsFor, type Region } from "./regions.ts";
 import { currentSource, describeSource, type Source } from "./source.ts";
-import { keepsRecord, promoteRecord, recordDir, shootCommand, unitMoves } from "./record.ts";
+import { dirtyPaths, keepsRecord, promoteRecord, recordDir, shootCommand, unitMoves } from "./record.ts";
 import type { UnitManifest } from "./publish.ts";
 
 // test-prod and test-qa belong to the live acceptance suite. It runs this
@@ -143,7 +143,23 @@ if (!CHANNELS.includes(channelArg as Channel)) {
  * Only where it is kept. A test-* promote writes no record and this is two git
  * processes it has no use for.
  */
-const promotedFrom = keepsRecord(channelArg) ? currentSource() : null;
+/**
+ * The tree this promote was run from, read BEFORE the record writes into it.
+ *
+ * Two readings, not one. `dirty` is what the source check means by dirty, and
+ * on its own it is misleading here: a second promote made before the first
+ * one's record was committed is dirty BECAUSE of that record, which is not
+ * source. The paths are what say so.
+ */
+const promotedFrom = (() => {
+  if (!keepsRecord(channelArg)) return null;
+  const source = currentSource();
+  if (!source) return null;
+  const status = Bun.spawnSync(["git", "status", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
+  const paths =
+    status.exitCode === 0 ? dirtyPaths(new TextDecoder().decode(status.stdout)) : [];
+  return paths.length ? { ...source, dirtyPaths: paths } : source;
+})();
 
 // -- what the operator asked for --------------------------------------------
 

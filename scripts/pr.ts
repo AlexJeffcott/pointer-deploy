@@ -39,6 +39,8 @@ import { REGIONS, type Region } from "./regions.ts";
 import {
   describeIds,
   fillBody,
+  pendingRefusal,
+  type PendingDir,
   pointerIds,
   routeRows,
   staleRefusal,
@@ -114,6 +116,31 @@ async function newestDeploy(): Promise<{ dir: string; record: ShotRecordFile } |
   return null;
 }
 
+/**
+ * Every directory under deploys/, and which of the two files it holds.
+ *
+ * Read separately from newestDeploy because the whole point is the directory it
+ * cannot see: a promote wrote its record, nobody shot it, and a scan for
+ * shots.json walks straight past. What the operator was then told was that the
+ * archive was stale - true, and not the useful half, because the directory
+ * waiting for its pictures was already on disk with the command to fill it.
+ */
+async function deployDirs(): Promise<PendingDir[]> {
+  const seen = new Map<string, PendingDir>();
+  for (const kind of ["promote", "shots"] as const) {
+    for (const file of new Bun.Glob(`deploys/*/${kind}.json`).scanSync(".")) {
+      const dir = file.replace(new RegExp(`/${kind}\\.json$`), "");
+      const doc = (await Bun.file(file).json()) as { channel?: string };
+      const entry = seen.get(dir) ?? { dir, channel: doc.channel ?? "", hasPromote: false, hasShots: false };
+      entry.channel = doc.channel ?? entry.channel;
+      if (kind === "promote") entry.hasPromote = true;
+      else entry.hasShots = true;
+      seen.set(dir, entry);
+    }
+  }
+  return [...seen.values()];
+}
+
 /** Whether git holds this path at this commit. A raw URL to one it does not is a 404. */
 const trackedAt = (sha: string, path: string): Promise<boolean> =>
   ok(["git", "cat-file", "-e", `${sha}:${path}`]);
@@ -161,6 +188,12 @@ if (dirty && !dryRun) {
 }
 
 const live = await pointerFor(region);
+
+// Before the stale reading, because a promote nobody shot is the reason the
+// newest SHOT record is stale, and naming it is one command instead of a hunt.
+const waiting = pendingRefusal(await deployDirs(), CHANNEL);
+if (waiting) stop(waiting);
+
 const newest = await newestDeploy();
 const stale = staleRefusal(newest?.record ?? null, CHANNEL, live, newest?.dir ?? "");
 if (stale) stop(stale);

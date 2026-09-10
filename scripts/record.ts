@@ -326,7 +326,7 @@ export type PromoteRecord = {
    * because `--from-build` refuses a build this tree did not make - and the
    * override that lifts that refusal is in `argv` and in `warnings`.
    */
-  source: { commit: string; dirty: boolean } | null;
+  source: { commit: string; dirty: boolean; dirtyPaths?: string[] } | null;
   contract: string;
   units: Record<string, UnitMove>;
   /** Every WARNING line the promote printed: what it let through, in order. */
@@ -339,7 +339,7 @@ export function promoteRecord(act: {
   channel: string;
   argv: readonly string[];
   regions: readonly string[];
-  source: { commit: string; dirty: boolean } | null;
+  source: { commit: string; dirty: boolean; dirtyPaths?: string[] } | null;
   contract: string;
   before: Record<string, string> | null;
   after: Record<string, string>;
@@ -417,6 +417,52 @@ export function filedUnderRefusal(
  * to say which channel rather than list two compositions that were never
  * comparable.
  */
+/**
+ * The paths a porcelain status names, so a record can say what the dirt WAS.
+ *
+ * `dirty: true` is a true reading and a misleading one on its own: the second
+ * of two promotes made without committing is dirty because of the FIRST one's
+ * record, which is not source at all. A reader seeing `deploys/2026-...` in
+ * this list knows that; a reader seeing only the flag does not.
+ */
+export function dirtyPaths(porcelain: string): string[] {
+  return porcelain
+    .split("\n")
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
+/** One directory under deploys/, and which of the two files it holds. */
+export type PendingDir = {
+  dir: string;
+  channel: string;
+  hasPromote: boolean;
+  hasShots: boolean;
+};
+
+/**
+ * Why a promote is recorded and not yet pictured, or null.
+ *
+ * `pr` reads the newest record by looking for a `shots.json`, so a promote that
+ * wrote its own directory and was never shot is INVISIBLE to it - and what it
+ * then finds is the previous deploy, whose ids no longer match, so the operator
+ * is told the archive is stale without being told a newer directory is already
+ * sitting there waiting for its pictures. Naming it is the difference between
+ * one command to run and a hunt.
+ */
+export function pendingRefusal(dirs: readonly PendingDir[], channel: string): string | null {
+  const pending = dirs
+    .filter((d) => d.channel === channel && d.hasPromote && !d.hasShots)
+    .sort((a, b) => a.dir.localeCompare(b.dir));
+  const newest = pending.at(-1);
+  if (!newest) return null;
+  return (
+    `${newest.dir} holds a promote and no pictures, so ${channel} was deployed and never shot. ` +
+    `Run \`${shootCommand(channel, newest.dir)}\` and commit the record.` +
+    (pending.length > 1 ? ` ${pending.length - 1} older ${pending.length === 2 ? "one is" : "ones are"} waiting too.` : "")
+  );
+}
+
 export function staleRefusal(
   record: { channel: string; units: Record<string, string> } | null,
   channel: string,

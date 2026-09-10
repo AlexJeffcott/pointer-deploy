@@ -493,14 +493,23 @@ try {
   const pointers: Record<string, string | null> = {};
   for (const r of REGIONS) {
     const text = await pointerBytes(r);
-    pointers[r] = text === null ? null : `manifest.${r}.json`;
-    // A file a promote already wrote is the bytes it PUT, and this is the same
-    // bytes read back through the store. Keeping the promote's is the stronger
-    // reading and costs nothing: the gate above has already refused every case
-    // where the two could differ.
-    if (text !== null && !(await Bun.file(`${out}/manifest.${r}.json`).exists())) {
-      await Bun.write(`${out}/manifest.${r}.json`, text);
+    if (text === null) {
+      pointers[r] = null;
+      continue;
     }
+    // A file a promote already wrote is the bytes it PUT. This is the same
+    // question asked of the store afterwards, and for a region THIS promote
+    // did not write - `--region eu` leaves the other region where it was - the
+    // answer is a different deploy's pointer. So it never overwrites the
+    // promote's file, and where there is none it is filed under a name that
+    // says which reading it is. A record whose two manifests look alike and
+    // mean different things is the §3 drift written down as though it were one
+    // deploy.
+    const put = `manifest.${r}.json`;
+    const asServed = `manifest.${r}.as-served.json`;
+    const fromPromote = await Bun.file(`${out}/${put}`).exists();
+    pointers[r] = fromPromote ? put : asServed;
+    if (!fromPromote) await Bun.write(`${out}/${asServed}`, text);
   }
 
   const last = shots[shots.length - 1]!;
