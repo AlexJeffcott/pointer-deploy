@@ -282,6 +282,34 @@ export function unitMoves(
   return moves;
 }
 
+/**
+ * Every unit id a pointer names, read off the pointer and not off `UNITS`.
+ *
+ * The distinction cost this repository a reading. `promote` used to build this
+ * by filtering the pointer's `apps` through `APPS` - the units THIS TREE builds
+ * - which is right until the two differ. `PLAN.md` step 0 made them differ:
+ * `hello` left the tree, the promote that removed it read a `before` with no
+ * `hello` in it, and the record for the first deploy that ever dropped a unit
+ * does not say a unit was dropped. `unitMoves` was ready for it and was handed
+ * the wrong argument.
+ *
+ * The same filter sat under the region drift check, where it is worse: two
+ * regions differing only in a unit this tree no longer builds read as agreeing,
+ * and the promote flattens one of them.
+ *
+ * So this reads what the pointer says. A pointer naming a unit nothing here
+ * builds is a fact about the channel, and every reader of it wants that fact.
+ */
+export function idsInPointer(
+  pointer: { shell: { unitId: string }; apps: Record<string, { unitId: string }> } | null,
+): Record<string, string> | null {
+  if (pointer === null) return null;
+  return {
+    shell: pointer.shell.unitId,
+    ...Object.fromEntries(Object.entries(pointer.apps).map(([name, u]) => [name, u.unitId])),
+  };
+}
+
 /** The ids a promote record names, for comparing against a pointer. */
 export function recordedIds(units: Record<string, { unitId: string | null }>): Record<string, string> {
   return Object.fromEntries(

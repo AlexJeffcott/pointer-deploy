@@ -36,6 +36,7 @@ import {
   entryInstant,
   entryTitle,
   humanTime,
+  idsInPointer,
   movedSummary,
   noteHeadline,
   picturesCell,
@@ -343,6 +344,29 @@ describe("unitMoves", () => {
   test("a first promote has nothing to have moved from", () => {
     expect(unitMoves(null, { shell: "s1" })).toEqual({
       shell: { unitId: "s1", from: null, state: "new" },
+    });
+  });
+
+  // The argument `unitMoves` has to be handed, and the one it was not. Reading
+  // a pointer through the units THIS TREE builds hides every unit it does not,
+  // which is how the first deploy that ever dropped one wrote a record saying
+  // nothing about it. TODO §31.
+  test("a pointer's ids are the pointer's, not the ones this tree builds", () => {
+    const pointer = {
+      shell: { unitId: "s1" },
+      apps: { hello: { unitId: "h1" }, gone: { unitId: "g1" } },
+    };
+    expect(idsInPointer(pointer)).toEqual({ shell: "s1", hello: "h1", gone: "g1" });
+    expect(idsInPointer({ shell: { unitId: "s1" }, apps: {} })).toEqual({ shell: "s1" });
+    expect(idsInPointer(null)).toBeNull();
+  });
+
+  test("a unit a pointer names and a composition does not reads as dropped", () => {
+    const before = idsInPointer({ shell: { unitId: "s1" }, apps: { hello: { unitId: "h1" } } });
+    const after = idsInPointer({ shell: { unitId: "s2" }, apps: {} })!;
+    expect(unitMoves(before, after)).toEqual({
+      shell: { unitId: "s2", from: "s1", state: "moved" },
+      hello: { unitId: null, from: "h1", state: "dropped" },
     });
   });
 

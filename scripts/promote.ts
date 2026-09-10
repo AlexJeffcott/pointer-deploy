@@ -42,6 +42,7 @@ import { currentSource, describeSource, readSource, type Source } from "./source
 import {
   dirtyPaths,
   freeDir,
+  idsInPointer,
   keepsRecord,
   promoteRecord,
   recordDir,
@@ -330,14 +331,13 @@ const compositionIn = (text: string | null): Composition | null => {
   }
 };
 
-/** What a pointer names, for the comparison between regions. */
-const idsOf = (c: Composition | null): Record<string, string> | null =>
-  c === null
-    ? null
-    : {
-        shell: c.shell.unitId,
-        ...Object.fromEntries(APPS.filter((a) => c.apps[a]).map((a) => [a, c.apps[a]!.unitId])),
-      };
+/**
+ * What a pointer names, for the comparison between regions and for the record.
+ *
+ * `idsInPointer` reads the pointer's own app names rather than filtering them
+ * through `APPS`. See `scripts/record.ts` for what the filter cost.
+ */
+const idsOf = (c: Composition | null): Record<string, string> | null => idsInPointer(c);
 
 const currentByRegion = new Map<Region, Composition | null>();
 for (const r of regions) {
