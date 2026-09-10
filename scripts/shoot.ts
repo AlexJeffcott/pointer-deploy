@@ -434,6 +434,7 @@ try {
     channel: string;
     composedAt: string;
     units: Record<string, { unitId: string | null }>;
+    regions?: readonly string[];
   } | null;
   const misfiled = filedUnderRefusal(promoted, channel, pointer, out);
   if (misfiled) throw new Error(misfiled);

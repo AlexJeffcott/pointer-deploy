@@ -31,11 +31,23 @@ const git = (args: string[]): string | null => {
 
 /** What the working directory's source is right now, or null if git cannot say. */
 export function currentSource(): Source | null {
+  return readSource()?.source ?? null;
+}
+
+/**
+ * The same reading, with the porcelain that produced it.
+ *
+ * One `git status`, not two. The deploy record wants to say WHICH paths made a
+ * tree dirty - the second of two promotes made without committing is dirty
+ * because of the first one's record, which is not source - and asking git twice
+ * for one answer is two answers waiting to disagree.
+ */
+export function readSource(): { source: Source; porcelain: string } | null {
   const commit = git(["rev-parse", "HEAD"]);
   if (commit === null) return null;
-  const status = git(["status", "--porcelain"]);
-  if (status === null) return null;
-  return { commit, dirty: status !== "" };
+  const porcelain = git(["status", "--porcelain"]);
+  if (porcelain === null) return null;
+  return { source: { commit, dirty: porcelain !== "" }, porcelain };
 }
 
 /** `a1b2c3d4` or `a1b2c3d4 (dirty)`. For a message an operator has to act on. */

@@ -18,7 +18,9 @@ import {
   shootCommand,
   stampOf,
   dirtyPaths,
+  freeDir,
   pendingRefusal,
+  unshotNote,
   staleRefusal,
   unitMoves,
   type ShotEntry,
@@ -354,10 +356,13 @@ describe("shootCommand", () => {
     expect(shootCommand("qa", "deploys/x-qa")).toBe("bun run shoot --out deploys/x-qa");
   });
 
-  test("any other channel has to be named", () => {
-    expect(shootCommand("prod", "deploys/x-prod")).toBe(
-      "bun run shoot --channel prod --out deploys/x-prod",
-    );
+  // This test used to assert `--channel prod`, which `shoot` refuses outright:
+  // no browser can send the Host header prod is reached by. Every prod deploy
+  // ended with an instruction that cannot work, and the test held it there.
+  test("a channel no browser can reach gets a reason and no command", () => {
+    const line = shootCommand("prod", "deploys/x-prod");
+    expect(line).not.toContain("bun run shoot");
+    expect(line).toContain("deploys/x-prod");
   });
 });
 
@@ -534,10 +539,27 @@ describe("pendingRefusal", () => {
     expect(pendingRefusal([shot], "qa")).toBeNull();
   });
 
-  test("a promote nobody shot names the directory and the command", () => {
+  test("the newest promote has no pictures: named, with the command", () => {
     const refusal = pendingRefusal([shot, pending], "qa");
     expect(refusal).toContain(pending.dir);
     expect(refusal).toContain(`--out ${pending.dir}`);
+  });
+
+  // THE DEADLOCK. Two ordinary promotes - a deploy and the rollback of it -
+  // where the first was never shot. `shoot` refuses to file a picture under a
+  // promote the pointer moved past, so refusing here told the operator to run
+  // a command that would be refused, and `bun run pr` never ran again.
+  test("an older unshot promote does not block once a newer one is shot", () => {
+    const older = { ...pending, dir: "deploys/2026-01-15T00-00-00Z-qa" };
+    const newer = { ...shot, dir: "deploys/2026-03-03T00-00-00Z-qa" };
+    expect(pendingRefusal([older, newer], "qa")).toBeNull();
+  });
+
+  test("older unshot ones do not change the refusal when the newest is pending", () => {
+    const older = { ...pending, dir: "deploys/2026-01-15T00-00-00Z-qa" };
+    const refusal = pendingRefusal([older, pending], "qa");
+    expect(refusal).toContain(pending.dir);
+    expect(refusal).not.toContain(older.dir);
   });
 
   test("another channel's pending promote is not this run's business", () => {
@@ -550,20 +572,160 @@ describe("pendingRefusal", () => {
     expect(pendingRefusal([{ ...shot, hasPromote: false }], "qa")).toBeNull();
   });
 
-  test("the newest pending one is named, and the rest are counted", () => {
-    const older = { ...pending, dir: "deploys/2026-01-15T00-00-00Z-qa" };
-    const refusal = pendingRefusal([older, pending], "qa");
-    expect(refusal).toContain(pending.dir);
-    expect(refusal).toContain("1 older one is waiting");
-  });
-
-  test("three pending reads as plural", () => {
-    const a = { ...pending, dir: "deploys/2026-01-15T00-00-00Z-qa" };
-    const b = { ...pending, dir: "deploys/2026-01-16T00-00-00Z-qa" };
-    expect(pendingRefusal([a, b, pending], "qa")).toContain("2 older ones are waiting");
-  });
-
-  test("a channel with no directories at all", () => {
+  test("no directories at all", () => {
     expect(pendingRefusal([], "qa")).toBeNull();
+  });
+});
+
+describe("unshotNote", () => {
+  const shot = { dir: "deploys/2026-03-03T00-00-00Z-qa", channel: "qa", hasPromote: true, hasShots: true };
+  const stranded = { dir: "deploys/2026-01-15T00-00-00Z-qa", channel: "qa", hasPromote: true, hasShots: false };
+
+  test("nothing stranded", () => {
+    expect(unshotNote([shot], "qa")).toBeNull();
+  });
+
+  test("a promote the pointer moved past is named, and it is a note", () => {
+    const note = unshotNote([stranded, shot], "qa");
+    expect(note).toContain(stranded.dir);
+    expect(note).toContain("can no longer be shot");
+  });
+
+  test("the newest is never stranded, whatever state it is in", () => {
+    expect(unshotNote([{ ...stranded, dir: "deploys/2026-09-09T00-00-00Z-qa" }], "qa")).toBeNull();
+  });
+
+  test("two of them read as plural", () => {
+    const a = { ...stranded, dir: "deploys/2026-01-01T00-00-00Z-qa" };
+    expect(unshotNote([a, stranded, shot], "qa")).toContain("2 promotes have");
+  });
+});
+
+describe("shootCommand", () => {
+  test("qa needs no --channel", () => {
+    expect(shootCommand("qa", "deploys/x")).toBe("bun run shoot --out deploys/x");
+  });
+
+  // Every prod deploy used to end with `--channel prod`, which shoot refuses
+  // outright: no browser can send the Host header prod is reached by.
+  test("prod says why there is no command, and names the item that would change it", () => {
+    const line = shootCommand("prod", "deploys/x");
+    expect(line).not.toContain("bun run shoot");
+    expect(line).toContain("§2");
+  });
+});
+
+describe("freeDir", () => {
+  test("a free name is taken as it is", () => {
+    expect(freeDir("deploys/x", () => false)).toBe("deploys/x");
+  });
+
+  // stampOf truncates to the second, so two promotes inside one second name
+  // one directory. The record write cannot refuse - the pointer has already
+  // moved - so it takes the next name instead of overwriting the first.
+  test("a taken name steps to the next one", () => {
+    expect(freeDir("deploys/x", (d) => d === "deploys/x")).toBe("deploys/x-2");
+  });
+
+  test("two taken names step twice", () => {
+    const taken = new Set(["deploys/x", "deploys/x-2"]);
+    expect(freeDir("deploys/x", (d) => taken.has(d))).toBe("deploys/x-3");
+  });
+
+  test("no free name at all throws rather than overwriting", () => {
+    expect(() => freeDir("deploys/x", () => true)).toThrow("all hold a record");
+  });
+});
+
+describe("dirtyPaths, bounded", () => {
+  // Committed to a public repository, and `git status` lists untracked files,
+  // so without a cap a record publishes an operator's whole checkout.
+  test("a long list is capped and says how many it dropped", () => {
+    const porcelain = Array.from({ length: 25 }, (_, i) => `?? file-${i}.ts`).join("\n");
+    const paths = dirtyPaths(porcelain, 20);
+    expect(paths).toHaveLength(21);
+    expect(paths.at(-1)).toBe("and 5 more");
+  });
+
+  test("a list at the cap is not annotated", () => {
+    const porcelain = Array.from({ length: 20 }, (_, i) => `?? file-${i}.ts`).join("\n");
+    expect(dirtyPaths(porcelain, 20)).toHaveLength(20);
+  });
+
+  test("a rename records where the content is now", () => {
+    expect(dirtyPaths("R  old/a.ts -> new/a.ts")).toEqual(["new/a.ts"]);
+  });
+});
+
+describe("staleRefusal, on composedAt", () => {
+  const live = { shell: "s1", hello: "h1" };
+
+  // The ids cannot see a promote of the ids a channel already serves, and that
+  // promote is what this work used to verify itself.
+  test("the same ids promoted again is not a picture of production", () => {
+    const refusal = staleRefusal({ channel: "qa", units: live }, "qa", live, "deploys/x", {
+      record: "2026-09-10T16:33:38.000Z",
+      live: "2026-09-10T16:51:48.000Z",
+    });
+    expect(refusal).toContain("16:33:38");
+    expect(refusal).toContain("16:51:48");
+    expect(refusal).toContain("did not move");
+  });
+
+  test("one composedAt reading missing falls back to the ids", () => {
+    expect(
+      staleRefusal({ channel: "qa", units: live }, "qa", live, "deploys/x", {
+        record: null,
+        live: "2026-09-10T16:51:48.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  test("both readings equal", () => {
+    expect(
+      staleRefusal({ channel: "qa", units: live }, "qa", live, "deploys/x", {
+        record: "2026-09-10T16:51:48.000Z",
+        live: "2026-09-10T16:51:48.000Z",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("filedUnderRefusal, when a promote wrote one region", () => {
+  const units = { shell: { unitId: "s1" }, hello: { unitId: "h1" } };
+  const serving = { composedAt: "2026-09-10T16:51:48.000Z", ids: { shell: "s1", hello: "h1" } };
+
+  // A --region run leaves the other region where it was, so the machine that
+  // answers may be serving an older composedAt with identical ids. Naming only
+  // "promoted again" sent an operator hunting a promote that never happened.
+  test("a one-region record offers the other reading", () => {
+    const refusal = filedUnderRefusal(
+      { channel: "qa", composedAt: "2026-09-10T16:51:30.000Z", units, regions: ["eu"] },
+      "qa",
+      serving,
+      "deploys/x",
+    );
+    expect(refusal).toContain("did not write");
+    expect(refusal).toContain("eu");
+  });
+
+  test("a record of every region does not offer it", () => {
+    const refusal = filedUnderRefusal(
+      { channel: "qa", composedAt: "2026-09-10T16:51:30.000Z", units, regions: ["eu", "us"] },
+      "qa",
+      serving,
+      "deploys/x",
+    );
+    expect(refusal).not.toContain("did not write");
+  });
+
+  test("a record with no regions field reads as before", () => {
+    const refusal = filedUnderRefusal(
+      { channel: "qa", composedAt: "2026-09-10T16:51:30.000Z", units },
+      "qa",
+      serving,
+      "deploys/x",
+    );
+    expect(refusal).toContain("promoted again");
   });
 });

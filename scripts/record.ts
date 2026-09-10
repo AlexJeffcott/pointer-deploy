@@ -301,10 +301,41 @@ export function commandOf(argv: readonly string[]): string {
 }
 
 /** The line that fills this record's pictures in. */
+export const BROWSER_REACHABLE = ["qa"] as const;
+
+/**
+ * The line that fills this record's pictures in, or why there is not one.
+ *
+ * `prod` is reached by a Host header and no browser sends one, so `shoot`
+ * refuses it outright - and printing `--channel prod` regardless meant every
+ * prod deploy ended with an instruction that cannot work, on the one channel
+ * where the promote record is the whole record. §2 is the domain that changes
+ * this, and until then the honest line says so.
+ */
 export function shootCommand(channel: string, dir: string): string {
+  if (!(BROWSER_REACHABLE as readonly string[]).includes(channel)) {
+    return `no browser can reach ${channel}, so ${dir} keeps its manifest bytes and no pictures. TODO §2 is the domain that would change that.`;
+  }
   // `shoot` defaults to qa, so naming it would be noise on the common path and
   // is required on every other channel.
   return `bun run shoot${channel === "qa" ? "" : ` --channel ${channel}`} --out ${dir}`;
+}
+
+/**
+ * A directory nothing has written a promote record into yet.
+ *
+ * `stampOf` truncates to the second, so two promotes inside one second name one
+ * directory - and the record write had no existence check, so the first record
+ * went with no trace. It cannot refuse: the pointer has already moved, and a
+ * throw here would report a deploy that happened as one that did not. So it
+ * takes the next free name instead.
+ */
+export function freeDir(base: string, taken: (dir: string) => boolean): string {
+  if (!taken(base)) return base;
+  for (let n = 2; n < 100; n++) {
+    if (!taken(`${base}-${n}`)) return `${base}-${n}`;
+  }
+  throw new Error(`${base} and 98 names after it all hold a record.`);
 }
 
 /** What a promote did, written beside the bytes it put in the store. */
@@ -382,7 +413,13 @@ export function promoteRecord(act: {
  * as well as the ids.
  */
 export function filedUnderRefusal(
-  promote: { channel: string; composedAt: string; units: Record<string, { unitId: string | null }> } | null,
+  promote: {
+    channel: string;
+    composedAt: string;
+    units: Record<string, { unitId: string | null }>;
+    /** The regions this promote actually wrote. A `--region` run wrote one. */
+    regions?: readonly string[];
+  } | null,
   channel: string,
   serving: { composedAt: string | null; ids: Record<string, string> },
   dir: string,
@@ -400,10 +437,19 @@ export function filedUnderRefusal(
     );
   }
   if (serving.composedAt !== null && promote.composedAt !== serving.composedAt) {
+    // Two states produce this, and naming only the first sent an operator
+    // hunting a promote that never happened. A record whose `regions` does not
+    // hold every region is the second: the machine answering may be one this
+    // promote deliberately left where it was, §3's supported exception.
+    const partial = promote.regions !== undefined && promote.regions.length < 2;
     return (
       `${dir} records the promote composed at ${promote.composedAt}, and ${channel} serves the ` +
-      `composition composed at ${serving.composedAt}. The ids match, so the same units were ` +
-      `promoted again after it; these shots belong under that promote's record and not this one.`
+      `composition composed at ${serving.composedAt}. The ids match, so either the same units ` +
+      `were promoted again after it` +
+      (partial
+        ? `, or the machine that answered is in a region this promote did not write - it names ` +
+          `${promote.regions!.join(", ")}. Read the other region with REGION=<r>, or shoot into a new directory.`
+        : `; these shots belong under that promote's record and not this one.`)
     );
   }
   return null;
@@ -425,11 +471,21 @@ export function filedUnderRefusal(
  * record, which is not source at all. A reader seeing `deploys/2026-...` in
  * this list knows that; a reader seeing only the flag does not.
  */
-export function dirtyPaths(porcelain: string): string[] {
-  return porcelain
+export const DIRTY_PATH_CAP = 20;
+
+export function dirtyPaths(porcelain: string, cap = DIRTY_PATH_CAP): string[] {
+  const paths = porcelain
     .split("\n")
     .map((line) => line.slice(3).trim())
+    // A rename reads `old -> new`, and the path that matters is where the
+    // content is now.
+    .map((path) => (path.includes(" -> ") ? path.slice(path.indexOf(" -> ") + 4) : path))
     .filter(Boolean);
+  // Capped because this is committed to a public repository and `git status`
+  // lists untracked files: without a bound, a record publishes the whole of
+  // whatever an operator happened to have lying in their checkout.
+  if (paths.length <= cap) return paths;
+  return [...paths.slice(0, cap), `and ${paths.length - cap} more`];
 }
 
 /** One directory under deploys/, and which of the two files it holds. */
@@ -451,15 +507,43 @@ export type PendingDir = {
  * one command to run and a hunt.
  */
 export function pendingRefusal(dirs: readonly PendingDir[], channel: string): string | null {
-  const pending = dirs
-    .filter((d) => d.channel === channel && d.hasPromote && !d.hasShots)
+  const records = dirs
+    .filter((d) => d.channel === channel && d.hasPromote)
     .sort((a, b) => a.dir.localeCompare(b.dir));
-  const newest = pending.at(-1);
-  if (!newest) return null;
+  const newest = records.at(-1);
+  // ONLY the newest, and that is the whole correction. `shoot` refuses to file
+  // a picture under a promote the pointer has moved past, so an older unshot
+  // record can never be filled - and the first version of this refused on
+  // every one of them, told the operator to run a command that would be
+  // refused, and left `bun run pr` deadlocked after two ordinary promotes. The
+  // only way out was deleting a record from an archive whose premise is that
+  // records are not falsified after the fact. Two promotes reach that state,
+  // and the second of them is the rollback this repository exists for.
+  if (!newest || newest.hasShots) return null;
   return (
     `${newest.dir} holds a promote and no pictures, so ${channel} was deployed and never shot. ` +
-    `Run \`${shootCommand(channel, newest.dir)}\` and commit the record.` +
-    (pending.length > 1 ? ` ${pending.length - 1} older ${pending.length === 2 ? "one is" : "ones are"} waiting too.` : "")
+    `Run \`${shootCommand(channel, newest.dir)}\` and commit the record.`
+  );
+}
+
+/**
+ * The promotes whose pictures can no longer be taken, or null.
+ *
+ * A note and never a refusal. The pointer has moved past them, so `shoot`
+ * refuses to file anything under them and nothing an operator does will change
+ * that. The gap is real and belongs in the reading; blocking on it blocks
+ * forever.
+ */
+export function unshotNote(dirs: readonly PendingDir[], channel: string): string | null {
+  const records = dirs
+    .filter((d) => d.channel === channel && d.hasPromote)
+    .sort((a, b) => a.dir.localeCompare(b.dir));
+  const stranded = records.slice(0, -1).filter((d) => !d.hasShots);
+  if (stranded.length === 0) return null;
+  return (
+    `${stranded.length} ${stranded.length === 1 ? "promote has" : "promotes have"} no pictures and ` +
+    `can no longer be shot: ${stranded.map((d) => d.dir).join(", ")}. The pointer moved past them. ` +
+    `Their manifest bytes are complete; only the images are missing.`
   );
 }
 
@@ -468,12 +552,23 @@ export function staleRefusal(
   channel: string,
   live: Record<string, string>,
   dir: string,
+  composedAt: { record: string | null; live: string | null } = { record: null, live: null },
 ): string | null {
   if (!record) {
     return `deploys/ holds no record for ${channel}, so there is no picture of what it serves. Run \`bun run shoot\`.`;
   }
   if (record.channel !== channel) {
     return `${dir} is a record of ${record.channel}, and this run is about ${channel}.`;
+  }
+  if (composedAt.record !== null && composedAt.live !== null && composedAt.record !== composedAt.live) {
+    // Ids alone cannot see a promote of the ids a channel already serves, and
+    // that promote is exactly what this branch used to verify itself. The
+    // reviewer's gate has to read what the shooter's gate reads.
+    return (
+      `${dir} is a picture of the composition composed at ${composedAt.record}, and ${channel} ` +
+      `serves the one composed at ${composedAt.live}. The ids did not move, so a promote of the ` +
+      `same units landed after this record. Shoot the newer promote's record and commit it.`
+    );
   }
   if (!sameIds(record.units, live)) {
     return (

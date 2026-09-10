@@ -38,8 +38,16 @@ import {
 } from "../src/server/composition.ts";
 import { composedUnit, surfaceOfManifest } from "./catalogue.ts";
 import { regionDrift, regionsFor, type Region } from "./regions.ts";
-import { currentSource, describeSource, type Source } from "./source.ts";
-import { dirtyPaths, keepsRecord, promoteRecord, recordDir, shootCommand, unitMoves } from "./record.ts";
+import { currentSource, describeSource, readSource, type Source } from "./source.ts";
+import {
+  dirtyPaths,
+  freeDir,
+  keepsRecord,
+  promoteRecord,
+  recordDir,
+  shootCommand,
+  unitMoves,
+} from "./record.ts";
 import type { UnitManifest } from "./publish.ts";
 
 // test-prod and test-qa belong to the live acceptance suite. It runs this
@@ -153,12 +161,10 @@ if (!CHANNELS.includes(channelArg as Channel)) {
  */
 const promotedFrom = (() => {
   if (!keepsRecord(channelArg)) return null;
-  const source = currentSource();
-  if (!source) return null;
-  const status = Bun.spawnSync(["git", "status", "--porcelain"], { stdout: "pipe", stderr: "pipe" });
-  const paths =
-    status.exitCode === 0 ? dirtyPaths(new TextDecoder().decode(status.stdout)) : [];
-  return paths.length ? { ...source, dirtyPaths: paths } : source;
+  const read = readSource();
+  if (!read) return null;
+  const paths = dirtyPaths(read.porcelain);
+  return paths.length ? { ...read.source, dirtyPaths: paths } : read.source;
 })();
 
 // -- what the operator asked for --------------------------------------------
@@ -545,6 +551,56 @@ const pointerBytes = new TextEncoder().encode(`${JSON.stringify(composition, nul
 // publish writes unit.json last; an index of what an override may name must not
 // be able to hold a deploy back. A failure there is loud and costs an override
 // one entry until the next promote.
+/** The regions whose pointer this run actually moved. */
+const written: Region[] = [];
+
+/**
+ * What a partly-finished promote leaves behind.
+ *
+ * The pointer write is not guarded the way the history write above is, and it
+ * must not be: a region that will not take the pointer is a failed deploy and
+ * has to be loud. What it must not also be is unrecorded. A throw on the second
+ * region leaves the first one SERVING the new composition, the channel drifted,
+ * and - before this - nothing in deploys/ about a promote that happened. That
+ * is the exact state the archive exists for.
+ */
+const writeRecord = (): void => {
+  if (!keepsRecord(channelArg) || written.length === 0) return;
+  try {
+    const dir = freeDir(recordDir("deploy", composition.composedAt, channelArg), (d: string) => Bun.file(`${d}/promote.json`).size > 0,
+    );
+    for (const r of written) Bun.write(`${dir}/manifest.${r}.json`, pointerBytes);
+    const record = promoteRecord({
+      channel: channelArg,
+      argv,
+      // Only what landed. `regions` is what was asked for.
+      regions: written,
+      source: promotedFrom,
+      contract,
+      before: idsOf(current),
+      after: idsOf(composition)!,
+      startedAt,
+      composedAt: composition.composedAt,
+      writtenAt: new Date().toISOString(),
+      warnings,
+    });
+    Bun.write(`${dir}/promote.json`, `${JSON.stringify(record, null, 2)}\n`);
+    console.error(`\n${dir}`);
+    console.error(`  ${shootCommand(channelArg, dir)}`);
+    if (written.length !== regions.length) {
+      console.error(
+        `  It records ${written.join(", ")} and not ${regions.join(", ")}: the rest were not written.`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `  WARNING the deploy record was not written: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error(`  The deploy is unaffected. deploys/ holds nothing about this promote.`);
+  }
+};
+
+try {
 for (const r of regions) {
   const historyKey = `manifests/${r}/${channelArg}.history.json`;
   try {
@@ -606,6 +662,20 @@ for (const r of regions) {
     contentType: "application/json; charset=utf-8",
     cacheControl: CACHE_POINTER,
   });
+  // Named as each write lands, not from the list this run intended. Two
+  // pointers are two objects: a throw on the second leaves the first region
+  // SERVING the new composition, and a record claiming both would be the §3
+  // drift written down as one deploy - while a record claiming neither is the
+  // state the archive exists for, missing.
+  written.push(r);
+}
+
+} catch (err) {
+  // The record first, then the failure. A promote that moved one region and
+  // then threw is a deploy that happened, and the reading of it must survive
+  // the throw that reports it.
+  writeRecord();
+  throw err;
 }
 
 const moves = unitMoves(idsOf(current), idsOf(composition)!);
@@ -622,13 +692,14 @@ for (const unit of UNITS) {
 
 // -- the record of the act ----------------------------------------------------
 //
-// The pointer bytes are the whole of what was served, in about 200 bytes, and
-// nothing outside git can hold them: the pointer is overwritten by the next
+// The pointer bytes are the whole of what was served, about 2.5 kB of them,
+// and nothing outside git can hold them: the pointer is overwritten by the next
 // promote and its history is HISTORY_DEPTH deep. `shoot` files the same bytes
 // after the fact, from a browser, minutes later and only for a channel a
 // browser can reach. This writes them at the moment they were put, and beside
-// them the half no later reading can recover - which command was run, what it
-// let through, and which units it CARRIED rather than moved.
+// them the half no later reading can recover - which command was run and what
+// it let through. What a promote CARRIED is recoverable by diffing two
+// consecutive records; that a promote happened at all when nothing moved is not.
 //
 // The directory is the one `shoot --out` is told to fill in, named by the same
 // two functions `shoot` names its own by. `shoot` refuses a directory that
@@ -637,36 +708,7 @@ for (const unit of UNITS) {
 // Never allowed to fail the promote, for the reason the version history above
 // is not: the pointer is already moved, so a throw here would report a deploy
 // that happened as a deploy that did not.
-if (keepsRecord(channelArg)) {
-  try {
-    const dir = recordDir("deploy", composition.composedAt, channelArg);
-    // Only the regions this run wrote. --region eu leaves the other region
-    // serving whatever it served, and a file claiming otherwise would be the
-    // §3 drift this refuses to flatten, written down as though it were fact.
-    for (const r of regions) await Bun.write(`${dir}/manifest.${r}.json`, pointerBytes);
-    const record = promoteRecord({
-      channel: channelArg,
-      argv,
-      regions,
-      source: promotedFrom,
-      contract,
-      before: idsOf(current),
-      after: idsOf(composition)!,
-      startedAt,
-      composedAt: composition.composedAt,
-      writtenAt: new Date().toISOString(),
-      warnings,
-    });
-    await Bun.write(`${dir}/promote.json`, `${JSON.stringify(record, null, 2)}\n`);
-    console.error(`\n${dir}`);
-    console.error(`  ${shootCommand(channelArg, dir)}`);
-  } catch (err) {
-    console.error(
-      `  WARNING the deploy record was not written: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    console.error(`  The deploy is unaffected. deploys/ holds nothing about this promote.`);
-  }
-}
+writeRecord();
 
 console.log(JSON.stringify(Object.fromEntries(UNITS.map((u) => [
   u,

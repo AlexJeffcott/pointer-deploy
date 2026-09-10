@@ -40,6 +40,7 @@ import {
   describeIds,
   fillBody,
   pendingRefusal,
+  unshotNote,
   type PendingDir,
   pointerIds,
   routeRows,
@@ -62,6 +63,7 @@ const dryRun = argv.includes("--dry-run");
 
 type ShotRecordFile = {
   schema?: number;
+  composedAt?: string | null;
   kind?: "deploy" | "preview";
   channel: string;
   units: Record<string, string>;
@@ -90,13 +92,19 @@ const stop = (message: string): never => {
   process.exit(1);
 };
 
-async function pointerFor(region: Region): Promise<Record<string, string>> {
+async function pointerFor(
+  region: Region,
+): Promise<{ ids: Record<string, string>; composedAt: string | null }> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${CHANNEL}.json`;
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
   if (!res.ok) throw new Error(`no pointer at ${url}: ${res.status}`);
-  const ids = pointerIds(await res.json());
+  const doc = (await res.json()) as { composedAt?: string };
+  const ids = pointerIds(doc);
   if (!ids) throw new Error(`${url} names no units.`);
-  return ids;
+  // The ids alone cannot see a promote of the ids a channel already serves, and
+  // shots.json has carried composedAt since schema 2. The reviewer's gate reads
+  // what the shooter's gate reads.
+  return { ids, composedAt: doc.composedAt ?? null };
 }
 
 /**
@@ -147,8 +155,11 @@ const trackedAt = (sha: string, path: string): Promise<boolean> =>
 
 // -- the run ------------------------------------------------------------------
 
-// One region is enough to read a pointer: promote writes every region and
-// refuses a write that would make two of them drift, §3.
+// One region is enough to read a pointer in the ordinary case: a promote writes
+// every region and refuses a write that would make two of them drift, §3.
+// `--region` is the deliberate exception, and a record written by one names the
+// regions it wrote - so REGION in the environment is how an operator reads the
+// other one rather than a default this pretends cannot matter.
 const region: Region = (Bun.env.REGION as Region) ?? REGIONS[0]!;
 
 const branch = (await sh(["git", "rev-parse", "--abbrev-ref", "HEAD"])).trim();
@@ -187,15 +198,25 @@ if (dirty && !dryRun) {
   );
 }
 
-const live = await pointerFor(region);
+const pointer = await pointerFor(region);
+const live = pointer.ids;
 
 // Before the stale reading, because a promote nobody shot is the reason the
 // newest SHOT record is stale, and naming it is one command instead of a hunt.
-const waiting = pendingRefusal(await deployDirs(), CHANNEL);
+// Only the NEWEST one refuses: `shoot` will not file a picture under a promote
+// the pointer moved past, so blocking on an older one blocks forever.
+const dirs = await deployDirs();
+const waiting = pendingRefusal(dirs, CHANNEL);
 if (waiting) stop(waiting);
 
+const stranded = unshotNote(dirs, CHANNEL);
+if (stranded) console.error(`note: ${stranded}`);
+
 const newest = await newestDeploy();
-const stale = staleRefusal(newest?.record ?? null, CHANNEL, live, newest?.dir ?? "");
+const stale = staleRefusal(newest?.record ?? null, CHANNEL, live, newest?.dir ?? "", {
+  record: newest?.record.composedAt ?? null,
+  live: pointer.composedAt,
+});
 if (stale) stop(stale);
 
 const prodDir = newest!.dir;
