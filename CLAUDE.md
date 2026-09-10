@@ -30,7 +30,7 @@ It refuses to run when the newest `deploys/` record disagrees with what `qa` ser
 
 Nothing regenerates a shot. A picture of what was served on a date is falsified by re-shooting it.
 
-`bun run changelog` gathers `deploys/` into `CHANGELOG.md`, which is generated and never hand-edited. `bun test` renders the archive again and fails when the file differs, so a record committed without regenerating it is caught by the run below rather than months later. There is no CI here: the check is only as good as the rule that these run before a pull request.
+`bun run changelog` gathers `deploys/` into `CHANGELOG.md`, which is generated, never hand-edited, and **not committed** - it is gitignored. Every fact in it is already in `deploys/`, which is committed, so a copy in git would only add a file that goes stale, a check to catch that, and a merge conflict whenever two branches each land a deploy. Run the command when you want to read the archive.
 
 ## Before a pull request is ready
 

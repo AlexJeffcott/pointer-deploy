@@ -1006,6 +1006,27 @@ describe("regionsCell", () => {
   });
 });
 
+describe("regionsCell, on a record with no pictures", () => {
+  // prod can never be shot, and it is where the promote record IS the record.
+  // Reading the kept manifests made the §3 reading vanish for exactly it.
+  test("a one-region promote names the region it did not write, unshot", () => {
+    const cellText = regionsCell(
+      { regions: ["eu"], manifests: { eu: "manifest.eu.json" } } as never,
+      null,
+      ["manifest.eu.json"],
+    );
+    expect(cellText).toContain("eu only");
+    expect(cellText).toContain("us");
+    expect(cellText).toContain("no bytes kept");
+  });
+
+  test("a promote of every region reads as every region", () => {
+    expect(
+      regionsCell({ regions: ["eu", "us"], manifests: {} } as never, null, []),
+    ).toBe("eu, us");
+  });
+});
+
 describe("sourceCell", () => {
   test("a clean tree, at a short commit", () => {
     expect(sourceCell(promoteFile().source)).toBe("b8268f7, clean tree");
@@ -1239,9 +1260,35 @@ describe("changelogSummary", () => {
   });
 
   test("warnings are counted, both ways", () => {
-    expect(changelogSummary([archived()]).join("\n")).toContain("No promote in this archive printed a warning");
-    const warned = archived({ promote: promoteFile({ warnings: ["COLD https://example/a.js"] }) });
-    expect(changelogSummary([warned]).join("\n")).toContain("1 promote printed a warning");
+    expect(changelogSummary([archived(), moved]).join("\n")).toContain(
+      "No promote this archive can read printed a warning",
+    );
+    const noisy = archived({ promote: promoteFile({ warnings: ["COLD x"] }) });
+    expect(changelogSummary([noisy, moved]).join("\n")).toContain("1 promote printed a warning");
+  });
+
+  // The `none` / `not recorded` distinction the entries were rebuilt to keep,
+  // flattened one level up, where a skim-reader meets it first.
+  test("a promote with no warnings field is not asserted to have printed nothing", () => {
+    const partial = archived({ promote: promoteFile({}) });
+    delete (partial.promote as { warnings?: unknown }).warnings;
+    const text = changelogSummary([partial, moved]).join("\n");
+    expect(text).toContain("no warnings field at all");
+    expect(text).toContain("1 promote records");
+  });
+
+  // The archive that was shipped: four records with an act and one without.
+  // The universal claim was made over all five and was false for the fifth.
+  test("a universal claim does not speak for a record with no act", () => {
+    const text = changelogSummary([archived(), archived({ promote: null })]).join("\n");
+    expect(text).toContain("No promote this archive can read moved a unit");
+    expect(text).toContain("1 record holds");
+    expect(text).not.toContain("**No record in this archive moved a unit.**");
+  });
+
+  test("with every act readable, the claim is universal again", () => {
+    const text = changelogSummary([archived(), archived()]).join("\n");
+    expect(text).toContain("**No record in this archive moved a unit.**");
   });
 
   test("an archive of records with no act says nothing about warnings", () => {

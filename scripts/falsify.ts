@@ -1133,13 +1133,15 @@ const MUTATIONS: Mutation[] = [
     unitTest: "every unit carried is a no-op",
   },
   {
-    // A --region run leaves the other region where it was and the record keeps
-    // that region's bytes under an as-served name. Reading the kept manifests
-    // as the regions this promote wrote claims a deploy that did not happen.
+    // A --region run leaves the other region where it was. Reading the regions
+    // a record KEPT bytes for, rather than every region the store has, makes
+    // the reading vanish for a record with no shots.json - because
+    // `promoteRecord` builds `manifests` from the regions it wrote, so the two
+    // are identical by construction. That is `prod`, which can never be shot.
     name: "a one-region promote reads as having written every region",
     file: "scripts/record.ts",
-    find: "  const others = Object.keys(kept)\n    .filter((r) => !written.includes(r))\n    .sort();",
-    replace: "  const others: string[] = [];",
+    find: "  const others = [...new Set([...Object.keys(kept), ...ALL_REGIONS])]\n    .filter((r) => !written.includes(r))\n    .sort();",
+    replace: "  const others = Object.keys(kept)\n    .filter((r) => !written.includes(r))\n    .sort();",
     unitTest: "a one-region promote names the region it did not write",
   },
   {

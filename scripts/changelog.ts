@@ -1,19 +1,20 @@
 // Gathers `deploys/` into `CHANGELOG.md`.
 //
 //   bun run changelog              # write CHANGELOG.md
-//   bun run changelog --check      # exit 1 if the file on disk is not what this writes
 //
 // The archive is one directory per deploy and nothing read it, so what a channel
 // served on a date was a directory listing and the hand-written line in each
 // `notes.md` was gathered nowhere. This is that archive as a document.
 //
-// IT IS GENERATED, NEVER HAND-EDITED, and that is a check rather than a
-// convention: `scripts/changelog.test.ts` renders `deploys/` again under the
-// ordinary `bun test` and fails when the file differs, so a record committed
-// without running this is a red test. There is no CI in this repository, so the
-// check is as good as `CLAUDE.md`'s rule that `bun test` runs before a pull
-// request - and that is a stronger thing than a convention about this file,
-// because it is one rule covering every check rather than one more to remember.
+// IT IS NOT COMMITTED. `CHANGELOG.md` is in `.gitignore`, and every fact in it
+// is already in `deploys/` - which IS committed, because the pointer is
+// overwritten by the next promote and the store was rewritten whole once
+// already. A generated copy of facts that are already in git earns nothing and
+// costs three things: it goes stale between the record and the regeneration, it
+// needs a check to catch that, and two branches that each land a deploy conflict
+// on its counts. Run the command and read the file; delete it and nothing is
+// lost. What has to be right is the ARCHIVE and the readings this renders from
+// it, and `scripts/record.test.ts` is what holds those.
 //
 // This file is the filesystem half only - which directories exist, and what is
 // in them. Every decision about what an entry SAYS is in `scripts/record.ts`,
@@ -83,6 +84,7 @@ export async function readArchive(archive = ARCHIVE): Promise<ArchiveRecord[]> {
     if ((err as { code?: string }).code !== "ENOENT") throw err;
     return [];
   }
+  const label = archive === ARCHIVE ? "deploys" : archive;
   const records: ArchiveRecord[] = [];
   for (const name of entries.sort()) {
     const dir = `${archive}/${name}`;
@@ -95,37 +97,22 @@ export async function readArchive(archive = ARCHIVE): Promise<ArchiveRecord[]> {
       readText(`${dir}/notes.md`),
     ]);
     if (!promote && !shots && manifestFiles.length === 0) continue;
-    // The path a reader follows, which is relative to the repository root
-    // rather than to wherever this was run from.
-    records.push({ dir: `deploys/${name}`, promote, shots, notes, manifestFiles });
+    // The path a reader follows. For the real archive that is `deploys/<name>`,
+    // relative to the repository root rather than to wherever this was run
+    // from - a link in the document has to resolve for somebody reading it in
+    // the repository. For any other archive it is that archive's own path,
+    // because a record labelled `deploys/...` when it came from somewhere else
+    // is a link to a file that does not exist. Hardcoding the first case broke
+    // the seam this function takes an argument for, which is why it had no test.
+    records.push({ dir: `${label}/${name}`, promote, shots, notes, manifestFiles });
   }
   return records;
-}
-
-export async function currentChangelog(path = CHANGELOG): Promise<string | null> {
-  return readText(path);
 }
 
 if (import.meta.main) {
   const records = await readArchive();
   const rendered = renderChangelog(records);
-  const onDisk = await currentChangelog();
-
-  if (process.argv.includes("--check")) {
-    if (onDisk === rendered) {
-      console.log(`CHANGELOG.md is what ${records.length} records in deploys/ render to.`);
-    } else {
-      console.error(
-        `\nFAILED CHANGELOG.md is not what deploys/ renders to. Run \`bun run changelog\` and commit it.`,
-      );
-      process.exit(1);
-    }
-  } else {
-    await Bun.write(CHANGELOG, rendered);
-    console.log(
-      `CHANGELOG.md ${onDisk === rendered ? "unchanged" : "written"}: ${records.length} ${
-        records.length === 1 ? "record" : "records"
-      }.`,
-    );
-  }
+  await Bun.write(CHANGELOG, rendered);
+  console.log(`CHANGELOG.md, from ${records.length} ${records.length === 1 ? "record" : "records"} in deploys/.`);
+  console.log(`It is gitignored: every fact in it is already in deploys/, which is committed.`);
 }
