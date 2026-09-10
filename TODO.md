@@ -256,6 +256,38 @@ Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
 not reproduce and is not explained. Its assertion now carries publish's whole
 output, which names which of contracts, digests or provenance moved.
 
+**A near miss that is NOT this item, on 2026-09-10.** A `verify:live` run
+straight after a `fly deploy` failed one scenario, and it was
+`channel-selection.feature`'s *The prod origin serves a different build from the
+same server* - the same scenario this item's first reading came from. It is a
+different fault and must not be counted as an occurrence, because counting it
+would read as the item recurring when it has not.
+
+| | This item | The near miss |
+| --- | --- | --- |
+| Step that failed | `Then the shell identifies build "beta"` | `And both origins are served by one machine` |
+| Assertion | the composition served is the one promoted | `expect(running).toHaveLength(1)`, `features/steps/shell.steps.ts:192` |
+| What was wrong | a superseded composition, for tens of seconds | the composition was right. Two machines were `started` |
+| Cause | open | the deploy woke the suspended `iad` machine |
+
+**The build-identification step passed**, which is the discriminator: this item
+is by definition a wrong composition, so a run where the composition is correct
+is not it whatever else went red.
+
+The machine event log the failure printed carries the cause. `iad` went `flyd
+stopped` at `1789024074136`, the deploy's own update, then `proxy starting` at
+`1789024110236` and `flyd started` at `1789024113712` - 36 s later. Its health
+check first read at `07:08:36.125Z` against `ams`'s `07:07:58.358Z`. The
+scenario asserts 6.3 s into a run started after the deploy, so both were up.
+Both carried the same image and both were healthy, so the claim the scenario
+exists to make - one image serves every channel - held; the assertion it uses to
+make that claim did not. `auto_stop_machines = "suspend"` suspended `iad` on its
+own afterwards, and the scenario alone passed in 1.5 min against the same image.
+
+So: do not run `verify:live` in the minutes after a `fly deploy` and expect this
+scenario to be meaningful, and if it does go red there, read WHICH step failed
+before reaching for this item.
+
 ### 29. The live suite writes to the deployed service
 
 `verify:browser` clicks counters on the live page, and every click is a `POST`
