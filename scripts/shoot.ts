@@ -18,10 +18,16 @@
 //
 // So every shot is gated. Each view is a fresh navigation, the __BUILD__ block
 // is read FROM THE PAGE THAT WAS SHOT - not from a second load, which a promote
-// landing between the two would make disagree - and the unit ids in it must
-// equal the ones the store's pointer names. Views are shot until they all agree
-// with each other as well, so a promote mid-run cannot leave one record holding
-// two compositions.
+// landing between the two would make disagree - and both the unit ids in it and
+// the instant it was composed at must equal what the store's pointer names.
+// Views are shot until they all agree with each other as well, so a promote
+// mid-run cannot leave one record holding two compositions.
+//
+// The stamp is half of that gate because the ids are not enough: promoting the
+// ids a channel already serves - the check an operator runs, and the one that
+// verified the promote record - moves composedAt and moves no id at all, so on
+// ids alone the page from before that promote and the page from after it are
+// the same reading. servesWanted in scripts/record.ts is where both halves are.
 //
 // WHAT THE GATE DOES NOT COVER, and the record says so rather than implying
 // otherwise. The gate proves the COMPOSITION the page was built from. It does
@@ -34,6 +40,16 @@
 // NOT REGENERABLE, on purpose. A picture of what was served on a date is
 // falsified by re-shooting it, so a run REFUSES a directory that already holds
 // a record. There is no --update, and --out is not one either.
+//
+// THE OTHER HALF OF THE RECORD. A promote to a real channel writes
+// deploys/<composedAt>-<channel>/ - the act, and the pointer bytes it put - and
+// prints the `--out <dir>` line that fills the pictures in. The directory is
+// named by recordDir, which is the same function this file names its own by, and
+// a promote writes no shots.json, which is the only file a second run into a
+// directory refuses on. What a run into one DOES check is that the pointer still
+// names that promote: the gates below are about the pointer as it is now, so
+// without filedUnderRefusal a later promote would be shot correctly and filed
+// under the earlier promote's record.
 //
 // --override shoots §30's query string: a composition that was published and
 // never promoted, which is what a pull request has. It lands in previews/ and
@@ -48,11 +64,14 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { REGIONS, type Region } from "./regions.ts";
 import {
   describeIds,
+  filedUnderRefusal,
   idsOf,
   outRefusal,
   overrideRefusal,
   pointerIds,
+  recordDir,
   sameIds,
+  servesWanted,
   type BuildBlock,
 } from "./record.ts";
 
@@ -195,11 +214,22 @@ async function buildBlock(page: Page): Promise<BuildBlock | null> {
   }
 }
 
-/** What one region's pointer names. */
-async function pointerFor(region: Region): Promise<Record<string, string> | null> {
+/**
+ * What one region's pointer names, and when that composition was composed.
+ *
+ * The stamp comes back with the ids because a promote of the SAME ids moves it
+ * and moves nothing else - which is the state filedUnderRefusal reads to tell a
+ * shot of this promote from a shot of the next one.
+ */
+async function pointerFor(
+  region: Region,
+): Promise<{ ids: Record<string, string>; composedAt: string | null } | null> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${channel}.json`;
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
-  return res.ok ? pointerIds(await res.json()) : null;
+  if (!res.ok) return null;
+  const doc = (await res.json()) as { composedAt?: string };
+  const ids = pointerIds(doc);
+  return ids === null ? null : { ids, composedAt: doc.composedAt ?? null };
 }
 
 /** The bytes of one region's pointer, exactly as the store holds them. */
@@ -285,7 +315,12 @@ async function settle(page: Page): Promise<{ title: string; panelErrors: string[
  * page, and only then settle and shoot it. Reading the ids after the shot would
  * leave a window a promote fits inside.
  */
-async function shootView(page: Page, route: string, want: Record<string, string>): Promise<Shot> {
+async function shootView(
+  page: Page,
+  route: string,
+  want: Record<string, string>,
+  composedAt: string | null,
+): Promise<Shot> {
   const started = Date.now();
   let seen = "nothing";
 
@@ -295,8 +330,8 @@ async function shootView(page: Page, route: string, want: Record<string, string>
 
     if (block) {
       const ids = idsOf(block);
-      seen = describeIds(ids);
-      if (sameIds(ids, want)) {
+      seen = `${describeIds(ids)} at ${block.publishedAt ?? "no stamp"}`;
+      if (servesWanted(block, want, composedAt)) {
         const { title, panelErrors } = await settle(page);
         const bytes = await page.screenshot({ fullPage: true, type: "png" });
         return {
@@ -324,8 +359,8 @@ async function shootView(page: Page, route: string, want: Record<string, string>
         seen === "nothing" ? (await page.evaluate(() => document.body.innerText)).slice(0, 200) : "";
       throw new Error(
         `${route} still served ${seen}${body ? ` (${body})` : ""} after ${waitMs} ms; ` +
-          `this run asked for ${describeIds(want)}. Nothing was written: a shot of one ` +
-          `composition filed under another is the error this refuses.`,
+          `this run asked for ${describeIds(want)} at ${composedAt ?? "no stamp"}. Nothing was ` +
+          `written: a shot of one composition filed under another is the error this refuses.`,
       );
     }
     await Bun.sleep(1000);
@@ -334,16 +369,16 @@ async function shootView(page: Page, route: string, want: Record<string, string>
 
 const fileFor = (route: string): string => route.replace(/^\//, "").replace(/\//g, "-") || "root";
 
-const stamp = (d: Date): string => d.toISOString().replace(/[:.]/g, "-").replace(/-\d{3}Z$/, "Z");
-
 // -- the run ------------------------------------------------------------------
 
 let browser: Browser | null = null;
 
 try {
   const takenAt = new Date();
-  const out =
-    flag("--out") ?? `${kind === "preview" ? "previews" : "deploys"}/${stamp(takenAt)}-${channel}`;
+  // recordDir, not a spelling of its own: `promote` names the directory it
+  // writes with the same function and then prints `--out <dir>` for this run,
+  // so two spellings would be two directories for one deploy.
+  const out = flag("--out") ?? recordDir(kind, takenAt.toISOString(), channel);
 
   const misplaced = outRefusal(out, kind);
   if (misplaced) throw new Error(misplaced);
@@ -385,13 +420,29 @@ try {
     throw new Error(`no pointer at ${MANIFEST_BASE}/${region}/${channel}.json, so no shot can be checked.`);
   }
 
-  const refused = overrideRefusal(override, pointer, channel);
+  const refused = overrideRefusal(override, pointer.ids, channel);
   if (refused) throw new Error(refused);
+
+  // The other half of --out into a promote's record. Every gate below is about
+  // the pointer as it is NOW, so a promote landing between that promote and
+  // this run would be shot correctly and filed under the earlier one - and the
+  // manifest bytes in that directory, the one thing in it nothing else can
+  // restate, would be overwritten with the later pointer's.
+  const promoted = (await Bun.file(`${out}/promote.json`)
+    .json()
+    .catch(() => null)) as {
+    channel: string;
+    composedAt: string;
+    units: Record<string, { unitId: string | null }>;
+    regions?: readonly string[];
+  } | null;
+  const misfiled = filedUnderRefusal(promoted, channel, pointer, out);
+  if (misfiled) throw new Error(misfiled);
 
   // A unit the override does not name keeps following the channel, which is the
   // server's rule and not a convenience here: currentIds is the base and only a
   // named unit is replaced.
-  const want = { ...pointer, ...override };
+  const want = { ...pointer.ids, ...override };
 
   const routes = await routesOnPage(page);
   if (routes.length === 0) {
@@ -399,13 +450,13 @@ try {
   }
 
   console.log(`${origin} -> ${channel} in ${region}, ${renderer}`);
-  console.log(`pointer names ${describeIds(pointer)}`);
+  console.log(`pointer names ${describeIds(pointer.ids)}`);
   if (QUERY) console.log(`asking for  ${describeIds(want)}`);
   console.log(`views       ${routes.join(" ")}`);
 
   const shots: Shot[] = [];
   for (const route of routes) {
-    const shot = await shootView(page, route, want);
+    const shot = await shootView(page, route, want, pointer.composedAt);
     shots.push(shot);
     const flagged = shot.panelErrors.length ? `  PANEL ERROR ${shot.panelErrors.join(", ")}` : "";
     console.log(`  ${route.padEnd(12)} ${shot.file.padEnd(14)} ${shot.waitedMs} ms${flagged}`);
@@ -423,10 +474,11 @@ try {
     );
   }
   const after = await pointerFor(region);
-  if (!after || !sameIds(after, pointer)) {
+  if (!after || !sameIds(after.ids, pointer.ids) || after.composedAt !== pointer.composedAt) {
     throw new Error(
-      `the pointer moved during this run: ${describeIds(pointer)} -> ` +
-        `${after ? describeIds(after) : "absent"}. Nothing was written; shoot again.`,
+      `the pointer moved during this run: ${describeIds(pointer.ids)} at ${pointer.composedAt} -> ` +
+        `${after ? `${describeIds(after.ids)} at ${after.composedAt}` : "absent"}. ` +
+        `Nothing was written; shoot again.`,
     );
   }
 
@@ -442,8 +494,23 @@ try {
   const pointers: Record<string, string | null> = {};
   for (const r of REGIONS) {
     const text = await pointerBytes(r);
-    pointers[r] = text === null ? null : `manifest.${r}.json`;
-    if (text !== null) await Bun.write(`${out}/manifest.${r}.json`, text);
+    if (text === null) {
+      pointers[r] = null;
+      continue;
+    }
+    // A file a promote already wrote is the bytes it PUT. This is the same
+    // question asked of the store afterwards, and for a region THIS promote
+    // did not write - `--region eu` leaves the other region where it was - the
+    // answer is a different deploy's pointer. So it never overwrites the
+    // promote's file, and where there is none it is filed under a name that
+    // says which reading it is. A record whose two manifests look alike and
+    // mean different things is the §3 drift written down as though it were one
+    // deploy.
+    const put = `manifest.${r}.json`;
+    const asServed = `manifest.${r}.as-served.json`;
+    const fromPromote = await Bun.file(`${out}/${put}`).exists();
+    pointers[r] = fromPromote ? put : asServed;
+    if (!fromPromote) await Bun.write(`${out}/${asServed}`, text);
   }
 
   const last = shots[shots.length - 1]!;

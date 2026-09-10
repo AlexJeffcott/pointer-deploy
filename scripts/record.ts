@@ -59,6 +59,33 @@ export const describeIds = (ids: Record<string, string>): string =>
     .map(([n, id]) => `${n}=${id}`)
     .join(" ");
 
+/**
+ * Whether the page this block came from is serving the composition asked for.
+ *
+ * The ids are not the whole reading, and the case that shows it is the one an
+ * operator runs to check a channel: promoting the ids a channel already serves
+ * moves `composedAt` and moves nothing else. MANIFEST_TTL_MS is 10 s and §6
+ * captured an x-manifest-age of 27464 ms, so for that whole window the page is
+ * the composition from BEFORE the promote - and on ids alone it is
+ * indistinguishable from the one after it. That is the trap the shooter exists
+ * to close, and until this it was closed only for a promote that moved an id.
+ *
+ * `publishedAt` in the block IS the pointer's `composedAt`: html.ts renders it
+ * from the composed manifest and `compose` spreads the pointer's own, so an
+ * --override page carries the channel's stamp exactly as an ordinary one does.
+ *
+ * A stamp nobody asked for is not compared. A pointer that carries none gives
+ * its page none either, and the ids are then all that either side has.
+ */
+export function servesWanted(
+  block: BuildBlock,
+  want: Record<string, string>,
+  composedAt: string | null,
+): boolean {
+  if (!sameIds(idsOf(block), want)) return false;
+  return composedAt === null || block.publishedAt === composedAt;
+}
+
 /** The composition a manifest names, from the manifest's own shape. */
 export function pointerIds(doc: unknown): Record<string, string> | null {
   if (!doc || typeof doc !== "object") return null;
@@ -162,6 +189,272 @@ export function fillBody(body: string, section: string, marker = "<!--REVIEW"): 
   return `${body.slice(0, start)}${section}${body.slice(end + 3)}`;
 }
 
+// -- the act, as opposed to its result ----------------------------------------
+//
+// `shoot` records what a channel SERVED and can say nothing about how it came to
+// serve it: which command was run, what it carried rather than moved, and what
+// it let through. `promote` writes that half, into the directory `shoot` will
+// later fill with pictures. The two compose because the names below are the ones
+// `shoot` chooses, and because `promote` writes no shots.json - the only file a
+// second run into a directory refuses on.
+
+/**
+ * The instant part of a record directory's name.
+ *
+ * One definition for both halves. `shoot` names its directory after the moment
+ * it started and `promote` after the composition it wrote, and a second
+ * spelling of this would mean `promote` printing a `--out` that `shoot` would
+ * not have chosen - which is the whole mechanism by which the two records are
+ * one record.
+ *
+ * The time is normalised through Date.parse first, so an ISO string carrying an
+ * offset names the same directory as the same instant in UTC. Without that, a
+ * `+02:00` stamp would sort into the archive two hours from where it belongs
+ * and every reading of the directory listing would be wrong about the order.
+ */
+export function stampOf(at: string): string {
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) {
+    throw new Error(
+      `${JSON.stringify(at)} is not a time, so no record directory can be named after it.`,
+    );
+  }
+  return new Date(ms).toISOString().replace(/[:.]/g, "-").replace(/-\d{3}Z$/, "Z");
+}
+
+/** Where a record of this kind, taken at this instant, on this channel, goes. */
+export function recordDir(kind: "deploy" | "preview", at: string, channel: string): string {
+  return `${kind === "preview" ? "previews" : "deploys"}/${stampOf(at)}-${channel}`;
+}
+
+/**
+ * The channels whose promotes are archived.
+ *
+ * Real channels only. `test-qa` and `test-prod` belong to the live suite, which
+ * promotes several times per run and would fill `deploys/` with its own traffic
+ * - and every one of those records would be a record of a composition no
+ * visitor was ever served.
+ */
+export const RECORDED_CHANNELS = ["qa", "prod"] as const;
+
+export function keepsRecord(channel: string): boolean {
+  return (RECORDED_CHANNELS as readonly string[]).includes(channel);
+}
+
+/** What one unit did in a promote. */
+export type UnitMove = {
+  /** The id the channel serves after this promote, or null for a unit it dropped. */
+  unitId: string | null;
+  /** The id it served before, or null for a unit this promote is the first of. */
+  from: string | null;
+  state: "moved" | "carried" | "new" | "dropped";
+};
+
+/**
+ * Which units a promote MOVED and which it carried.
+ *
+ * The distinction the record exists for: `promote qa --app hello=<id>` writes a
+ * whole composition, so the pointer bytes say nothing about which part of it the
+ * operator asked for. A unit at the same id on both sides was carried by the
+ * merge, and reading the manifest alone cannot tell that from a unit that was
+ * deliberately re-deployed at the id it already had.
+ *
+ * A name on one side only is not an error here. `new` is a first promote, and
+ * `dropped` is a unit that left the composition - which UNITS makes impossible
+ * today and which a silent union would lose the day it stops being.
+ */
+export function unitMoves(
+  before: Record<string, string> | null,
+  after: Record<string, string>,
+): Record<string, UnitMove> {
+  const names = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after)])].sort();
+  const moves: Record<string, UnitMove> = {};
+  for (const name of names) {
+    const was = before?.[name] ?? null;
+    const now = after[name] ?? null;
+    const state =
+      now === null ? "dropped" : was === null ? "new" : was === now ? "carried" : "moved";
+    moves[name] = { unitId: now, from: was, state };
+  }
+  return moves;
+}
+
+/** The ids a promote record names, for comparing against a pointer. */
+export function recordedIds(units: Record<string, { unitId: string | null }>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(units)
+      .filter(([, u]) => typeof u.unitId === "string")
+      .map(([name, u]) => [name, u.unitId as string]),
+  );
+}
+
+/**
+ * A shell rendering of the argv, for a person reading the record.
+ *
+ * `argv` beside it is the exact reading; this one is what gets pasted back into
+ * a terminal, so an argument that would not survive that - a space, a quote, an
+ * empty string - is quoted rather than printed as it came.
+ */
+export function commandOf(argv: readonly string[]): string {
+  const quote = (arg: string) => (/^[\w.,:=@/+-]+$/.test(arg) ? arg : JSON.stringify(arg));
+  return ["bun", "run", "promote", ...argv.map(quote)].join(" ");
+}
+
+/** The line that fills this record's pictures in. */
+export const BROWSER_REACHABLE = ["qa"] as const;
+
+/**
+ * The line that fills this record's pictures in, or why there is not one.
+ *
+ * `prod` is reached by a Host header and no browser sends one, so `shoot`
+ * refuses it outright - and printing `--channel prod` regardless meant every
+ * prod deploy ended with an instruction that cannot work, on the one channel
+ * where the promote record is the whole record. §2 is the domain that changes
+ * this, and until then the honest line says so.
+ */
+export function shootCommand(channel: string, dir: string): string {
+  if (!(BROWSER_REACHABLE as readonly string[]).includes(channel)) {
+    return `no browser can reach ${channel}, so ${dir} keeps its manifest bytes and no pictures. TODO §2 is the domain that would change that.`;
+  }
+  // `shoot` defaults to qa, so naming it would be noise on the common path and
+  // is required on every other channel.
+  return `bun run shoot${channel === "qa" ? "" : ` --channel ${channel}`} --out ${dir}`;
+}
+
+/**
+ * A directory nothing has written a promote record into yet.
+ *
+ * `stampOf` truncates to the second, so two promotes inside one second name one
+ * directory - and the record write had no existence check, so the first record
+ * went with no trace. It cannot refuse: the pointer has already moved, and a
+ * throw here would report a deploy that happened as one that did not. So it
+ * takes the next free name instead.
+ */
+export function freeDir(base: string, taken: (dir: string) => boolean): string {
+  if (!taken(base)) return base;
+  for (let n = 2; n < 100; n++) {
+    if (!taken(`${base}-${n}`)) return `${base}-${n}`;
+  }
+  throw new Error(`${base} and 98 names after it all hold a record.`);
+}
+
+/** What a promote did, written beside the bytes it put in the store. */
+export type PromoteRecord = {
+  schema: 1;
+  kind: "promote";
+  channel: string;
+  argv: string[];
+  command: string;
+  startedAt: string;
+  composedAt: string;
+  writtenAt: string;
+  regions: string[];
+  /**
+   * The tree the command was run from.
+   *
+   * Not the tree that built the units: each unit carries its own commit inside
+   * the manifest beside this file. On a real channel the two agree anyway,
+   * because `--from-build` refuses a build this tree did not make - and the
+   * override that lifts that refusal is in `argv` and in `warnings`.
+   */
+  source: { commit: string; dirty: boolean; dirtyPaths?: string[] } | null;
+  contract: string;
+  units: Record<string, UnitMove>;
+  /** Every WARNING line the promote printed: what it let through, in order. */
+  warnings: string[];
+  /** Region to the file holding the bytes that region's pointer was given. */
+  manifests: Record<string, string>;
+};
+
+export function promoteRecord(act: {
+  channel: string;
+  argv: readonly string[];
+  regions: readonly string[];
+  source: { commit: string; dirty: boolean; dirtyPaths?: string[] } | null;
+  contract: string;
+  before: Record<string, string> | null;
+  after: Record<string, string>;
+  startedAt: string;
+  composedAt: string;
+  writtenAt: string;
+  warnings: readonly string[];
+}): PromoteRecord {
+  return {
+    schema: 1,
+    kind: "promote",
+    channel: act.channel,
+    argv: [...act.argv],
+    command: commandOf(act.argv),
+    startedAt: act.startedAt,
+    composedAt: act.composedAt,
+    writtenAt: act.writtenAt,
+    regions: [...act.regions],
+    source: act.source,
+    contract: act.contract,
+    units: unitMoves(act.before, act.after),
+    warnings: [...act.warnings],
+    manifests: Object.fromEntries(act.regions.map((r) => [r, `manifest.${r}.json`])),
+  };
+}
+
+/**
+ * Why these shots do not belong in the directory a promote wrote, or null.
+ *
+ * `shoot --out <dir>` into a promote's record is how the two halves become one,
+ * and the shot is checked against the POINTER rather than against the promote
+ * that wrote the directory. So a second promote between the two would be shot
+ * correctly and filed under the first one's record - and `shoot` would then
+ * overwrite that record's manifest bytes with the newer pointer's, which is the
+ * one file in it that nothing else can restate.
+ *
+ * The ids are not enough on their own. Promoting the same composition twice
+ * moves `composedAt` and leaves every id where it was, which is exactly the
+ * no-op promote an operator runs to check a channel - so the stamp is compared
+ * as well as the ids.
+ */
+export function filedUnderRefusal(
+  promote: {
+    channel: string;
+    composedAt: string;
+    units: Record<string, { unitId: string | null }>;
+    /** The regions this promote actually wrote. A `--region` run wrote one. */
+    regions?: readonly string[];
+  } | null,
+  channel: string,
+  serving: { composedAt: string | null; ids: Record<string, string> },
+  dir: string,
+): string | null {
+  if (!promote) return null;
+  if (promote.channel !== channel) {
+    return `${dir} records a promote of ${promote.channel}, and this run shoots ${channel}. A record holds one channel.`;
+  }
+  const promoted = recordedIds(promote.units);
+  if (!sameIds(promoted, serving.ids)) {
+    return (
+      `${dir} records a promote of ${describeIds(promoted)} and ${channel} now serves ` +
+      `${describeIds(serving.ids)}. A later promote landed, so these shots are a picture of ` +
+      `something else. Shoot into a new directory.`
+    );
+  }
+  if (serving.composedAt !== null && promote.composedAt !== serving.composedAt) {
+    // Two states produce this, and naming only the first sent an operator
+    // hunting a promote that never happened. A record whose `regions` does not
+    // hold every region is the second: the machine answering may be one this
+    // promote deliberately left where it was, §3's supported exception.
+    const partial = promote.regions !== undefined && promote.regions.length < 2;
+    return (
+      `${dir} records the promote composed at ${promote.composedAt}, and ${channel} serves the ` +
+      `composition composed at ${serving.composedAt}. The ids match, so either the same units ` +
+      `were promoted again after it` +
+      (partial
+        ? `, or the machine that answered is in a region this promote did not write - it names ` +
+          `${promote.regions!.join(", ")}. Read the other region with REGION=<r>, or shoot into a new directory.`
+        : `; these shots belong under that promote's record and not this one.`)
+    );
+  }
+  return null;
+}
+
 /**
  * Why this record is not a picture of what the channel serves now, or null.
  *
@@ -170,11 +463,96 @@ export function fillBody(body: string, section: string, marker = "<!--REVIEW"): 
  * to say which channel rather than list two compositions that were never
  * comparable.
  */
+/**
+ * The paths a porcelain status names, so a record can say what the dirt WAS.
+ *
+ * `dirty: true` is a true reading and a misleading one on its own: the second
+ * of two promotes made without committing is dirty because of the FIRST one's
+ * record, which is not source at all. A reader seeing `deploys/2026-...` in
+ * this list knows that; a reader seeing only the flag does not.
+ */
+export const DIRTY_PATH_CAP = 20;
+
+export function dirtyPaths(porcelain: string, cap = DIRTY_PATH_CAP): string[] {
+  const paths = porcelain
+    .split("\n")
+    .map((line) => line.slice(3).trim())
+    // A rename reads `old -> new`, and the path that matters is where the
+    // content is now.
+    .map((path) => (path.includes(" -> ") ? path.slice(path.indexOf(" -> ") + 4) : path))
+    .filter(Boolean);
+  // Capped because this is committed to a public repository and `git status`
+  // lists untracked files: without a bound, a record publishes the whole of
+  // whatever an operator happened to have lying in their checkout.
+  if (paths.length <= cap) return paths;
+  return [...paths.slice(0, cap), `and ${paths.length - cap} more`];
+}
+
+/** One directory under deploys/, and which of the two files it holds. */
+export type PendingDir = {
+  dir: string;
+  channel: string;
+  hasPromote: boolean;
+  hasShots: boolean;
+};
+
+/**
+ * Why a promote is recorded and not yet pictured, or null.
+ *
+ * `pr` reads the newest record by looking for a `shots.json`, so a promote that
+ * wrote its own directory and was never shot is INVISIBLE to it - and what it
+ * then finds is the previous deploy, whose ids no longer match, so the operator
+ * is told the archive is stale without being told a newer directory is already
+ * sitting there waiting for its pictures. Naming it is the difference between
+ * one command to run and a hunt.
+ */
+export function pendingRefusal(dirs: readonly PendingDir[], channel: string): string | null {
+  const records = dirs
+    .filter((d) => d.channel === channel && d.hasPromote)
+    .sort((a, b) => a.dir.localeCompare(b.dir));
+  const newest = records.at(-1);
+  // ONLY the newest, and that is the whole correction. `shoot` refuses to file
+  // a picture under a promote the pointer has moved past, so an older unshot
+  // record can never be filled - and the first version of this refused on
+  // every one of them, told the operator to run a command that would be
+  // refused, and left `bun run pr` deadlocked after two ordinary promotes. The
+  // only way out was deleting a record from an archive whose premise is that
+  // records are not falsified after the fact. Two promotes reach that state,
+  // and the second of them is the rollback this repository exists for.
+  if (!newest || newest.hasShots) return null;
+  return (
+    `${newest.dir} holds a promote and no pictures, so ${channel} was deployed and never shot. ` +
+    `Run \`${shootCommand(channel, newest.dir)}\` and commit the record.`
+  );
+}
+
+/**
+ * The promotes whose pictures can no longer be taken, or null.
+ *
+ * A note and never a refusal. The pointer has moved past them, so `shoot`
+ * refuses to file anything under them and nothing an operator does will change
+ * that. The gap is real and belongs in the reading; blocking on it blocks
+ * forever.
+ */
+export function unshotNote(dirs: readonly PendingDir[], channel: string): string | null {
+  const records = dirs
+    .filter((d) => d.channel === channel && d.hasPromote)
+    .sort((a, b) => a.dir.localeCompare(b.dir));
+  const stranded = records.slice(0, -1).filter((d) => !d.hasShots);
+  if (stranded.length === 0) return null;
+  return (
+    `${stranded.length} ${stranded.length === 1 ? "promote has" : "promotes have"} no pictures and ` +
+    `can no longer be shot: ${stranded.map((d) => d.dir).join(", ")}. The pointer moved past them. ` +
+    `Their manifest bytes are complete; only the images are missing.`
+  );
+}
+
 export function staleRefusal(
   record: { channel: string; units: Record<string, string> } | null,
   channel: string,
   live: Record<string, string>,
   dir: string,
+  composedAt: { record: string | null; live: string | null } = { record: null, live: null },
 ): string | null {
   if (!record) {
     return `deploys/ holds no record for ${channel}, so there is no picture of what it serves. Run \`bun run shoot\`.`;
@@ -182,11 +560,22 @@ export function staleRefusal(
   if (record.channel !== channel) {
     return `${dir} is a record of ${record.channel}, and this run is about ${channel}.`;
   }
+  if (composedAt.record !== null && composedAt.live !== null && composedAt.record !== composedAt.live) {
+    // Ids alone cannot see a promote of the ids a channel already serves, and
+    // that promote is exactly what this branch used to verify itself. The
+    // reviewer's gate has to read what the shooter's gate reads.
+    return (
+      `${dir} is a picture of the composition composed at ${composedAt.record}, and ${channel} ` +
+      `serves the one composed at ${composedAt.live}. The ids did not move, so a promote of the ` +
+      `same units landed after this record. Shoot the newer promote's record and commit it.`
+    );
+  }
   if (!sameIds(record.units, live)) {
     return (
       `${dir} holds ${describeIds(record.units)} and ${channel} now serves ${describeIds(live)}. ` +
       `The newest deploy record is not a picture of production, so this run would put a stale ` +
-      `image beside a live one. Run \`bun run shoot\` and commit the record.`
+      `image beside a live one. Run the \`bun run shoot --out <dir>\` line that promote printed - ` +
+      `a bare \`bun run shoot\` would open a second directory for one deploy - and commit the record.`
     );
   }
   return null;

@@ -39,6 +39,9 @@ import { REGIONS, type Region } from "./regions.ts";
 import {
   describeIds,
   fillBody,
+  pendingRefusal,
+  unshotNote,
+  type PendingDir,
   pointerIds,
   routeRows,
   staleRefusal,
@@ -60,6 +63,7 @@ const dryRun = argv.includes("--dry-run");
 
 type ShotRecordFile = {
   schema?: number;
+  composedAt?: string | null;
   kind?: "deploy" | "preview";
   channel: string;
   units: Record<string, string>;
@@ -88,13 +92,19 @@ const stop = (message: string): never => {
   process.exit(1);
 };
 
-async function pointerFor(region: Region): Promise<Record<string, string>> {
+async function pointerFor(
+  region: Region,
+): Promise<{ ids: Record<string, string>; composedAt: string | null }> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${CHANNEL}.json`;
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
   if (!res.ok) throw new Error(`no pointer at ${url}: ${res.status}`);
-  const ids = pointerIds(await res.json());
+  const doc = (await res.json()) as { composedAt?: string };
+  const ids = pointerIds(doc);
   if (!ids) throw new Error(`${url} names no units.`);
-  return ids;
+  // The ids alone cannot see a promote of the ids a channel already serves, and
+  // shots.json has carried composedAt since schema 2. The reviewer's gate reads
+  // what the shooter's gate reads.
+  return { ids, composedAt: doc.composedAt ?? null };
 }
 
 /**
@@ -114,14 +124,42 @@ async function newestDeploy(): Promise<{ dir: string; record: ShotRecordFile } |
   return null;
 }
 
+/**
+ * Every directory under deploys/, and which of the two files it holds.
+ *
+ * Read separately from newestDeploy because the whole point is the directory it
+ * cannot see: a promote wrote its record, nobody shot it, and a scan for
+ * shots.json walks straight past. What the operator was then told was that the
+ * archive was stale - true, and not the useful half, because the directory
+ * waiting for its pictures was already on disk with the command to fill it.
+ */
+async function deployDirs(): Promise<PendingDir[]> {
+  const seen = new Map<string, PendingDir>();
+  for (const kind of ["promote", "shots"] as const) {
+    for (const file of new Bun.Glob(`deploys/*/${kind}.json`).scanSync(".")) {
+      const dir = file.replace(new RegExp(`/${kind}\\.json$`), "");
+      const doc = (await Bun.file(file).json()) as { channel?: string };
+      const entry = seen.get(dir) ?? { dir, channel: doc.channel ?? "", hasPromote: false, hasShots: false };
+      entry.channel = doc.channel ?? entry.channel;
+      if (kind === "promote") entry.hasPromote = true;
+      else entry.hasShots = true;
+      seen.set(dir, entry);
+    }
+  }
+  return [...seen.values()];
+}
+
 /** Whether git holds this path at this commit. A raw URL to one it does not is a 404. */
 const trackedAt = (sha: string, path: string): Promise<boolean> =>
   ok(["git", "cat-file", "-e", `${sha}:${path}`]);
 
 // -- the run ------------------------------------------------------------------
 
-// One region is enough to read a pointer: promote writes every region and
-// refuses a write that would make two of them drift, §3.
+// One region is enough to read a pointer in the ordinary case: a promote writes
+// every region and refuses a write that would make two of them drift, §3.
+// `--region` is the deliberate exception, and a record written by one names the
+// regions it wrote - so REGION in the environment is how an operator reads the
+// other one rather than a default this pretends cannot matter.
 const region: Region = (Bun.env.REGION as Region) ?? REGIONS[0]!;
 
 const branch = (await sh(["git", "rev-parse", "--abbrev-ref", "HEAD"])).trim();
@@ -160,9 +198,25 @@ if (dirty && !dryRun) {
   );
 }
 
-const live = await pointerFor(region);
+const pointer = await pointerFor(region);
+const live = pointer.ids;
+
+// Before the stale reading, because a promote nobody shot is the reason the
+// newest SHOT record is stale, and naming it is one command instead of a hunt.
+// Only the NEWEST one refuses: `shoot` will not file a picture under a promote
+// the pointer moved past, so blocking on an older one blocks forever.
+const dirs = await deployDirs();
+const waiting = pendingRefusal(dirs, CHANNEL);
+if (waiting) stop(waiting);
+
+const stranded = unshotNote(dirs, CHANNEL);
+if (stranded) console.error(`note: ${stranded}`);
+
 const newest = await newestDeploy();
-const stale = staleRefusal(newest?.record ?? null, CHANNEL, live, newest?.dir ?? "");
+const stale = staleRefusal(newest?.record ?? null, CHANNEL, live, newest?.dir ?? "", {
+  record: newest?.record.composedAt ?? null,
+  live: pointer.composedAt,
+});
 if (stale) stop(stale);
 
 const prodDir = newest!.dir;

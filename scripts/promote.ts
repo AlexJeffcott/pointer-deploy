@@ -38,7 +38,16 @@ import {
 } from "../src/server/composition.ts";
 import { composedUnit, surfaceOfManifest } from "./catalogue.ts";
 import { regionDrift, regionsFor, type Region } from "./regions.ts";
-import { currentSource, describeSource, type Source } from "./source.ts";
+import { currentSource, describeSource, readSource, type Source } from "./source.ts";
+import {
+  dirtyPaths,
+  freeDir,
+  keepsRecord,
+  promoteRecord,
+  recordDir,
+  shootCommand,
+  unitMoves,
+} from "./record.ts";
 import type { UnitManifest } from "./publish.ts";
 
 // test-prod and test-qa belong to the live acceptance suite. It runs this
@@ -84,6 +93,22 @@ export type Composition = {
 };
 
 const argv = process.argv.slice(2);
+const startedAt = new Date().toISOString();
+
+/**
+ * Every WARNING line this promote printed.
+ *
+ * Each one is a refusal this script deliberately does not make - a deprecated
+ * contract, a vendor major that the contract does not cover, a unit with no
+ * digests, a history it could not write. They are the reading an operator has
+ * to act on, and they scrolled past in a terminal nobody kept. The record keeps
+ * them beside the composition they were printed about.
+ */
+const warnings: string[] = [];
+const warn = (line: string): void => {
+  warnings.push(line);
+  console.error(`  WARNING ${line}`);
+};
 
 // §3. Every region, unless one is named. A machine reads the manifest for its
 // own region alone, so a promote that wrote one region would leave every other
@@ -114,6 +139,33 @@ if (!CHANNELS.includes(channelArg as Channel)) {
   console.error(`unknown channel ${JSON.stringify(channelArg)}. Expected one of ${CHANNELS.join(", ")}.`);
   process.exit(1);
 }
+
+/**
+ * The tree this command was run from, read BEFORE anything is written.
+ *
+ * The record's own files land in this tree, so a reading taken at the moment
+ * the record is assembled reports the record as the reason the tree is dirty.
+ * Measured on the first real run: a promote from a committed tree wrote
+ * `"dirty": true` about itself.
+ *
+ * Only where it is kept. A test-* promote writes no record and this is two git
+ * processes it has no use for.
+ */
+/**
+ * The tree this promote was run from, read BEFORE the record writes into it.
+ *
+ * Two readings, not one. `dirty` is what the source check means by dirty, and
+ * on its own it is misleading here: a second promote made before the first
+ * one's record was committed is dirty BECAUSE of that record, which is not
+ * source. The paths are what say so.
+ */
+const promotedFrom = (() => {
+  if (!keepsRecord(channelArg)) return null;
+  const read = readSource();
+  if (!read) return null;
+  const paths = dirtyPaths(read.porcelain);
+  return paths.length ? { ...read.source, dirtyPaths: paths } : read.source;
+})();
 
 // -- what the operator asked for --------------------------------------------
 
@@ -234,7 +286,7 @@ if (fromBuild) {
     if (refusal !== null && argv.includes("--no-source-check")) {
       // Loud, and it names what it let through. An override that went quiet
       // would be the same accident with one more step in front of it.
-      console.error(`  WARNING --no-source-check: ${refusal}`);
+      warn(`--no-source-check: ${refusal}`);
     } else if (refusal !== null) {
       console.error(`refusing: ${refusal}`);
       console.error("Run `bun run build` and promote again, or pass --no-source-check.");
@@ -396,8 +448,8 @@ for (const unit of UNITS) {
   for (const [pkg, version] of Object.entries(theirs)) {
     const shellVersion = shellShared[pkg];
     if (shellVersion && majorOf(shellVersion) !== majorOf(version)) {
-      console.error(
-        `  WARNING ${unit} was built against ${pkg} ${version}, the shell ships ${shellVersion}. ` +
+      warn(
+        `${unit} was built against ${pkg} ${version}, the shell ships ${shellVersion}. ` +
           `Different majors are not covered by the contract.`,
       );
     }
@@ -412,8 +464,8 @@ const undigested = UNITS.filter(
   (u) => Object.keys(manifests.get(u)!.integrity ?? {}).length === 0,
 );
 if (undigested.length) {
-  console.error(
-    `  WARNING ${undigested.join(", ")} carry no digests, so the browser will check ` +
+  warn(
+    `${undigested.join(", ")} carry no digests, so the browser will check ` +
       `nothing they load. Republish them to record some.`,
   );
 }
@@ -434,6 +486,9 @@ for (const line of deprecationWarnings(
   sharedContracts(contractsByUnit),
 )) {
   console.error(line);
+  // Already carries its own indent and, on the first line, its own WARNING.
+  // The record keeps the operator's reading rather than a second wording of it.
+  warnings.push(line.trim().replace(/^WARNING /, ""));
 }
 
 // -- compose ----------------------------------------------------------------
@@ -470,9 +525,18 @@ if (!argv.includes("--no-warm")) {
     const { warmed, failed } = await warmUrls(urls);
     const ms = Math.round((Bun.nanoseconds() - started) / 1e6);
     console.error(`  warmed ${warmed}/${urls.length} files of ${moving.join(", ")} in ${ms} ms`);
-    for (const f of failed) console.error(`  COLD ${f}`);
+    for (const f of failed) {
+      console.error(`  COLD ${f}`);
+      warnings.push(`COLD ${f}`);
+    }
   }
 }
+
+// The bytes every region's pointer is given, and the bytes the record keeps.
+// One buffer rather than one rendering per region, so a record can say the
+// regions were given the same object and not that they were given two
+// serialisations of one object in memory.
+const pointerBytes = new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`);
 
 // Every region gets the same composition and its own history, §3.
 //
@@ -487,6 +551,56 @@ if (!argv.includes("--no-warm")) {
 // publish writes unit.json last; an index of what an override may name must not
 // be able to hold a deploy back. A failure there is loud and costs an override
 // one entry until the next promote.
+/** The regions whose pointer this run actually moved. */
+const written: Region[] = [];
+
+/**
+ * What a partly-finished promote leaves behind.
+ *
+ * The pointer write is not guarded the way the history write above is, and it
+ * must not be: a region that will not take the pointer is a failed deploy and
+ * has to be loud. What it must not also be is unrecorded. A throw on the second
+ * region leaves the first one SERVING the new composition, the channel drifted,
+ * and - before this - nothing in deploys/ about a promote that happened. That
+ * is the exact state the archive exists for.
+ */
+const writeRecord = (): void => {
+  if (!keepsRecord(channelArg) || written.length === 0) return;
+  try {
+    const dir = freeDir(recordDir("deploy", composition.composedAt, channelArg), (d: string) => Bun.file(`${d}/promote.json`).size > 0,
+    );
+    for (const r of written) Bun.write(`${dir}/manifest.${r}.json`, pointerBytes);
+    const record = promoteRecord({
+      channel: channelArg,
+      argv,
+      // Only what landed. `regions` is what was asked for.
+      regions: written,
+      source: promotedFrom,
+      contract,
+      before: idsOf(current),
+      after: idsOf(composition)!,
+      startedAt,
+      composedAt: composition.composedAt,
+      writtenAt: new Date().toISOString(),
+      warnings,
+    });
+    Bun.write(`${dir}/promote.json`, `${JSON.stringify(record, null, 2)}\n`);
+    console.error(`\n${dir}`);
+    console.error(`  ${shootCommand(channelArg, dir)}`);
+    if (written.length !== regions.length) {
+      console.error(
+        `  It records ${written.join(", ")} and not ${regions.join(", ")}: the rest were not written.`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `  WARNING the deploy record was not written: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error(`  The deploy is unaffected. deploys/ holds nothing about this promote.`);
+  }
+};
+
+try {
 for (const r of regions) {
   const historyKey = `manifests/${r}/${channelArg}.history.json`;
   try {
@@ -498,7 +612,7 @@ for (const r of regions) {
       } catch (err) {
         // Rebuilt from this promote rather than refused. A history nobody can
         // parse is worth less than one that starts again from what is live.
-        console.error(`  WARNING ${historyKey} could not be read, rebuilding it: ${String(err)}`);
+        warn(`${historyKey} could not be read, rebuilding it: ${String(err)}`);
       }
     }
 
@@ -538,29 +652,63 @@ for (const r of regions) {
       cacheControl: CACHE_POINTER,
     });
   } catch (err) {
-    console.error(
-      `  WARNING the ${r} version history was not written: ${err instanceof Error ? err.message : String(err)}`,
+    warn(
+      `the ${r} version history was not written: ${err instanceof Error ? err.message : String(err)}`,
     );
     console.error(`  The deploy is unaffected. No override can name this build until the next promote.`);
   }
 
-  await putObject(cfg, pointerFor(r), new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`), {
+  await putObject(cfg, pointerFor(r), pointerBytes, {
     contentType: "application/json; charset=utf-8",
     cacheControl: CACHE_POINTER,
   });
+  // Named as each write lands, not from the list this run intended. Two
+  // pointers are two objects: a throw on the second leaves the first region
+  // SERVING the new composition, and a record claiming both would be the §3
+  // drift written down as one deploy - while a record claiming neither is the
+  // state the archive exists for, missing.
+  written.push(r);
 }
+
+} catch (err) {
+  // The record first, then the failure. A promote that moved one region and
+  // then threw is a deploy that happened, and the reading of it must survive
+  // the throw that reports it.
+  writeRecord();
+  throw err;
+}
+
+const moves = unitMoves(idsOf(current), idsOf(composition)!);
 
 const width = Math.max(...UNITS.map((u) => u.length));
 console.error(`${channelArg} (${regions.join(", ")}) at contract ${contract}:`);
 for (const unit of UNITS) {
-  const now = unit === "shell" ? composition.shell : composition.apps[unit]!;
-  const before = unit === "shell" ? current?.shell : current?.apps[unit];
-  const moved = before?.unitId !== now.unitId;
+  const move = moves[unit]!;
   console.error(
-    `  ${unit.padEnd(width)} ${now.unitId}` +
-      (moved ? `  <- ${before?.unitId ?? "new"}` : `  unchanged`),
+    `  ${unit.padEnd(width)} ${move.unitId}` +
+      (move.state === "carried" ? `  unchanged` : `  <- ${move.from ?? "new"}`),
   );
 }
+
+// -- the record of the act ----------------------------------------------------
+//
+// The pointer bytes are the whole of what was served, about 2.5 kB of them,
+// and nothing outside git can hold them: the pointer is overwritten by the next
+// promote and its history is HISTORY_DEPTH deep. `shoot` files the same bytes
+// after the fact, from a browser, minutes later and only for a channel a
+// browser can reach. This writes them at the moment they were put, and beside
+// them the half no later reading can recover - which command was run and what
+// it let through. What a promote CARRIED is recoverable by diffing two
+// consecutive records; that a promote happened at all when nothing moved is not.
+//
+// The directory is the one `shoot --out` is told to fill in, named by the same
+// two functions `shoot` names its own by. `shoot` refuses a directory that
+// already holds a shots.json and nothing here writes one, so the two compose.
+//
+// Never allowed to fail the promote, for the reason the version history above
+// is not: the pointer is already moved, so a throw here would report a deploy
+// that happened as a deploy that did not.
+writeRecord();
 
 console.log(JSON.stringify(Object.fromEntries(UNITS.map((u) => [
   u,

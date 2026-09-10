@@ -26,7 +26,7 @@ It refuses to run when the newest `deploys/` record disagrees with what `qa` ser
 
 ## The pictures are the record
 
-`deploys/<taken>-<channel>/` is what was **served**, and it is written by `bun run shoot` after a real promote. `previews/pr-<n>/` is what a branch **would** serve, and no channel ever pointed at it. They are separate directories because they are separate claims.
+`deploys/<composedAt>-<channel>/` is what was **served**. `promote` opens it on a real channel - the act, and the pointer bytes it PUT - and prints the `bun run shoot --out <dir>` line that fills in the pictures. `previews/pr-<n>/` is what a branch **would** serve, and no channel ever pointed at it. They are separate directories because they are separate claims.
 
 Nothing regenerates a shot. A picture of what was served on a date is falsified by re-shooting it.
 
@@ -35,7 +35,7 @@ Nothing regenerates a shot. A picture of what was served on a date is falsified 
 | | |
 | --- | --- |
 | `bun run typecheck` | |
-| `bun test` | 424 tests on 2026-09-10 |
+| `bun test` | 493 tests on 2026-09-10 |
 | `bun run verify` | the `@local` suite |
 | `bun run falsify` | when the change adds or moves a check |
 | `bun run verify:live` | when the change touches the store, the pointer or the server |

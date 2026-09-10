@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "takenAt": "2026-09-10T16:51:36.491Z",
+  "kind": "deploy",
+  "channel": "qa",
+  "region": "eu",
+  "origin": "https://pointer-deploy.fly.dev",
+  "override": null,
+  "contract": "9d1b0a3",
+  "composedAt": "2026-09-10T16:51:30.399Z",
+  "units": {
+    "shell": "c2601912",
+    "hello": "3bba892b"
+  },
+  "gate": "pointer",
+  "unchecked": {
+    "apiBase": "https://pointer-deploy-api.fly.dev",
+    "renderer": "chrome 152.0.7977.84",
+    "note": "the panels draw what the service answered, and /service draws the time it read. Neither is a function of the unit ids."
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "manifests": {
+    "eu": "manifest.eu.json",
+    "us": "manifest.us.as-served.json"
+  },
+  "shots": [
+    {
+      "route": "/",
+      "file": "shots/root.png",
+      "title": "Hello",
+      "units": {
+        "shell": "c2601912",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 134
+    },
+    {
+      "route": "/service",
+      "file": "shots/service.png",
+      "title": "Service",
+      "units": {
+        "shell": "c2601912",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 123
+    }
+  ]
+}

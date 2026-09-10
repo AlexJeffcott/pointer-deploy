@@ -1042,9 +1042,46 @@ hello    3bba892b  2026-09-10  83318092  10 members used
 
 **The page is served the answer, not the source.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history - the reading an operator takes, or a script with no store key. The page takes none: the server merges the catalogue into the channel's history and judges an override itself, so the policy names no origin for it at all. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
 
+## What a promote writes down
+
+`bun run promote` writes `deploys/<composedAt>-<channel>/` when it writes a real channel, and prints the line that fills in the pictures.
+
+```sh
+bun run promote qa --app hello=3bba892b
+#  qa (eu, us) at contract 9d1b0a3:
+#    shell c2601912  unchanged
+#    hello 3bba892b  <- 36226fb9
+#
+#  deploys/2026-09-10T16-33-38Z-qa
+#    bun run shoot --out deploys/2026-09-10T16-33-38Z-qa
+```
+
+| File | What it holds |
+| --- | --- |
+| `promote.json` | the act: the argv and the command it renders to, the channel, every region written, the commit it was run from and whether that tree was dirty, the contract it resolved at, which units MOVED - with the id on each side - and which were CARRIED, every warning it printed, and the three timestamps |
+| `manifest.<region>.json` | the bytes that region's pointer was given, per region, as they were PUT rather than re-rendered from the object in memory |
+
+**The pointer bytes are the durable half of the record, and the pictures are not.** 2467 bytes per region, measured 2026-09-10, and nothing in them depends on a service, a wall clock or a browser. `shoot` files the same bytes after the fact - minutes later, from a machine with a Chrome on it, and only for a channel a browser can reach, which `prod` is not. Written at promote time they are a complete statement of what a channel was pointed at, taken at the moment it was pointed there.
+
+**And they outlive the files they name.** `retentionPlan` deletes a superseded unit 90 days after both floors pass, and `sweep-superseded.ts` builds what is still pointed at from the channel pointers alone - nothing reads `deploys/`. So a manifest kept in git eventually names `assetBase` URLs that 404, and the pictures are then the only artefact left. That is the durability argument running the other way, and it is not closed here: either the sweep learns to read the archive, or the archive is a record of what the composition WAS and not a way to serve it again. §34 carries the decision.
+
+**Which units were CARRIED is what no later reading can recover.** A pointer holds the whole composition however few units the operator named, so `promote qa --app hello=<id>` and `promote qa --from-build` write the same bytes when they happen to agree - and that merge is the feature this repository is about. `promote.json` is the only place the two are distinguishable.
+
+**Real channels only: `qa` and `prod`.** The live suite owns `test-qa` and `test-prod` and promotes to them several times per run, so recording those would fill the archive with compositions no visitor was ever served - each one indistinguishable, in a directory listing, from a deploy.
+
+**A failed record write cannot fail a promote.** The pointer is already moved by the time this runs, so a throw here would report a deploy that happened as a deploy that did not. It is guarded exactly like the version history write above it, and for the same reason: the pointer is the commit point, and nothing written after it may hold it back.
+
+**`dirty` has to be read before the record writes into the tree.** The first real run recorded `"dirty": true` about a promote from a committed tree, because `currentSource()` ran while the record was being assembled and by then the record's own untracked files were in that tree. It is read once, after the channel is known and before anything is written.
+
+**The directory is the one `shoot --out` fills in, and neither half spells it.** `recordDir` names both, so a promote prints a `--out` that `shoot` would have chosen for itself, and `stampOf` normalises the instant so that two spellings of one time cannot name two directories. `shoot` refuses a directory that already holds a `shots.json` and `promote` writes none, so the two compose - and `scripts/record.test.ts` holds that as a test rather than as this paragraph.
+
+**What a run into that directory then checks.** Every other gate in `shoot` is about the pointer as it is NOW, so a promote landing between the two would be shot correctly and filed under the earlier promote's record - overwriting its manifest bytes, which is the one file in it nothing else restates. `filedUnderRefusal` reads the `promote.json` already there and refuses on the channel, on the ids and on the stamp. Measured on 2026-09-10 against the live origin, with a doctored copy of a real record: a stale stamp whose ids still match is refused, and so are ids that have moved.
+
+**What it does not record.** A promote that refuses writes nothing, because there is no composition to file it under and no pointer bytes to keep - the refusal is on the terminal and in the exit code. `deploys/` is in git, so a promote nobody commits is a record nobody else has, and `bun run pr` refuses a body whose production column is not in git at the commit it links.
+
 ## A picture of what was served
 
-`bun run shoot` opens the deployed channel in a browser, shoots every view in `VIEWS`, and files the images in `deploys/<taken>-<channel>/` beside the pointer bytes they are a picture of.
+`bun run shoot` opens the deployed channel in a browser, shoots every view the deployed nav has, and files the images in `deploys/<composedAt>-<channel>/` beside the pointer bytes they are a picture of. After a real promote it is handed that directory: `promote` has already written it, and prints the `--out` line that fills it in.
 
 ```sh
 bun run shoot                                      # qa, every view, a new record
@@ -1056,7 +1093,8 @@ bun run shoot --override hello=<id>                # a build nobody promoted
 | --- | --- |
 | `shots/<view>.png` | one view, at 1280x800, full page |
 | `shots.json` | what each shot is a picture of: the unit ids read off that page, the contract, the region, any panel that rendered its error state, and an `unchecked` block naming every input to the pixels that no unit id decides |
-| `manifest.eu.json`, `manifest.us.json` | the pointer for every region, as bytes, not re-rendered |
+| `manifest.eu.json`, `manifest.us.json` | the pointer for every region, as bytes, not re-rendered. A file `promote` already wrote is kept rather than replaced, because those are the bytes it PUT |
+| `promote.json` | written by `promote`, not by this: the act the pictures are of |
 | `notes.md` | the only file written by hand. Its first line says what this deploy demonstrates |
 
 **It is in git because nothing else is.** The pointer is overwritten by the next promote, its history is 20 deep, `dist/` is gitignored, and the object store was rewritten whole on 2026-09-10. So no record outside git can say what a channel served on a date, and git held nothing about it until this.
@@ -1069,6 +1107,7 @@ So every shot is gated three ways, and nothing is written until all three pass:
 | --- | --- |
 | the `__BUILD__` block is read from **the page that was shot** | a second load, which a promote landing between the two would make disagree with the picture |
 | those ids must equal the ones the pointer names | a shot of the composition before a promote, filed under the one after it |
+| the instant the page says it was composed at must equal the pointer's | the same trap where the ids cannot see it: promoting the ids a channel already serves moves `composedAt` and moves nothing else, so for as long as the TTL lasts the page from before that promote is correct on every id |
 | every view in the run must report the same ids, and the pointer must not have moved by the end | one record holding two compositions, each correct on its own |
 
 **What the gate does NOT cover, said in the record rather than implied.** It proves the composition the page was built from. It proves nothing about the pixels: the panels draw what the service answered, `/service` draws the time it read, and the renderer is whatever Chrome this machine has. `shots.json` therefore carries `unchecked.apiBase`, `unchecked.renderer` and that sentence, so a reader comparing two records can tell which of those moved instead of taking a difference for a change in the code. §29 is the sharp case: the live browser suite writes the greeting audience to the deployed service, so a shoot overlapping a `verify:browser` run files a suite-mutated page - and every gate passes, because every gate is about the pointer.
@@ -1077,9 +1116,9 @@ So every shot is gated three ways, and nothing is written until all three pass:
 
 **Nothing regenerates a shot, and that is a refusal rather than a convention.** A run into a directory that already holds a `shots.json` stops. `--out` was `--update` while nothing checked - it overwrote every image and rewrote the record, and it was the flag this repository's own tooling passed. `outRefusal` in `scripts/record.ts` also refuses a preview into `deploys/` and a channel shot into `previews/`, because the directory was the entire distinction between what was served and what never was. Measured on 2026-09-10: two views, 27 kB and 43 kB, 88 kB for the whole record including both pointers.
 
-**What holds it.** `scripts/record.ts` carries every decision that needs no browser and no store, and `scripts/record.test.ts` puts each one in the state that breaks it - 32 tests. `scripts/` is outside `stryker.config.json`'s mutate scope, so those tests have no mutation score yet; §34 carries that.
+**What holds it.** `scripts/record.ts` carries every decision that needs no browser and no store, and `scripts/record.test.ts` puts each one in the state that breaks it - 99 tests. `scripts/` is outside `stryker.config.json`'s mutate scope, so those tests have no mutation score yet; §34 carries that.
 
-**What it does not cover yet.** `prod` is not in the origin table, because it is reached by a `Host` header and no browser can be made to send one - the same wall `scripts/e2e-independent-deploy.ts` runs its browser half locally to get around. §2 is what puts it in. And `promote` writes no record of its own yet, so what a record cannot say is which command was run and what it refused.
+**What it does not cover yet.** `prod` is not in the origin table, because it is reached by a `Host` header and no browser can be made to send one - the same wall `scripts/e2e-independent-deploy.ts` runs its browser half locally to get around. §2 is what puts it in, and until it lands a `prod` deploy is `promote.json` and the pointer bytes with no pictures beside them.
 
 ## Which compositions are being handed out
 
