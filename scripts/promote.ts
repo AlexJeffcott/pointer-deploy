@@ -39,6 +39,7 @@ import {
 import { composedUnit, surfaceOfManifest } from "./catalogue.ts";
 import { regionDrift, regionsFor, type Region } from "./regions.ts";
 import { currentSource, describeSource, type Source } from "./source.ts";
+import { keepsRecord, promoteRecord, recordDir, shootCommand, unitMoves } from "./record.ts";
 import type { UnitManifest } from "./publish.ts";
 
 // test-prod and test-qa belong to the live acceptance suite. It runs this
@@ -84,6 +85,22 @@ export type Composition = {
 };
 
 const argv = process.argv.slice(2);
+const startedAt = new Date().toISOString();
+
+/**
+ * Every WARNING line this promote printed.
+ *
+ * Each one is a refusal this script deliberately does not make - a deprecated
+ * contract, a vendor major that the contract does not cover, a unit with no
+ * digests, a history it could not write. They are the reading an operator has
+ * to act on, and they scrolled past in a terminal nobody kept. The record keeps
+ * them beside the composition they were printed about.
+ */
+const warnings: string[] = [];
+const warn = (line: string): void => {
+  warnings.push(line);
+  console.error(`  WARNING ${line}`);
+};
 
 // §3. Every region, unless one is named. A machine reads the manifest for its
 // own region alone, so a promote that wrote one region would leave every other
@@ -234,7 +251,7 @@ if (fromBuild) {
     if (refusal !== null && argv.includes("--no-source-check")) {
       // Loud, and it names what it let through. An override that went quiet
       // would be the same accident with one more step in front of it.
-      console.error(`  WARNING --no-source-check: ${refusal}`);
+      warn(`--no-source-check: ${refusal}`);
     } else if (refusal !== null) {
       console.error(`refusing: ${refusal}`);
       console.error("Run `bun run build` and promote again, or pass --no-source-check.");
@@ -396,8 +413,8 @@ for (const unit of UNITS) {
   for (const [pkg, version] of Object.entries(theirs)) {
     const shellVersion = shellShared[pkg];
     if (shellVersion && majorOf(shellVersion) !== majorOf(version)) {
-      console.error(
-        `  WARNING ${unit} was built against ${pkg} ${version}, the shell ships ${shellVersion}. ` +
+      warn(
+        `${unit} was built against ${pkg} ${version}, the shell ships ${shellVersion}. ` +
           `Different majors are not covered by the contract.`,
       );
     }
@@ -412,8 +429,8 @@ const undigested = UNITS.filter(
   (u) => Object.keys(manifests.get(u)!.integrity ?? {}).length === 0,
 );
 if (undigested.length) {
-  console.error(
-    `  WARNING ${undigested.join(", ")} carry no digests, so the browser will check ` +
+  warn(
+    `${undigested.join(", ")} carry no digests, so the browser will check ` +
       `nothing they load. Republish them to record some.`,
   );
 }
@@ -434,6 +451,9 @@ for (const line of deprecationWarnings(
   sharedContracts(contractsByUnit),
 )) {
   console.error(line);
+  // Already carries its own indent and, on the first line, its own WARNING.
+  // The record keeps the operator's reading rather than a second wording of it.
+  warnings.push(line.trim().replace(/^WARNING /, ""));
 }
 
 // -- compose ----------------------------------------------------------------
@@ -470,9 +490,18 @@ if (!argv.includes("--no-warm")) {
     const { warmed, failed } = await warmUrls(urls);
     const ms = Math.round((Bun.nanoseconds() - started) / 1e6);
     console.error(`  warmed ${warmed}/${urls.length} files of ${moving.join(", ")} in ${ms} ms`);
-    for (const f of failed) console.error(`  COLD ${f}`);
+    for (const f of failed) {
+      console.error(`  COLD ${f}`);
+      warnings.push(`COLD ${f}`);
+    }
   }
 }
+
+// The bytes every region's pointer is given, and the bytes the record keeps.
+// One buffer rather than one rendering per region, so a record can say the
+// regions were given the same object and not that they were given two
+// serialisations of one object in memory.
+const pointerBytes = new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`);
 
 // Every region gets the same composition and its own history, §3.
 //
@@ -498,7 +527,7 @@ for (const r of regions) {
       } catch (err) {
         // Rebuilt from this promote rather than refused. A history nobody can
         // parse is worth less than one that starts again from what is live.
-        console.error(`  WARNING ${historyKey} could not be read, rebuilding it: ${String(err)}`);
+        warn(`${historyKey} could not be read, rebuilding it: ${String(err)}`);
       }
     }
 
@@ -538,28 +567,76 @@ for (const r of regions) {
       cacheControl: CACHE_POINTER,
     });
   } catch (err) {
-    console.error(
-      `  WARNING the ${r} version history was not written: ${err instanceof Error ? err.message : String(err)}`,
+    warn(
+      `the ${r} version history was not written: ${err instanceof Error ? err.message : String(err)}`,
     );
     console.error(`  The deploy is unaffected. No override can name this build until the next promote.`);
   }
 
-  await putObject(cfg, pointerFor(r), new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`), {
+  await putObject(cfg, pointerFor(r), pointerBytes, {
     contentType: "application/json; charset=utf-8",
     cacheControl: CACHE_POINTER,
   });
 }
 
+const moves = unitMoves(idsOf(current), idsOf(composition)!);
+
 const width = Math.max(...UNITS.map((u) => u.length));
 console.error(`${channelArg} (${regions.join(", ")}) at contract ${contract}:`);
 for (const unit of UNITS) {
-  const now = unit === "shell" ? composition.shell : composition.apps[unit]!;
-  const before = unit === "shell" ? current?.shell : current?.apps[unit];
-  const moved = before?.unitId !== now.unitId;
+  const move = moves[unit]!;
   console.error(
-    `  ${unit.padEnd(width)} ${now.unitId}` +
-      (moved ? `  <- ${before?.unitId ?? "new"}` : `  unchanged`),
+    `  ${unit.padEnd(width)} ${move.unitId}` +
+      (move.state === "carried" ? `  unchanged` : `  <- ${move.from ?? "new"}`),
   );
+}
+
+// -- the record of the act ----------------------------------------------------
+//
+// The pointer bytes are the whole of what was served, in about 200 bytes, and
+// nothing outside git can hold them: the pointer is overwritten by the next
+// promote and its history is HISTORY_DEPTH deep. `shoot` files the same bytes
+// after the fact, from a browser, minutes later and only for a channel a
+// browser can reach. This writes them at the moment they were put, and beside
+// them the half no later reading can recover - which command was run, what it
+// let through, and which units it CARRIED rather than moved.
+//
+// The directory is the one `shoot --out` is told to fill in, named by the same
+// two functions `shoot` names its own by. `shoot` refuses a directory that
+// already holds a shots.json and nothing here writes one, so the two compose.
+//
+// Never allowed to fail the promote, for the reason the version history above
+// is not: the pointer is already moved, so a throw here would report a deploy
+// that happened as a deploy that did not.
+if (keepsRecord(channelArg)) {
+  try {
+    const dir = recordDir("deploy", composition.composedAt, channelArg);
+    // Only the regions this run wrote. --region eu leaves the other region
+    // serving whatever it served, and a file claiming otherwise would be the
+    // §3 drift this refuses to flatten, written down as though it were fact.
+    for (const r of regions) await Bun.write(`${dir}/manifest.${r}.json`, pointerBytes);
+    const record = promoteRecord({
+      channel: channelArg,
+      argv,
+      regions,
+      source: currentSource(),
+      contract,
+      before: idsOf(current),
+      after: idsOf(composition)!,
+      startedAt,
+      composedAt: composition.composedAt,
+      writtenAt: new Date().toISOString(),
+      warnings,
+    });
+    await Bun.write(`${dir}/promote.json`, `${JSON.stringify(record, null, 2)}\n`);
+    console.error(`\n${dir}`);
+    console.error(`  ${shootCommand(channelArg, dir)}`);
+  } catch (err) {
+    console.error(
+      `  WARNING the deploy record was not written: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error(`  The deploy is unaffected. deploys/ holds nothing about this promote.`);
+  }
 }
 
 console.log(JSON.stringify(Object.fromEntries(UNITS.map((u) => [

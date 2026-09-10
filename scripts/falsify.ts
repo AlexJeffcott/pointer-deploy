@@ -1063,6 +1063,54 @@ const MUTATIONS: Mutation[] = [
     replace: '      if (false) return refuse("text", "is not a non-empty string");',
     scenario: "A greeting a page could not draw is refused, and nothing changes",
   },
+
+  // --- §34, the record a promote writes -------------------------------------
+  //
+  // Unit tests, and there is no other option: scripts/ is outside
+  // stryker.config.json's mutate scope, and what these break is a decision
+  // taken between a pointer write and a file write - no scenario is a visitor
+  // of it. Every one of them fails QUIETLY: a record is written either way, and
+  // it says something that is not so.
+
+  {
+    // The live suite promotes several times per run, so this fills deploys/
+    // with records of compositions no visitor was ever served - and each one
+    // looks exactly like a real deploy.
+    name: "the suite's own channels are archived like real ones",
+    file: "scripts/record.ts",
+    find: "  return (RECORDED_CHANNELS as readonly string[]).includes(channel);",
+    replace: "  return true;",
+    unitTest: "the suite's own channels keep no record",
+  },
+  {
+    // Two spellings of one instant would name two directories, and the archive's
+    // order is the only thing that says which deploy came last.
+    name: "the stamp is taken as written rather than as an instant",
+    file: "scripts/record.ts",
+    find: '  return new Date(ms).toISOString().replace(/[:.]/g, "-").replace(/-\\d{3}Z$/, "Z");',
+    replace: '  return at.replace(/[:.]/g, "-").replace(/-\\d{3}Z$/, "Z");',
+    unitTest: "an offset names the same directory as the same instant in UTC",
+  },
+  {
+    // The distinction the record exists for. The pointer bytes hold the whole
+    // composition either way, so with this gone nothing anywhere says which
+    // unit the operator asked for.
+    name: "a unit the merge carried reads as one this promote deployed",
+    file: "scripts/record.ts",
+    find: '      now === null ? "dropped" : was === null ? "new" : was === now ? "carried" : "moved";',
+    replace: '      now === null ? "dropped" : was === null ? "new" : "moved";',
+    unitTest: "a unit at the same id was carried, not deployed",
+  },
+  {
+    // The no-op promote an operator runs to check a channel moves composedAt
+    // and moves no id, so the ids alone read a shot of the LATER promote as a
+    // picture of this one - and it overwrites the manifest bytes to match.
+    name: "the same composition promoted twice reads as one deploy",
+    file: "scripts/record.ts",
+    find: "  if (serving.composedAt !== null && promote.composedAt !== serving.composedAt) {",
+    replace: "  if (false) {",
+    unitTest: "the same composition promoted again is a different promote",
+  },
 ];
 
 // The runner, named the long way for the reason playwright.config.ts gives:
