@@ -253,8 +253,12 @@ const composition = [
     ? `| this branch | \`${describe({ ...live, ...previewIds })}\` | [\`${previewDir}\`](https://github.com/${REPO}/tree/${sha}/${previewDir}) |`
     : `| this branch | \`${describe(live)}\` - no bundle changed | none |`,
   ``,
-  `The preview is published with marker \`${marker}\`, which \`qa\` composes on request and`,
-  `\`promote\` refuses to deploy. A unit the URL does not name follows the channel.`,
+  ...(preview
+    ? [
+        `The preview is published with marker \`${marker}\`, which \`qa\` composes on request and`,
+        `\`promote\` refuses to deploy. A unit the URL does not name follows the channel.`,
+      ]
+    : []),
 ].join("\n");
 
 const section = [...rows, composition].join("\n");
