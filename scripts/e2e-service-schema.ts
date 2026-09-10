@@ -51,6 +51,21 @@ const check = (what: string, ok: boolean, detail = ""): void => {
 };
 const heading = (text: string): void => console.log(`\n${++step}. ${text}`);
 
+/**
+ * A check that needs a panel to look at.
+ *
+ * Reported as skipped when the tree builds no sub-app, never dropped. A run
+ * that stopped asking would print the same green as a run that asked.
+ */
+const skippedForNoPanel: string[] = [];
+const onPanel = (what: string, run: () => void): void => {
+  if (PANEL) run();
+  else {
+    console.log(`  skip ${what} - no sub-app on this slate`);
+    skippedForNoPanel.push(what);
+  }
+};
+
 type Run = { code: number; stdout: string; stderr: string };
 
 async function sh(cmd: string[], env: Record<string, string> = {}): Promise<Run> {
@@ -150,17 +165,31 @@ const attrOf = async (page: Page, selector: string, name: string): Promise<strin
   return el ? el.getAttribute(name) : null;
 };
 
+/**
+ * The sub-app whose panel this reads, or null when the tree builds none.
+ *
+ * `PLAN.md` step 0 is the frame alone, so half the readings below have no
+ * subject. They are SKIPPED and said to be skipped rather than dropped: a run
+ * that quietly stopped asking about the panel would report the same "ok" count
+ * as one that asked and got the right answer.
+ */
+const PANEL: string | null = (APPS as string[])[0] ?? null;
+
 /** Every reading this run makes, taken from the rendered DOM of both views. */
 async function readPanels(page: Page): Promise<Panels> {
-  await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-app="hello"] section', { timeout: 30_000 });
-  // The service reading arrives after the first paint, so wait for the shell to
-  // have settled it rather than reading a page mid-flight.
-  await page.waitForFunction(() => document.documentElement.dataset.api !== undefined, {
-    timeout: 30_000,
-  });
-  const greeting = await textOf(page, "[data-greeting]");
-  const panelGoing = await attrOf(page, '[data-app="hello"] [data-going]', "data-going");
+  let greeting = "";
+  let panelGoing: string | null = null;
+  if (PANEL) {
+    await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(`[data-app="${PANEL}"] section`, { timeout: 30_000 });
+    // The service reading arrives after the first paint, so wait for the shell
+    // to have settled it rather than reading a page mid-flight.
+    await page.waitForFunction(() => document.documentElement.dataset.api !== undefined, {
+      timeout: 30_000,
+    });
+    greeting = await textOf(page, "[data-greeting]");
+    panelGoing = await attrOf(page, `[data-app="${PANEL}"] [data-going]`, "data-going");
+  }
 
   await page.goto(`${ADDRESS}/service`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-service]", { timeout: 30_000 });
@@ -247,7 +276,8 @@ try {
     ...APPS.flatMap((a) => ["--app", `${a}=${ids[a]}`]),
   ]);
   if (promoted.code !== 0) throw new Error(`promote failed:\n${promoted.stderr}`);
-  await awaitUnit("hello", ids.hello);
+  await awaitUnit("shell", ids.shell);
+  for (const app of APPS) await awaitUnit(app, ids[app]);
 
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
@@ -265,8 +295,12 @@ try {
   check("it names the version this shell calls", before.serves === "v1", before.serves);
   check("it marks nothing as going away", before.going.length === 0, JSON.stringify(before.going));
   check("no response has carried a Sunset", before.headerSunset === null, `${before.headerSunset}`);
-  check("the panel draws what the service holds", before.greeting === "Hello, world", before.greeting);
-  check("and says nothing about a retirement", before.panelGoing === null, `${before.panelGoing}`);
+  onPanel("the panel draws what the service holds", () =>
+    check("the panel draws what the service holds", before.greeting === "Hello, world", before.greeting),
+  );
+  onPanel("and says nothing about a retirement", () =>
+    check("and says nothing about a retirement", before.panelGoing === null, `${before.panelGoing}`),
+  );
 
   heading(`Retire greeting.audience on the SERVICE only. No build, no publish, no promote`);
   await startService(RETIRE);
@@ -283,10 +317,12 @@ try {
     after.fields.length === before.fields.length,
     JSON.stringify(after.fields),
   );
-  check(
-    "the panel names the field being retired",
-    after.panelGoing === "greeting.audience",
-    `${after.panelGoing}`,
+  onPanel("the panel names the field being retired", () =>
+    check(
+      "the panel names the field being retired",
+      after.panelGoing === "greeting.audience",
+      `${after.panelGoing}`,
+    ),
   );
   check(
     "the page read the Sunset header off a data response",
@@ -313,7 +349,9 @@ try {
   const offered = await readPanels(page);
   const unitsOffered = await unitsOnPage(page);
 
-  check("the panel draws the new greeting", offered.greeting === "Hei, Oslo", offered.greeting);
+  onPanel("the panel draws the new greeting", () =>
+    check("the panel draws the new greeting", offered.greeting === "Hei, Oslo", offered.greeting),
+  );
   check(
     "not one unit moved for any of it",
     JSON.stringify(unitsOffered) === JSON.stringify(unitsBefore),
@@ -330,12 +368,22 @@ try {
   check("it names no field, because it read none", gone.fields.length === 0, JSON.stringify(gone.fields));
   // The default the store was built with. A slow or absent service costs the
   // page the service's greeting and never the page.
-  check("and the panel still draws a greeting", gone.greeting === "Hello, world", gone.greeting);
+  onPanel("and the panel still draws a greeting", () =>
+    check("and the panel still draws a greeting", gone.greeting === "Hello, world", gone.greeting),
+  );
   check("the page still serves every unit", (await unitsOnPage(page)).shell === ids.shell);
 } finally {
   await browser?.close();
   service.proc?.kill();
   server.proc?.kill();
+}
+
+if (skippedForNoPanel.length) {
+  console.log(
+    `\n${skippedForNoPanel.length} checks were SKIPPED because this tree builds no ` +
+      `sub-app, so nothing draws a panel: ${skippedForNoPanel.join("; ")}. ` +
+      `They come back at PLAN.md step 1.`,
+  );
 }
 
 console.log(

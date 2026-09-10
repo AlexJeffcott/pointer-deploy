@@ -192,8 +192,17 @@ function parseComposition(m: Record<string, unknown>): ManifestV3 {
     apps[name] = parseComposedUnit(`apps.${name}`, value);
   }
 
-  if (Object.keys(apps).length === 0) throw new Error("manifest names no apps");
-
+  // A composition naming no app is LEGITIMATE, and schema 2 above still refuses
+  // one. The difference is which claim each shape makes. A schema 2 manifest was
+  // one build directory holding a shell and the apps beside it, and one with no
+  // app was a truncated write. A schema 3 composition names units that were
+  // published and promoted separately, and how many of them there are is a fact
+  // about the application: the shell owns placement, a view may place nothing,
+  // and `PLAN.md` step 0 is the whole application being exactly that. A server
+  // that refused it would refuse the page it is there to serve.
+  //
+  // What is still refused is a composition with no SHELL, one line below: there
+  // is no page without one.
   const shell = parseComposedUnit("shell", m.shell);
   if (!shell.imports || Object.keys(shell.imports).length === 0) {
     throw new Error("manifest field shell.imports is missing or empty");

@@ -757,8 +757,17 @@ describe("parseManifest", () => {
     rejects(doc3, "shell.assetBase");
   });
 
-  test("rejects a composition naming no apps", () => {
-    expect(() => parseManifest({ ...composed("s1"), apps: {} })).toThrow("no apps");
+  // The shell owns placement and a view may place nothing, so a composition of
+  // the shell alone is the application rather than a broken write. Schema 2
+  // still refuses one, and manifest.ts says why the two differ.
+  test("accepts a composition naming no apps, and still refuses one with no shell", () => {
+    const alone = parseManifest({ ...composed("s1"), apps: {} });
+    expect(alone.schema).toBe(3);
+    expect(alone.schema === 3 ? alone.apps : null).toEqual({});
+    expect(alone.schema === 3 ? alone.shell.unitId : null).toBe("s1");
+
+    const { shell: _shell, ...noShell } = composed("s1") as Record<string, unknown>;
+    expect(() => parseManifest({ ...noShell, apps: {} })).toThrow("shell");
   });
 
   test("rejects a composition with no timestamp", () => {

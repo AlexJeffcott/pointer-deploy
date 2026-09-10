@@ -11,7 +11,7 @@ Live: <https://pointer-deploy.fly.dev/>
 
 | Term | What it means |
 | --- | --- |
-| **Unit** | One independently shipped piece of the page, with its own bundle, stylesheet and id. Two: the **shell**, and the **sub-app** `hello`. |
+| **Unit** | One independently shipped piece of the page, with its own bundle, stylesheet and id. **One** on this slate: the **shell**. `PLAN.md` steps 1, 4 and 5 add three sub-apps back, one per step. |
 | **Shell** | The frame. It owns the title, the sidenav, routing, the shared state, and the slots the sub-apps render into. |
 | **Sub-app** | One panel on the page. Built, published and deployed on its own. |
 | **Object store** | A Tigris bucket on Fly, `pointer-deploy-assets`. It contains all published unit's files, every channel's pointer and the catalogue. |
@@ -29,9 +29,11 @@ Live: <https://pointer-deploy.fly.dev/>
 
 ## Where the application is now
 
-The page is a title, a fixed sidenav and two views. `/` places the one sub-app, which draws a greeting and writes back to it. `/service` is drawn by the frame itself, from the one reading it took of the service. Desktop only, and there is no breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views, and not one of them places a unit. `/`, `/board` and `/week` are waiting for one; `/service` is drawn by the frame itself, from the one reading it took of the service, and `/backup` will be drawn by the frame too. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
 
-That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app, so the application is the frame. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+
+**Every two-unit example below is the mechanism rather than the tree.** The readings are real and were taken when `hello` existed. TODO §31 lists what going to one unit cost each claim, and `PLAN.md` says which step gives it back.
 
 What gets built on this slate is documented as it is built. The process is the thing being shown, more than whatever the application turns out to be.
 

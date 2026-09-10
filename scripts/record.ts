@@ -262,8 +262,9 @@ export type UnitMove = {
  * deliberately re-deployed at the id it already had.
  *
  * A name on one side only is not an error here. `new` is a first promote, and
- * `dropped` is a unit that left the composition - which UNITS makes impossible
- * today and which a silent union would lose the day it stops being.
+ * `dropped` is a unit that left the composition. That was impossible while
+ * UNITS only ever grew; `PLAN.md` step 0 removed `hello`, so the first real
+ * `dropped` entry is in the archive and a silent union would have lost it.
  */
 export function unitMoves(
   before: Record<string, string> | null,

@@ -37,12 +37,14 @@ Nothing regenerates a shot. A picture of what was served on a date is falsified 
 | | |
 | --- | --- |
 | `bun run typecheck` | |
-| `bun test` | 638 tests on 2026-09-10 |
+| `bun test` | 656 tests on 2026-09-10 |
 | `bun run verify` | the `@local` suite |
 | `bun run falsify` | when the change adds or moves a check |
 | `bun run verify:live` | when the change touches the store, the pointer or the server |
 
 Green checks do not prove a feature works. `~/projects/CLAUDE.md` carries the reasoning; the short form is that a suite which wires the stack by hand can pass while the path a visitor takes is broken, and this repository has `bun run e2e` because of it.
+
+`bun run e2e` and `bun run e2e:members` **exit non-zero on this slate**, and that is the correct state rather than a fault to fix. Both measure a sub-app, `PLAN.md` step 0 builds none, and a command that exited 0 while measuring nothing would be the exact failure the paragraph above names. They come back at step 1; TODO §31 lists every other check that lost its subject with them.
 
 ## Voice
 

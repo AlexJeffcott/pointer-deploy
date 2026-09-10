@@ -54,13 +54,13 @@ Then("it says the count starts again when the machine is replaced", function (th
 
 Then("that composition is counted as an operator's override, and nothing else is", function (this: PointerWorld) {
   const rows = reading(this).compositions;
-  const asked = this.unitIdOf("one", "hello");
+  const asked = this.unitIdOf("one", "shell");
   const overridden = rows.filter((c) => c.overrides > 0);
 
-  expect(`overridden: ${JSON.stringify(overridden.map((c) => `hello=${c.units.hello} x${c.overrides}`))}`)
-    .toBe(`overridden: ${JSON.stringify([`hello=${asked} x1`])}`);
+  expect(`overridden: ${JSON.stringify(overridden.map((c) => `shell=${c.units.shell} x${c.overrides}`))}`)
+    .toBe(`overridden: ${JSON.stringify([`shell=${asked} x1`])}`);
 
-  const visitors = rows.filter((c) => c.overrides === 0 && c.units.hello !== asked);
+  const visitors = rows.filter((c) => c.overrides === 0 && c.units.shell !== asked);
   expect(`the channel's own composition was counted, unoverridden: ${visitors.length > 0}`).toBe(
     "the channel's own composition was counted, unoverridden: true",
   );

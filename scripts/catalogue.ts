@@ -186,8 +186,10 @@ export function catalogueFrom(read: (Read | null)[]): Omit<BuiltCatalogue, "scan
     });
   }
 
-  // The five units in their own order, so a reader sees the shell where the
-  // shell always is rather than wherever the bucket happened to list it.
+  // The units this tree builds first, in their own order, so a reader sees the
+  // shell where the shell always is rather than wherever the bucket happened to
+  // list it. Everything else the bucket holds follows: a unit that was
+  // published and is no longer built is still one an operator can promote.
   const ordered: Record<string, HistoryEntry[]> = {};
   for (const name of [...UNITS, ...Object.keys(units)]) {
     if (units[name] && !ordered[name]) ordered[name] = units[name]!;

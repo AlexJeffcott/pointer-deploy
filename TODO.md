@@ -11,7 +11,7 @@ Open items and what is done. Read this first after a context clear.
 
 **Cut back on 2026-09-10.** Every closed item's full text — its measurements, its refuted leads and its reasoning — is in git history, and `TODO.md` at `f7d2318` is the last version that carries it. The index at the bottom keeps every `§N` resolvable, because 119 references to those numbers live in `scripts/`, `src/`, `api/`, `README.md` and `PLAN.md`.
 
-**The slate was cleared on 2026-09-10.** Two units remain and the object store was rewritten from one build. A unit name in the index below is a name that was true at the time.
+**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`, so **one** unit remains: the shell draws five views and none of them places a sub-app. A unit name in the index below is a name that was true at the time.
 
 ## Where things are
 
@@ -21,7 +21,7 @@ Open items and what is done. Read this first after a context clear.
 | Fly app | `pointer-deploy`, two machines since §3: `ams` started, `iad` stopped under `auto_stop_machines`. `min_machines_running = 1` holds `ams` up, and the stopped machine's check reads `the machine hasn't started`, which is that and not a fault |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
-| Units | two: `shell` and `hello` |
+| Units | one: `shell`. `hello` is gone at `PLAN.md` step 0; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
 | Contract | `9d1b0a3` (`hello-2026-09`), and it is the only one the registry holds |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
@@ -36,9 +36,9 @@ Open items and what is done. Read this first after a context clear.
 ```sh
 bun run build && bun run publish
 bun run promote qa --from-build          # everything just built
-bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it back
+bun run promote qa --shell <id>          # one unit. Same command rolls it back
 bun run units                            # which ids there are to name
-bun run e2e                              # the one that proves the feature works
+bun run e2e                              # REFUSES on this slate: independence needs a second unit
 bun run shoot --out <dir>                # the pictures, into the directory promote opened
 bun run changelog                        # the archive as CHANGELOG.md. Run it whenever a record is added
 bun run pr                               # the review URLs and both sets of shots
@@ -76,14 +76,31 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 ### 31. Claims that need a second unit
 
-Clearing the slate to one sub-app took the subject away from four readings. None is wrong; each has nothing to measure. `PLAN.md` steps 1, 4 and 5 restore the first three, and step 9 restores the fourth.
+Clearing the slate to one sub-app took the subject away from four readings. `PLAN.md` step 0 then removed that sub-app, and the losses below are what going from one to none cost on top. None of these claims is wrong; each has nothing to measure. `PLAN.md` steps 1, 4, 5, 9 and 10 restore them.
+
+**What was already lost at one sub-app**, and what has happened to it since:
 
 | Claim | Where it was | What holds it now |
 | --- | --- | --- |
-| A dropped member refuses the app that used it **and nothing else** | `scripts/e2e-member-gate.ts` | `scripts/members.test.ts`, which asserts a member no app calls shows as used by none |
-| Warming an off-screen unit's files buys something | two `@browser` scenarios, one `falsify` mutation, `scripts/measure-preload.ts` | `html.test.ts` holds the tags' shape. Nothing measures the benefit; every unit is on the route a visitor lands on |
-| Two independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | The frame and the panel share it, held by the same feature and by the `peek` mutation in `falsify` |
+| A dropped member refuses the app that used it **and nothing else** | `scripts/e2e-member-gate.ts` | **Nothing.** `members.test.ts` used to assert that a member no app calls shows as used by none; with no app that is true of every member, so the test now asserts what the shell PROVIDES and says nothing about use. `bun run e2e:members` refuses to run |
+| Warming an off-screen unit's files buys something | two `@browser` scenarios, one `falsify` mutation, `scripts/measure-preload.ts` | `html.test.ts` holds the tags' shape. Nothing measures the benefit. What IS now measured is the opposite: the page warms nothing at all, and `falsify` warms a file no view placed to prove that check has teeth |
+| Two independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | **Nothing.** `shared-state.feature` is deleted: every scenario in it was a frame and a separately deployed panel agreeing. What survives is one bundle short of the claim — the frame subscribes to its own store, held by `The frame redraws when the reading it took of the service arrives` and by the `peek` mutation, now aimed at `service()` rather than `greeting()` |
 | A published pair reads as not additive | `scripts/contract.test.ts` | Nothing. The registry holds one contract, and the reading needs two |
+
+**What removing `hello` cost on top.** Each row is a check that was deleted or turned off, and where it comes back:
+
+| Claim | Where it was | Comes back |
+| --- | --- | --- |
+| One unit deploys and rolls back without moving the other, read off the rendered page | `bun run e2e` | Step 1. The script now exits non-zero and names the commit holding the full version (`ff196d5`) |
+| `promote` merges into the composition instead of replacing it | `Deploying a sub-app leaves the frame where it was`, and a `falsify` mutation | Step 1. Nothing holds it: with one unit a replace and a merge write the same bytes |
+| A publish uploads only the unit that changed | `Publishing after a change to one unit uploads that unit alone`, and the `unit id carries the commit` mutation | Step 1. With one unit "only that unit" is true whatever the id rule is |
+| A composition whose units share no contract is refused | a `@live` scenario and a `@live` `falsify` mutation | Step 1. `src/server/composition.test.ts` still holds the rule; nothing holds the wiring through a real promote |
+| A sub-app needing a member the shell does not have is refused | a `@live` scenario and a `@live` `falsify` mutation | Step 1, and step 10 for the "and nothing else" half. `composition.test.ts` holds the rule |
+| A panel that throws costs its panel and not the frame, and can be mounted again | two `@browser` scenarios and two `falsify` mutations | Step 1. `AsyncAppLoader.tsx` is unexercised until then; the frame's own boundary is still held by `The frame throwing replaces the page and offers a reload` |
+| A sub-app whose script or stylesheet does not match its digest does not run | a `@browser` Scenario Outline and two `falsify` mutations | Step 1. One of the two mutations — the import map carrying no digests — was re-aimed at a `@local` scenario and is now run on every `bun run falsify` rather than skipped |
+| Each sub-app is fetched from its own unit's directory | a `@live` scenario | Step 1. `html.test.ts` holds `loads each sub-app from its own unit's base` |
+
+**One thing closed itself, and by accident rather than by the fix §29 names.** No scenario in the suite now writes to the deployed service: the only `POST` was a panel's audience input, and the panel is gone. §29 stays open, because what closes it is the service changing its subject at step 6 — not a writer losing its keyboard.
 
 ### 33. 42 mutants survive in `api/service.ts`
 
@@ -141,6 +158,8 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 The channels are already handled — the suite owns `test-qa` and `test-prod`, and a tripwire fails a run that moved a real one. The service has no equivalent.
 
 **`PLAN.md` step 6 chooses the way out.** The service stops holding a greeting and starts holding snapshots and slots in a bucket, and the suite's snapshots and slots go under a `test-` key prefix that the existing tripwire pattern covers. The item closes when that lands, not before.
+
+**Nothing writes to it today, and that is not the fix.** `PLAN.md` step 0 removed the panel whose input was the only `POST` in the suite, so the window is currently zero scenarios long. The service is still writable by anything that can reach it, and the suite still reads production; the item is open until the service holds something the suite owns.
 
 ### 21. Pin the vendor types the contract references, or stop claiming to
 

@@ -29,18 +29,35 @@ only, and read which version of the app to serve, per request, from a file.
 So a deploy is this, and nothing else:
 
 ```sh
-bun run promote qa --app hello=3bba892b
+bun run promote qa --shell c2601912
 ```
 
-That moves `hello`. The shell stays exactly where it was, and rolling `hello`
-back afterwards leaves alone whatever was deployed in between.
+That moves the shell and nothing else. When there is a sub-app the same command
+names it — `--app hello=3bba892b` — and the shell stays exactly where it was;
+rolling that sub-app back afterwards leaves alone whatever was deployed in
+between.
+
+**One unit, today.** `PLAN.md` step 0 is the frame on its own: the shell draws
+five views and none of them places a sub-app, so `scripts/contract.ts` names one
+unit and `build.ts` builds one. Every two-unit example in this document is the
+mechanism rather than the tree — the readings are real, and they were taken when
+`hello` existed. `PLAN.md` steps 1, 4 and 5 put three sub-apps back, one per
+step, and each says what it restores.
 
 ### The application is deliberately almost nothing
 
-The page is a title, a fixed sidenav and two views. `/` places the one sub-app,
-which draws a greeting and writes back to it. `/service` is drawn by the shell
-itself, from the one reading it took of the service. Desktop only: there is no
-breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views, and **not one of them
+places a unit**. `/`, `/board` and `/week` are waiting for one — `PLAN.md` steps
+1, 4 and 5 — and the frame says so on each of them. `/service` is drawn by the
+shell itself, from the one reading it took of the service, and `/backup` will be
+drawn by the shell too. Desktop only: there is no breakpoint anywhere in the
+stylesheet.
+
+A view naming no unit is a legitimate view and not a hole: the frame draws it,
+and nothing is fetched for it. `serving-the-shell.feature` is where that claim
+is written down and where it is measured — the served page names no bundle
+beyond the frame's own and asks the browser to warm nothing, and walking the
+whole sidenav in a browser costs no request at all.
 
 That is the whole application, and it is the point. Everything else in this
 repository is the machinery for shipping it — publishing, composing, promoting,
@@ -51,7 +68,10 @@ because the process is what the project is for.
 ### The page is bundles that agree with each other
 
 The shell owns the state — a greeting of two fields, and what the service says
-it holds. The sub-app reads it and writes to it, and holds nothing of its own.
+it holds. A sub-app reads it and writes to it, and holds nothing of its own.
+There is no sub-app on this slate, so the greeting is currently read from the
+service and drawn by nothing; the frame draws the service report, and that is
+the reading `/service` shows.
 
 Each sub-app is its own **unit**: its own bundle, its own stylesheet, its own id,
 published and promoted on its own and fetched when its view first needs it. That
@@ -120,6 +140,9 @@ live, and it writes an HTML page pointing at each of them. Promoting a different
 unit changes one answer to that question, so the next visitor gets a different
 app from the same running machine — and only the part that moved is different.
 
+The third fetch is what a page with a sub-app makes. This slate has none, so a
+visitor makes the first two and stops — the same mechanism with one unit in it.
+
 Note the last two lines. The shell and `hello` come from different directories,
 written at different times. **One `assetBase` per unit is the whole feature.**
 Schema 2 had one base for the entire page, so every file had to come from one
@@ -147,9 +170,9 @@ lines repeated, and a new image for every commit.
 ```sh
 bun run build                                 # every unit into dist/units/
 bun run publish                               # uploads only what changed. Affects nobody
-bun run promote qa --app hello=3bba892b       # the deploy
-bun run promote qa --app hello=36226fb9       # the rollback. Same command
-bun run promote qa --shell c2601912           # the shell alone
+bun run promote qa --shell c2601912           # the deploy, on this slate
+bun run promote qa --shell 5442c052           # the rollback. Same command
+bun run promote qa --app hello=3bba892b       # one sub-app, when there is one
 bun run promote qa --from-build               # everything just built
 bun run units                                 # which ids there are to name
 ```
@@ -185,6 +208,9 @@ $ bun run publish
   hello 3bba892b  uploaded 3 files
 ```
 
+(That reading was taken when there were two units. With one, the second line is
+not printed and the first is the whole report.)
+
 ## What stops a rollback breaking the page
 
 Composing units means composing combinations that nothing has ever typechecked.
@@ -216,10 +242,10 @@ The sets are generated, never written:
 $ bun run contract:matrix
        9d1b0a3
 shell     pass
-hello     pass
 ```
 
-One contract, because the slate minted one. The table earns its keep the moment
+One contract, because the slate minted one, and one row, because the slate
+builds one unit. The table earns its keep the moment
 there is a second, and the shape below is what it looked like on the previous
 slate when a breaking change was tried:
 
@@ -341,7 +367,10 @@ question an operator actually has is different — does this sub-app need
 anything this shell does not have — and the two come apart the moment the shell
 drops a member nothing in the composition ever called.
 
-`bun run contract:members`, on this repository:
+`bun run contract:members`, taken on 2026-09-10, when `hello` was the one
+sub-app. With none the command prints the member count and says there is nothing
+to ask — the column below is what the reading looks like when there is something
+to ask it of:
 
 ```
 member                      hello
@@ -426,7 +455,10 @@ refused too.
 
 **Proved end to end** by `bun run e2e:members`, against the real store and the
 real scripts: `goingAway` removed from `ShellStore`, the shell published alone,
-and the sub-app left exactly as it was.
+and the sub-app left exactly as it was. That command **refuses to run on this
+slate** and exits non-zero, because the gate is measured by what a sub-app uses
+and there is no sub-app; it comes back at `PLAN.md` step 1, and TODO §31 carries
+the loss.
 
 ```
 hello uses ShellStore.goingAway, which this shell does not have. Nothing was changed.
@@ -434,9 +466,10 @@ hello uses ShellStore.goingAway, which this shell does not have. Nothing was cha
   hello   <id>  10 members used
 ```
 
-With one sub-app the second half of the claim — *and nothing else* — is not
-measured there. `scripts/members.test.ts` is what holds it until a second unit
-exists: a member no app calls must show as used by none.
+With one sub-app the second half of the claim — *and nothing else* — was not
+measured there. With none, neither half is: `scripts/members.test.ts` now holds
+what the shell PROVIDES and nothing about use, because every member is used by
+nobody. Step 1 restores the first half and step 10 the second.
 
 The contract sets in such a run are disjoint — the shell satisfies only the
 contract just minted, and the published app only the one it was built against —
@@ -620,7 +653,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/web/shell/` | The frame: the store factory (`api.ts`), routing, the context, and `AsyncAppLoader` |
 | `src/web/shell/views.ts` | Which sub-apps appear on which route. The shell owns placement; `build.ts` checks it against the units it emits |
 | `src/web/shell/AsyncAppLoader.tsx` | Fetches one sub-app and renders it INSIDE this tree, with the boundary that can therefore catch what it throws |
-| `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others |
+| `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others. **Empty on this slate**, and `PLAN.md` step 1 is the first thing to put a directory back in it |
 | `src/web/shell/subapp.ts` | `SubApp` and `SubAppProps`, the half of the contract a sub-app satisfies |
 | `src/web/shell/contract.ts` | The shell's conformance, in one file the matrix can compile |
 | `src/web/apps/<name>/contract.ts` | That app's default export, checked against `SubApp` |
@@ -633,11 +666,11 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/members.ts` | The removal prober: what a surface provides, and which member each consumer uses |
 | `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__` and `__APPS__`, declared once |
 | `src/server/blocks.provides.json` | What this server writes, derived and committed. The image cannot work it out |
-| `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store |
+| `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store. **Refuses to run while there is no sub-app** |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
 | `scripts/promote.ts` | Read the composition, merge what was named, test the member gate, write |
-| `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page |
+| `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page. **Refuses to run while there is one unit**: independence needs a second |
 | `scripts/e2e-service-schema.ts` | Retires a field and writes another with nothing rebuilt, and reads what the page then paints |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
 | `features/support/bdd.ts` | The bindings, and the one file that names the runner |
@@ -646,7 +679,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |
 | `features/support/fixtures/schema-2.json` | That manifest, committed. Nothing rebuilds it |
-| `scripts/falsify.ts` | Breaks the server and the deploy scripts 91 ways; each break must turn one check red, and a `find` that names more than one place is refused |
+| `scripts/falsify.ts` | Breaks the server and the deploy scripts; each break must turn one check red, and a `find` that names more than one place is refused |
 | `scripts/sweep-superseded.ts` | Lists, and with `--delete` removes, what no channel can serve and the retention floor allows |
 | `scripts/retention.ts` | The floor itself: how long a superseded build is kept, decided against a clock the caller passes in |
 | `stryker.config.json` | Mutation testing over the server logic |
@@ -667,9 +700,15 @@ shell publish and a promote, so `hello` cannot be moved from one route to
 another by pointing a channel somewhere else; and rolling the shell back rolls
 the layout back with it, because they are one unit.
 
-A view that names no app is a legitimate view. `/service` is one: the frame
-draws it, nothing is fetched for it, and it is how a route exists before a unit
-has been built for it.
+A view that names no app is a legitimate view: the frame draws it, nothing is
+fetched for it, and it is how a route exists before a unit has been built for
+it. On this slate every view is one of those, which is what `PLAN.md` step 0 is
+for — `serving-the-shell.feature` holds the claim, and it holds it in two
+places, because the two halves fail differently. The served page names no bundle
+beyond the frame's own and warms nothing, which is read off the HTML; and a
+browser walking the whole sidenav issues no request at all, which is read off
+the network. A link that navigated instead of routing would satisfy the first
+and break the second.
 
 `views.ts` is imported by the shell, by `build.ts` and by the step definitions,
 so it holds no CSS, no JSX and nothing only a browser provides. `build.ts`
@@ -694,9 +733,19 @@ step definitions removes that drift; it does not tie the harness to the
 than it looks.
 
 Not covered, and asserted so nobody mistakes it for coverage: the **route**.
-Moving a sub-app from one route to another leaves both sets identical.
+Moving a sub-app from one route to another leaves both sets identical. The
+titles are covered — a browser scenario walks the sidenav and compares what the
+frame drew against `VIEWS` — so a route that resolved to the wrong view is
+caught even though a route that swapped its unit is not.
 
 ## Warming a sub-app's files before its view is opened
+
+Nothing is warmed on this slate, because there is no sub-app to warm and no view
+that places one. That is asserted rather than assumed: the served page is
+checked to carry no `modulepreload` and no `preload` at all, and `falsify` warms
+a file no view placed to prove the check has teeth. What follows is the
+mechanism, which returns with `PLAN.md` step 4 — the first step to put a unit on
+a route a visitor does not land on.
 
 A sub-app's bundle is fetched when its view first appears, so a navigation used
 to wait on a network fetch that could have happened while the visitor was
@@ -1019,7 +1068,7 @@ Every publish writes `units/<name>/<id>/unit.json`, so the store has always held
 
 ```sh
 bun run units                 # every unit an operator may deploy
-bun run units hello           # one unit
+bun run units shell           # one unit
 bun run units --all           # and the builds the harness made
 bun run units --rebuild       # read the store again and write the file
 bun run units --json          # the catalogue itself, for a script
@@ -1029,6 +1078,11 @@ bun run units --json          # the catalogue itself, for a script
 shell    c2601912  2026-09-10  83318092  12 members provided
 hello    3bba892b  2026-09-10  83318092  10 members used
 ```
+
+`hello` is still in that listing and is meant to be: the catalogue is every unit
+that has been PUBLISHED, and a unit this tree no longer builds is still one an
+operator can name in a promote. It is `scripts/contract.ts` that decides what
+`bun run units <name>` will accept, and it accepts `shell` alone.
 
 **It is derived, and rebuilt rather than appended to.** `publish` reads the store's own LIST and writes the file from scratch, so a write lost to a crash or to two publishers at once heals on the next publish. An appended file would carry that loss forever, and a file that can silently disagree with the store is what this exists to replace. Nothing here is the only record of anything: every entry restates what one `unit.json` already says.
 
@@ -1419,7 +1473,7 @@ document, and `GET /healthz`, which depends on nothing.
 `readMembers` cuts one declaration out of the surface and recompiles each unit
 against the rest. `FieldSunset` is a type with four named members, so it cuts
 `FieldSunset.reason` on its own — and the answer is the real output of
-`bun run contract:members`:
+`bun run contract:members`, taken while `hello` existed:
 
 ```
 member                      hello

@@ -46,6 +46,19 @@ Feature: Reading the page's values from a service on its own schedule
 
     @browser
     Scenario: The page is permitted to reach the service it was told about
-      Given a visitor opens the hello view
+      Given a visitor opens the frame
       Then the page is allowed to fetch from that service
       But it is not allowed to fetch from the store
+
+    @browser
+    Scenario: The frame redraws when the reading it took of the service arrives
+      The first paint happens before the service has answered, so `/service`
+      starts as "unread" and fills in afterwards. That it fills in at all is the
+      whole shared-runtime claim, one bundle short: the store is a signal the
+      shell's bundle created, the frame reads it through an accessor, and an
+      accessor that read without subscribing would leave this view saying
+      "unread" for as long as the tab is open.
+
+      Given a visitor opens the frame
+      When they open the service view
+      Then the frame draws the reading it took of the service

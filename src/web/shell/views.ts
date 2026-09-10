@@ -11,17 +11,38 @@ export type View = {
  * The shell owns placement. A view naming no app is a legitimate view: the
  * frame draws it, nothing is fetched for it, and it is how a page exists
  * before a unit has been built for it.
+ *
+ * Every view here is one of those. `PLAN.md` step 0 is the frame on its own, so
+ * the tree builds no sub-app and no view may place one - `placementProblems`
+ * below is what refuses the two ways that can go wrong. Three of these five
+ * routes are waiting for a unit: `/` at step 1, `/board` at step 4, `/week` at
+ * step 5. The other two never get one; the frame draws them from its own state.
  */
 export const VIEWS: Record<string, View> = {
   "/": {
-    title: "Hello",
-    apps: ["hello"],
-    note: "One sub-app, its own bundle, fetched from the object store when this view first appears.",
+    title: "Tasks",
+    apps: [],
+    note: "No unit is placed here yet. The frame drew this view, and nothing was fetched for it.",
+  },
+  "/board": {
+    title: "Board",
+    apps: [],
+    note: "No unit is placed here yet. The frame drew this view, and nothing was fetched for it.",
+  },
+  "/week": {
+    title: "Week",
+    apps: [],
+    note: "No unit is placed here yet. The frame drew this view, and nothing was fetched for it.",
   },
   "/service": {
     title: "Service",
     apps: [],
     note: "Drawn by the shell from the one reading it took of the service. Nothing is fetched for this view.",
+  },
+  "/backup": {
+    title: "Backup",
+    apps: [],
+    note: "Drawn by the shell. It will hold export, import, push and pull; none of them is built yet.",
   },
 };
 

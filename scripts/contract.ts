@@ -25,10 +25,25 @@ import { join, resolve } from "node:path";
 export const CONTRACTS_DIR = "contracts";
 export const REGISTRY = join(CONTRACTS_DIR, "registry.json");
 
-/** The units that are published and composed independently. */
-export const UNITS = ["shell", "hello"] as const;
+/**
+ * The units that are published and composed independently.
+ *
+ * One, on this slate. `PLAN.md` step 0 is the frame by itself: the shell draws
+ * five views and none of them places a unit, so there is no sub-app to build,
+ * publish or promote. Steps 1, 4 and 5 add `list`, `board` and `week` back, one
+ * per step, and every mechanism here is written for the plural it does not
+ * currently have.
+ *
+ * `APPS` is therefore empty and its element type is `never`. That is the
+ * reading that is true, and it is deliberately not widened to `string`: a site
+ * that only compiles because an app might exist is a site that would go on
+ * compiling after the list emptied, which is how the state below arrives
+ * unnoticed.
+ */
+export const UNITS = ["shell"] as const;
 export type Unit = (typeof UNITS)[number];
-export const APPS = UNITS.filter((u) => u !== "shell") as Exclude<Unit, "shell">[];
+export type App = Exclude<Unit, "shell">;
+export const APPS: App[] = [];
 
 /**
  * Bare specifiers the shell owns and every sub-app borrows.

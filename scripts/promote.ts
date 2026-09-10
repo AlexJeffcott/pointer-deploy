@@ -127,7 +127,9 @@ const usage = () => {
   console.error("       bun run promote <channel> --from-build [--no-source-check]");
   console.error("       --region <r> writes one region instead of all of them");
   console.error(`       channels: ${CHANNELS.join(", ")}`);
-  console.error(`       apps:     ${APPS.join(", ")}`);
+  console.error(
+    `       apps:     ${APPS.length ? APPS.join(", ") : "none. This slate builds the shell alone, so --app names nothing"}`,
+  );
 };
 
 const channelArg = argv[0];
@@ -185,8 +187,15 @@ for (let i = 1; i < argv.length; i++) {
       console.error(`--app takes <name>=<id>, got ${JSON.stringify(pair ?? "")}`);
       process.exit(1);
     }
-    if (!APPS.includes(name as (typeof APPS)[number])) {
-      console.error(`unknown app ${JSON.stringify(name)}. Expected one of ${APPS.join(", ")}.`);
+    if (!(APPS as readonly string[]).includes(name)) {
+      console.error(
+        APPS.length
+          ? `unknown app ${JSON.stringify(name)}. Expected one of ${APPS.join(", ")}.`
+          : `unknown app ${JSON.stringify(name)}. This slate builds no sub-app, so ` +
+            `--app names nothing. Units published earlier are still in the store and ` +
+            `still promotable, but only once a build here emits one - a channel that ` +
+            `named one would serve a bundle no shell places.`,
+      );
       process.exit(1);
     }
     wanted.set(name as Unit, id);

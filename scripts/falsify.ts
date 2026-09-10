@@ -485,42 +485,6 @@ const MUTATIONS: Mutation[] = [
   },
 
   {
-    // The merge IS the feature. Without it every promote replaces all five
-    // units, and "deploy hello" silently rolls the shell back to whatever the
-    // operator last had on disk.
-    name: "promote replaces the composition instead of merging into it",
-    file: "scripts/promote.ts",
-    find: "  const kept = unit === \"shell\" ? current!.shell : current!.apps[unit]!;",
-    replace:
-      "  const kept = unit === \"shell\" ? current!.shell : current!.apps[unit]!;\n" +
-      "  if (unit !== \"shell\") { continue; }",
-    scenario: "Deploying a sub-app leaves the frame where it was",
-    live: true,
-  },
-  {
-    // Rolling one unit back is exactly how a combination nothing has ever
-    // typechecked comes to be served.
-    name: "the composition refusal is removed",
-    file: "scripts/promote.ts",
-    // The leading newline is load-bearing: `sourceRefusal` has an `} else if
-    // (refusal !== null) {` above this, and a `find` that matched it patched
-    // the wrong branch and read as caught. Measured on 2026-08-29.
-    find: "\nif (refusal !== null) {",
-    replace: "\nif (false) {",
-    scenario: "A composition with no contract in common is refused",
-    live: true,
-  },
-  {
-    // §9. The gate that replaced the intersection: an app may not need a
-    // member the shell does not have.
-    name: "a member the shell does not have is allowed through",
-    file: "src/server/composition.ts",
-    find: 'if (held === undefined) problems.push(`${name} uses ${path}, which this shell does not have`);',
-    replace: 'if (false) problems.push(`${name} uses ${path}, which this shell does not have`);',
-    scenario: "A sub-app needing a member the shell does not have is refused",
-    live: true,
-  },
-  {
     // A list of member NAMES would pass this. The digest is what makes a
     // narrowed parameter a different member.
     name: "a re-declared member is treated as the same member",
@@ -576,21 +540,6 @@ const MUTATIONS: Mutation[] = [
     find: "if (!(await surfaceHolds(dir, spec))) return { member, structural: true, users: [] as string[] };",
     replace: "if (false) return { member, structural: true, users: [] as string[] };",
     unitTest: "measures which app uses what",
-  },
-  {
-    // A unit id that carried the commit would change on every commit, so one
-    // change to one unit would republish every unit and the independence would only
-    // exist in the pointer.
-    name: "the unit id carries the commit",
-    file: "build.ts",
-    find: "  new Bun.CryptoHasher(\"sha256\").update(JSON.stringify([...files].sort())).digest(\"hex\").slice(0, 8);",
-    replace:
-      "  new Bun.CryptoHasher(\"sha256\")\n" +
-      "    .update(JSON.stringify([...files].sort()) + String(Bun.env.FALSIFY_COMMIT ?? Date.now()))\n" +
-      "    .digest(\"hex\")\n" +
-      "    .slice(0, 8);",
-    scenario: "Publishing after a change to one unit uploads that unit alone",
-    live: true,
   },
   {
     // One shared base would name the right unit ids in the manifest and fetch
@@ -820,26 +769,18 @@ const MUTATIONS: Mutation[] = [
 
   {
     // A digest on the shell's tag covers the shell's entry and nothing behind
-    // it. The chunk that entry imports, and every sub-app the loader imports
-    // by URL, are declared here or nowhere.
+    // it. The shared chunks that entry imports resolve through the import map,
+    // so the map's own `integrity` block is the only place their digests can be
+    // declared - and a page with none renders exactly like one with them.
+    //
+    // Was named against a @browser scenario that corrupted a sub-app's digest.
+    // That scenario is gone with `hello`, and this is the reading that replaced
+    // it: @local, so `bun run falsify` runs it rather than reporting it skipped.
     name: "the import map stops carrying digests",
     file: "src/server/html.ts",
     find: "  const integrity = moduleIntegrity(m);",
     replace: "  const integrity: Record<string, string> = {};",
-    scenario: "A sub-app whose <file> does not match its digest does not run",
-    live: true,
-    browser: true,
-  },
-  {
-    // The other mechanism. A stylesheet never resolves through the import map,
-    // so its digest has to reach the loader on the app list instead.
-    name: "a sub-app's stylesheet digest never reaches the loader",
-    file: "src/server/html.ts",
-    find: "        const digest = a.css ? a.integrity?.[a.css] : undefined;",
-    replace: "        const digest: string | undefined = undefined;",
-    scenario: "A sub-app whose <file> does not match its digest does not run",
-    live: true,
-    browser: true,
+    scenario: "A shell names the digest of every file it tells the browser to fetch",
   },
   {
     // A policy naming no origin refuses every file the manifest names. The
@@ -909,47 +850,22 @@ const MUTATIONS: Mutation[] = [
   // composition this run did not build would load the unmutated bundle and
   // stay green for the wrong reason.
 
-  {
-    // The name is the whole mechanism: Preact walks up looking for a component
-    // that HAS componentDidCatch. Rename it and the class is no longer a
-    // boundary, so a sub-app's throw carries on to the frame and takes the
-    // page. Nothing else changes - the method still exists and still compiles.
-    name: "the loader's boundary stops being a boundary",
-    file: "src/web/shell/AsyncAppLoader.tsx",
-    find: "  componentDidCatch(error: unknown): void {",
-    replace: "  componentDidNotCatch(error: unknown): void {",
-    scenario: "A sub-app that throws costs its panel and not the frame",
-    live: true,
-    browser: true,
-  },
-  {
-    // Remounting without clearing the error leaves the panel in the state it
-    // failed in. The control would still be there and would still do
-    // something, which is the version of this bug nobody would notice.
-    name: "mounting again does not clear the error",
-    file: "src/web/shell/AsyncAppLoader.tsx",
-    find: "    this.setState({ error: null, attempt: this.state.attempt + 1 });",
-    replace: "    this.setState({ attempt: this.state.attempt + 1 });",
-    scenario: "A panel that threw can be mounted again",
-    live: true,
-    browser: true,
-  },
-
-  // --- the shared store, from THIS tree -------------------------------------
+  // --- the shared store -----------------------------------------------------
   //
-  // Section 19. The shared-state scenarios under the first Rule read the
-  // DEPLOYED composition, so neither mutation below reaches them: they would
-  // stay green against the last build that was promoted, which is exactly the
-  // hole the second Rule was written to close. Both name a scenario from that
-  // Rule, whose Background builds and promotes from here.
+  // Section 19. `shared-state.feature` is gone with `hello` - every scenario in
+  // it was the frame and a separately deployed panel agreeing, and there is no
+  // panel. What survives is the half that needs one bundle: the frame reading
+  // its own store through an accessor that subscribes. TODO §31 carries the
+  // rest.
 
 
   // --- warming a sub-app's files -------------------------------------------
 
   // Nothing here. Warming is about the bundles for a view nobody has opened,
-  // and every unit this repository builds is on the view a visitor lands on.
-  // `html.test.ts` covers the tags; the scenario that watched the network for
-  // them comes back with the second unit.
+  // and this repository builds no unit at all - so the page warms nothing, and
+  // "the page warms a file no view placed" above is the reading that has teeth
+  // instead. `html.test.ts` covers the tags; the scenario that watched the
+  // network for a warmed bundle comes back with the second unit.
 
   // --- what the service says it holds, §26 ---------------------------------
 
@@ -986,6 +902,74 @@ const MUTATIONS: Mutation[] = [
 
   // --- what the service offers, §27 ----------------------------------------
 
+
+  // --- a view that names no unit, PLAN.md step 0 ---------------------------
+  //
+  // Two halves, and each needs its own mutation. "The frame draws it" is about
+  // the route resolving to the view a visitor asked for; "nothing is fetched
+  // for it" is about the page naming nothing to fetch and the walk between
+  // views costing no request.
+  //
+  // What CANNOT be falsified here, and it is worth being plain about: with no
+  // unit in the tree there is no bundle a mutation could make the page fetch,
+  // so the unit-level half of "nothing is fetched" is structural rather than
+  // measured. It gets its teeth back at step 1, when `/service` and `/backup`
+  // still have to fetch nothing while `/` fetches `list`.
+
+  {
+    // A page carrying a sub-app list the manifest does not back. Harmless
+    // looking, and it is the tag the loader reads to decide what to import.
+    name: "the page carries a sub-app list when there are no sub-apps",
+    file: "src/server/html.ts",
+    find: "  const appsTag = Object.keys(apps).length",
+    replace: "  const appsTag = 1",
+    scenario: "The page names no bundle beyond the frame's own",
+  },
+  {
+    // The other direction: the page warming a file no view placed. §17's
+    // machinery is real, so a warm aimed at the wrong thing is a plausible
+    // edit, and it costs a fetch a view naming no unit must not cause.
+    name: "the page warms a file no view placed",
+    file: "src/server/html.ts",
+    find: "  for (const app of Object.values(appUrls(m))) {",
+    replace: "  for (const app of [...Object.values(appUrls(m)), { js: assetUrls(m).js }]) {",
+    scenario: "The page names no bundle beyond the frame's own",
+  },
+  {
+    // The guard this step removed, put back. A composition of the shell alone
+    // is the application now, and a server that refuses it answers 503 to every
+    // visitor - which is what it did for one run while this was still in place.
+    name: "a composition naming no sub-app is refused",
+    file: "src/server/manifest.ts",
+    find: "  const shell = parseComposedUnit(\"shell\", m.shell);",
+    replace:
+      "  if (Object.keys(apps).length === 0) throw new Error(\"manifest names no apps\");\n" +
+      "  const shell = parseComposedUnit(\"shell\", m.shell);",
+    scenario: "The page names no bundle beyond the frame's own",
+  },
+  {
+    // The frame drawing the landing view whatever the sidenav was asked for.
+    // The page renders, the URL moves, and every other check stays green.
+    name: "the frame draws the landing view whatever the route says",
+    file: "src/web/shell/Shell.tsx",
+    find: "  const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE;",
+    replace: "  const path = DEFAULT_ROUTE;",
+    scenario: "Moving between views draws each one and fetches nothing",
+    live: true,
+    browser: true,
+  },
+  {
+    // "Nothing is fetched for it", falsified. A link that navigates instead of
+    // routing draws every view correctly and fetches the whole frame again to
+    // do it - which is a page that works and a claim that does not.
+    name: "a sidenav link navigates instead of routing",
+    file: "src/web/shell/router.ts",
+    find: '  history.pushState(null, "", path);',
+    replace: "  location.assign(path);",
+    scenario: "Moving between views draws each one and fetches nothing",
+    live: true,
+    browser: true,
+  },
 
   // --- placement -----------------------------------------------------------
 
@@ -1037,15 +1021,20 @@ const MUTATIONS: Mutation[] = [
     unitTest: "a prime that found nothing leaves the entry blank",
   },
   {
-    // The whole shared-runtime claim in one line. `peek` reads the signal
-    // without subscribing, so the panel keeps drawing what it drew when it
-    // mounted - which is exactly what a sub-app carrying its OWN signals
-    // runtime would do.
+    // The store is a signal the SHELL's bundle created, and every reader of it
+    // subscribes by reading `.value`. `peek` reads without subscribing, so a
+    // view keeps drawing what it drew when it mounted.
+    //
+    // Named against the greeting and a panel until `hello` went. The service
+    // report is the same accessor one view along, and it is the one the frame
+    // draws for itself: `index.tsx` renders "unread" before the read is
+    // started, so a `/service` that ever says "ok" can only have got there
+    // through the store after the first paint.
     name: "an accessor reads the store without subscribing to it",
     file: "src/web/shell/api.ts",
-    find: "    greeting: () => greeting.value,",
-    replace: "    greeting: () => greeting.peek(),",
-    scenario: "What the panel writes comes back, from this tree",
+    find: "    service: () => service.value,",
+    replace: "    service: () => service.peek(),",
+    scenario: "The frame redraws when the reading it took of the service arrives",
     live: true,
     browser: true,
   },

@@ -325,15 +325,23 @@ async function probeMembers(spec: Spec): Promise<MemberReading> {
     }
   };
 
+  // With no consumer there is nothing to compile and nothing to blame, so the
+  // baseline is skipped rather than run against an empty file list - tsc reads
+  // that as a misconfigured project and fails, which would read here as a
+  // surface that does not hold. `provides` is unaffected: it is measured by
+  // `surfaceHolds`, which asks the declarations alone. `uses` comes back empty,
+  // which is the true reading when nothing consumes the surface.
   const base = join(WORK, "full");
   await write(base, spec.files[spec.name]!);
-  const baseline = await compileWith(all, spec.paths(resolve(base)), join(WORK, "baseline"));
-  if (!baseline.ok) {
-    await rm(WORK, { recursive: true, force: true });
-    throw new Error(
-      `the consumers do not compile against the surface at HEAD, so nothing can be ` +
-        `said about which members they use:\n${baseline.output}`,
-    );
+  if (all.length) {
+    const baseline = await compileWith(all, spec.paths(resolve(base)), join(WORK, "baseline"));
+    if (!baseline.ok) {
+      await rm(WORK, { recursive: true, force: true });
+      throw new Error(
+        `the consumers do not compile against the surface at HEAD, so nothing can be ` +
+          `said about which members they use:\n${baseline.output}`,
+      );
+    }
   }
 
   const members = membersIn(spec.files[spec.name]!, spec.name);
@@ -361,6 +369,7 @@ async function probeMembers(spec: Spec): Promise<MemberReading> {
     // A member whose removal breaks the surface itself cannot be asked about:
     // every consumer would fail for a reason that is not use.
     if (!(await surfaceHolds(dir, spec))) return { member, structural: true, users: [] as string[] };
+    if (!all.length) return { member, structural: false, users: [] as string[] };
     const result = await compileWith(
       all,
       spec.paths(resolve(dir)),
@@ -386,6 +395,14 @@ async function probeMembers(spec: Spec): Promise<MemberReading> {
 /** The table, for a person. */
 export function renderMembers(reading: MemberReading, units: string[]): string {
   const paths = Object.keys(reading.provides).sort();
+  // No column to draw. A table of blanks would read as a measurement that found
+  // nothing, and what happened is that nothing was asked.
+  if (units.length === 0) {
+    return (
+      `${paths.length} members provided, and no sub-app to ask about any of them. ` +
+      `This slate builds the frame alone.`
+    );
+  }
   const width = Math.max(8, ...paths.map((p) => p.length));
   const lines = [`${"member".padEnd(width)}  ${units.map((u) => u.slice(0, 7).padEnd(7)).join(" ")}`];
   for (const path of paths) {
