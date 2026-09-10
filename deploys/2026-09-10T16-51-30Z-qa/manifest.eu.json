@@ -1,0 +1,48 @@
+{
+  "schema": 3,
+  "composedAt": "2026-09-10T16:51:30.399Z",
+  "contract": "9d1b0a3",
+  "shell": {
+    "unitId": "c2601912",
+    "commit": "8331809293df95af7e254efdeb5e240ec1569c2e",
+    "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/shell/c2601912/",
+    "js": "index-b2nncsqx.js",
+    "css": "index-t1mb1e5f.css",
+    "imports": {
+      "preact": "preact-41htxfrg.js",
+      "preact/hooks": "preact-hooks-c9wea24a.js",
+      "preact/jsx-runtime": "preact-jsx-runtime-8xr4ra0e.js",
+      "@preact/signals": "preact-signals-06w0qcd7.js",
+      "@pointer/shell": "api-71dwmss9.js"
+    },
+    "integrity": {
+      "index-b2nncsqx.js": "sha384-eJMIrMYYGsejTNj87aVgLQpawJcKbE/D3BMYrPkV6GUTG4wJRsvzKzXVbAGWM9XZ",
+      "shared-zybqn0p4.js": "sha384-zQ4L8/+PSjqsAvyWUm4PJ70EzyrbzLCmHOcPfoSt0mCrD9KHl5AID4yRcIpxnaoZ",
+      "shared-5k8sdhav.js": "sha384-vzcZc/dmeQ3B/oFd3SjZHr6g9lNr8EKnRn0WibGRL9IWmcTup0Pa8ZpE0zFPfTGJ",
+      "shared-d7q3pr75.js": "sha384-KNOYx550ZKUPRTynDxRQ+H1BtXpn75lfSkYSWSWlflRsLB2Cs5eyxsb2J0KP3pYZ",
+      "shared-0478q4fq.js": "sha384-qxCO5s3q5Z7jNExOsefHsXhr5b+rto4xzE3G9V2PMQp6d/o26x5WCIwvGFX9ca3h",
+      "shared-g4ve8t08.js": "sha384-lmc2j2PRBVFvCw6ncW82qPBx2DWuUsSXHZvxdJllEWj3eyCimeOpBWMftUV1iYJa",
+      "api-71dwmss9.js": "sha384-2EsAXB4y1777Qe/mtCNllAOgrRXCNu0hBiCJdzkjs95KSIsGx8gf/8JSCF9pXpbS",
+      "preact-41htxfrg.js": "sha384-x0gJdjbxJeui7P4XhU6n3K09Yuwaw7DcVE4KsvBxzZ7uZAF4MG8dIbc4T8CZeqw0",
+      "preact-hooks-c9wea24a.js": "sha384-xMcWorw3sKiJrSAw5DHYCtxnn/nAE/kZ6QsL6VI4xkhIYl4NR4TdwpmRIFHUq6dc",
+      "preact-jsx-runtime-8xr4ra0e.js": "sha384-lC8jwAJ6+mkqvVAqsFzf1YcpSjwTZwK4psIZ49i0GvTir0JCZw1xv5kw+P+g8R58",
+      "preact-signals-06w0qcd7.js": "sha384-TZRWDqY7SPcpH7r31x12eA/puhqSr82LBFsTSKd2EnvvOYGkqCsFirVpWl8wyenj",
+      "index-t1mb1e5f.css": "sha384-EC+C69g8Eq87ZjIrchrxJEaXUAQxpPmu/+nar40OVMQ4bgloNpEtmHUep5KmbqjF"
+    },
+    "marker": ""
+  },
+  "apps": {
+    "hello": {
+      "unitId": "3bba892b",
+      "commit": "8331809293df95af7e254efdeb5e240ec1569c2e",
+      "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/hello/3bba892b/",
+      "js": "hello-0kn9vs2b.js",
+      "css": "hello-ze75p5sd.css",
+      "integrity": {
+        "hello-0kn9vs2b.js": "sha384-XsE6huWg19bbH8ssxlx7dUHw5ss4sZxoEITIgDFY68oYn4ISJ0DHonH/K4cgu3JX",
+        "hello-ze75p5sd.css": "sha384-FWJrEfi/aIA2cfmZMZLS8+DvjhOt79Vg8WR2UjD2GIdcdfKt07HB9kT+a3Xewc48"
+      },
+      "marker": ""
+    }
+  }
+}
