@@ -16,80 +16,34 @@
 // That is the same shape as `contract:deprecate` for the internal contract -
 // a warning, never a refusal - and for the same reason: a page that stops
 // working on the day a field is deprecated is worse than the fault it reports.
+//
+// One resource, and that is the point of the slate: the machinery above is
+// what this service is for, and the greeting is the smallest thing it can
+// carry that a page can draw and an operator can change.
 
 export const SERVES: string[] = (Bun.env.API_SERVES ?? "v1")
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
 
-export type ApiTheme = { colour: string; dark: boolean };
-export type ApiUser = { name: string; colour: string; initials: string; theme: ApiTheme };
-
-/** What a panel is allowed to do to a counter. */
-export type ApiLimits = { step: number; max: number; allowNegative: boolean };
-
-/** How a namespace is drawn. One entry per namespace, and none is required. */
-export type ApiLabel = { title: string; emoji: string };
-export type ApiLabels = Record<string, ApiLabel>;
-
-/** Which optional parts of a panel are drawn at all. */
-export type ApiFlags = { showShares: boolean; showTotals: boolean; compact: boolean };
-
 /**
- * Read-only, and computed here rather than stored.
+ * What the page greets, and who it greets.
  *
- * `total` exists so that a panel adding the counters up itself has something to
- * disagree with. Two numbers that should match and are produced on opposite
- * sides of a network are the only way a page can show that the boundary is
- * real.
+ * Two fields rather than one. A single field could be deprecated and never
+ * replaced, so the service could publish no `instead` that means anything -
+ * and the notice period is the part of §26 worth having.
  */
-export type ApiStats = { total: number; busiest: string | null; updatedAt: string };
-
-/** A message for the frame, or nothing. Null is a value here, not an absence. */
-export type ApiMotd = { text: string; level: "info" | "warn"; until: string } | null;
+export type ApiGreeting = { text: string; audience: string };
 
 export type ApiState = {
-  user: ApiUser;
-  counters: Record<string, number>;
-  countersChangedAt: string;
-  limits: ApiLimits;
-  labels: ApiLabels;
-  flags: ApiFlags;
-  motd: ApiMotd;
+  greeting: ApiGreeting;
+  changedAt: string;
 };
 
 export const createState = (): ApiState => ({
-  user: {
-    name: "Alex",
-    colour: "#1f5fd0",
-    initials: "AJ",
-    theme: { colour: "#1f5fd0", dark: false },
-  },
-  counters: {},
-  countersChangedAt: new Date().toISOString(),
-  limits: { step: 5, max: 100, allowNegative: true },
-  labels: {
-    alpha: { title: "Alpha", emoji: "\u25b2" },
-    bravo: { title: "Bravo", emoji: "\u25c6" },
-    charlie: { title: "Charlie", emoji: "\u25cf" },
-    delta: { title: "Delta", emoji: "\u25bc" },
-  },
-  flags: { showShares: true, showTotals: true, compact: false },
-  motd: null,
+  greeting: { text: "Hello", audience: "world" },
+  changedAt: new Date().toISOString(),
 });
-
-/** Derived on every read, from the counters as they are at that moment. */
-export function statsOf(state: ApiState): ApiStats {
-  const entries = Object.entries(state.counters);
-  const busiest = entries.length
-    ? entries.reduce((a, b) => (b[1] > a[1] ? b : a))[0]
-    : null;
-  return {
-    total: entries.reduce((n, [, v]) => n + v, 0),
-    busiest,
-    updatedAt: state.countersChangedAt,
-  };
-}
 
 /** What one version of this service returns. Declared, not measured. */
 export type ApiField = { path: string; type: string };
@@ -97,46 +51,15 @@ export type ApiRoute = { method: string; path: string };
 
 export const FIELDS: Record<string, ApiField[]> = {
   v1: [
-    { path: "user.name", type: "string" },
-    { path: "user.colour", type: "string" },
-    { path: "user.initials", type: "string" },
-    { path: "user.theme.colour", type: "string" },
-    { path: "user.theme.dark", type: "boolean" },
-    { path: "counters.<ns>", type: "number" },
-    { path: "limits.step", type: "number" },
-    { path: "limits.max", type: "number" },
-    { path: "limits.allowNegative", type: "boolean" },
-    { path: "labels.<ns>.title", type: "string" },
-    { path: "labels.<ns>.emoji", type: "string" },
-    { path: "flags.showShares", type: "boolean" },
-    { path: "flags.showTotals", type: "boolean" },
-    { path: "flags.compact", type: "boolean" },
-    { path: "stats.total", type: "number" },
-    { path: "stats.busiest", type: "string | null" },
-    { path: "stats.updatedAt", type: "string" },
-    { path: "motd.text", type: "string" },
-    { path: "motd.level", type: "info | warn" },
-    { path: "motd.until", type: "string" },
+    { path: "greeting.text", type: "string" },
+    { path: "greeting.audience", type: "string" },
   ],
 };
 
 export const ROUTES: Record<string, ApiRoute[]> = {
   v1: [
-    { method: "GET", path: "/user" },
-    { method: "POST", path: "/user" },
-    { method: "GET", path: "/counters" },
-    { method: "POST", path: "/counters/<ns>" },
-    { method: "GET", path: "/limits" },
-    { method: "POST", path: "/limits" },
-    { method: "GET", path: "/labels" },
-    { method: "POST", path: "/labels" },
-    { method: "GET", path: "/flags" },
-    { method: "POST", path: "/flags" },
-    // Read only. It is derived from the counters, so writing it would be
-    // writing an answer the next read would throw away.
-    { method: "GET", path: "/stats" },
-    { method: "GET", path: "/motd" },
-    { method: "POST", path: "/motd" },
+    { method: "GET", path: "/greeting" },
+    { method: "POST", path: "/greeting" },
   ],
 };
 
@@ -339,18 +262,6 @@ const refuse = (field: string, why: string) => json({ error: `${field} ${why}` }
 const str = (value: unknown): string | null =>
   typeof value === "string" && value.length > 0 ? value : null;
 
-const num = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const bool = (value: unknown): boolean | null => (typeof value === "boolean" ? value : null);
-
-const day = (value: unknown): string | null => {
-  const text = str(value);
-  if (text === null || !/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
-  const when = new Date(`${text}T00:00:00Z`);
-  return Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== text ? null : text;
-};
-
 const readBody = async (req: Request): Promise<Record<string, unknown> | null> => {
   const body = (await req.json().catch(() => null)) as unknown;
   return body && typeof body === "object" && !Array.isArray(body)
@@ -375,189 +286,30 @@ export async function handle(req: Request, state: ApiState): Promise<Response> {
 
   const going = (top: string) => deprecationHeaders(deprecationsFor(top), url.origin);
 
-  if (rest === "/user") {
-    if (req.method === "GET") return json(state.user, 200, going("user"));
+  if (rest === "/greeting") {
+    if (req.method === "GET") return json(state.greeting, 200, going("greeting"));
     if (req.method === "POST") {
       const body = await readBody(req);
       if (!body) return refuse("body", "is not an object");
-      const named = ["name", "colour", "initials", "theme"].filter((f) => f in body);
-      if (named.length === 0) return refuse("body", "names no field of the user");
+      const named = ["text", "audience"].filter((f) => f in body);
+      if (named.length === 0) return refuse("body", "names no field of the greeting");
 
-      const name = "name" in body ? str(body.name) : null;
-      const colour = "colour" in body ? str(body.colour) : null;
-      const initials = "initials" in body ? str(body.initials) : null;
-      if ("name" in body && name === null) return refuse("name", "is not a non-empty string");
-      if ("colour" in body && colour === null) return refuse("colour", "is not a non-empty string");
-      if ("initials" in body && initials === null) {
-        return refuse("initials", "is not a non-empty string");
+      const text = "text" in body ? str(body.text) : null;
+      if ("text" in body && text === null) return refuse("text", "is not a non-empty string");
+
+      // Empty is a legitimate audience: it is how a greeting is addressed to
+      // nobody in particular, so it is checked for type and not for length.
+      let audience = state.greeting.audience;
+      if ("audience" in body) {
+        if (typeof body.audience !== "string") return refuse("audience", "is not a string");
+        audience = body.audience;
       }
 
-      let theme = state.user.theme;
-      if ("theme" in body) {
-        const patch = body.theme;
-        if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-          return refuse("theme", "is not an object");
-        }
-        const t = patch as Record<string, unknown>;
-        const themeColour = "colour" in t ? str(t.colour) : null;
-        const dark = "dark" in t ? bool(t.dark) : null;
-        if ("colour" in t && themeColour === null) {
-          return refuse("theme.colour", "is not a non-empty string");
-        }
-        if ("dark" in t && dark === null) return refuse("theme.dark", "is not a boolean");
-        theme = { colour: themeColour ?? theme.colour, dark: dark ?? theme.dark };
-      }
-
-      state.user = {
-        name: name ?? state.user.name,
-        colour: colour ?? state.user.colour,
-        initials: initials ?? state.user.initials,
-        theme,
-      };
-      return json(state.user, 200, going("user"));
+      state.greeting = { text: text ?? state.greeting.text, audience };
+      state.changedAt = new Date().toISOString();
+      return json(state.greeting, 200, going("greeting"));
     }
     return json({ error: "method not allowed" }, 405);
-  }
-
-  if (rest === "/counters") {
-    if (req.method === "GET") return json(state.counters, 200, going("counters"));
-    return json({ error: "method not allowed" }, 405);
-  }
-
-  if (rest === "/stats") {
-    if (req.method === "GET") return json(statsOf(state), 200, going("stats"));
-    // Derived from the counters, so a write here would be an answer the next
-    // read throws away. Refused rather than accepted and ignored.
-    return json({ error: "method not allowed" }, 405);
-  }
-
-  if (rest === "/limits") {
-    if (req.method === "GET") return json(state.limits, 200, going("limits"));
-    if (req.method === "POST") {
-      const body = await readBody(req);
-      if (!body) return refuse("body", "is not an object");
-      const named = ["step", "max", "allowNegative"].filter((f) => f in body);
-      if (named.length === 0) return refuse("body", "names no limit");
-
-      const step = "step" in body ? num(body.step) : null;
-      const max = "max" in body ? num(body.max) : null;
-      const allowNegative = "allowNegative" in body ? bool(body.allowNegative) : null;
-      if ("step" in body && step === null) return refuse("step", "is not a number");
-      if ("max" in body && max === null) return refuse("max", "is not a number");
-      if ("allowNegative" in body && allowNegative === null) {
-        return refuse("allowNegative", "is not a boolean");
-      }
-      // A step of zero makes every button on the page do nothing, which looks
-      // exactly like a page that has stopped working.
-      if (step !== null && step < 1) return refuse("step", "is below 1");
-      if (max !== null && max < 0) return refuse("max", "is below 0");
-
-      state.limits = {
-        step: step ?? state.limits.step,
-        max: max ?? state.limits.max,
-        allowNegative: allowNegative ?? state.limits.allowNegative,
-      };
-      return json(state.limits, 200, going("limits"));
-    }
-    return json({ error: "method not allowed" }, 405);
-  }
-
-  if (rest === "/labels") {
-    if (req.method === "GET") return json(state.labels, 200, going("labels"));
-    if (req.method === "POST") {
-      const body = await readBody(req);
-      if (!body) return refuse("body", "is not an object");
-      if (Object.keys(body).length === 0) return refuse("body", "names no namespace");
-
-      const next: ApiLabels = { ...state.labels };
-      for (const [ns, patch] of Object.entries(body)) {
-        if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-          return refuse(ns, "is not an object");
-        }
-        const entry = patch as Record<string, unknown>;
-        const title = "title" in entry ? str(entry.title) : null;
-        const emoji = "emoji" in entry ? str(entry.emoji) : null;
-        if ("title" in entry && title === null) {
-          return refuse(`${ns}.title`, "is not a non-empty string");
-        }
-        if ("emoji" in entry && emoji === null) {
-          return refuse(`${ns}.emoji`, "is not a non-empty string");
-        }
-        const held = next[ns] ?? { title: ns, emoji: "" };
-        next[ns] = { title: title ?? held.title, emoji: emoji ?? held.emoji };
-      }
-      state.labels = next;
-      return json(state.labels, 200, going("labels"));
-    }
-    return json({ error: "method not allowed" }, 405);
-  }
-
-  if (rest === "/flags") {
-    if (req.method === "GET") return json(state.flags, 200, going("flags"));
-    if (req.method === "POST") {
-      const body = await readBody(req);
-      if (!body) return refuse("body", "is not an object");
-      const named = ["showShares", "showTotals", "compact"].filter((f) => f in body);
-      if (named.length === 0) return refuse("body", "names no flag");
-
-      const next = { ...state.flags };
-      for (const flag of named as (keyof ApiFlags)[]) {
-        const value = bool(body[flag]);
-        if (value === null) return refuse(flag, "is not a boolean");
-        next[flag] = value;
-      }
-      state.flags = next;
-      return json(state.flags, 200, going("flags"));
-    }
-    return json({ error: "method not allowed" }, 405);
-  }
-
-  if (rest === "/motd") {
-    if (req.method === "GET") return json(state.motd, 200, going("motd"));
-    if (req.method === "POST") {
-      // `null` is how a message is taken down. It has to be a value the route
-      // accepts, or the only way to clear one would be to restart the service.
-      const raw = (await req.json().catch(() => undefined)) as unknown;
-      if (raw === null) {
-        state.motd = null;
-        return json(state.motd, 200, going("motd"));
-      }
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-        return refuse("body", "is neither an object nor null");
-      }
-      const body = raw as Record<string, unknown>;
-      const text = str(body.text);
-      const level = body.level === "info" || body.level === "warn" ? body.level : null;
-      const until = day(body.until);
-      if (text === null) return refuse("text", "is not a non-empty string");
-      if (level === null) return refuse("level", 'is neither "info" nor "warn"');
-      if (until === null) return refuse("until", "is not a YYYY-MM-DD date that exists");
-      state.motd = { text, level, until };
-      return json(state.motd, 200, going("motd"));
-    }
-    return json({ error: "method not allowed" }, 405);
-  }
-
-  const counter = /^\/counters\/([^/]+)$/.exec(rest);
-  if (counter) {
-    const ns = decodeURIComponent(counter[1]!);
-    if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
-    const body = await readBody(req);
-    if (!body) return refuse("body", "is not an object");
-
-    if (body.reset === true) state.counters = { ...state.counters, [ns]: 0 };
-    else if (body.register === true) {
-      if (!(ns in state.counters)) state.counters = { ...state.counters, [ns]: 0 };
-    } else {
-      const by = body.by === undefined ? 1 : body.by;
-      if (!Number.isFinite(by)) return refuse("by", "is not a number");
-      state.counters = { ...state.counters, [ns]: (state.counters[ns] ?? 0) + by };
-    }
-    // `limits` is advice to the page, not a rule this service enforces: a panel
-    // published before a limit existed would otherwise start getting refusals
-    // for writes it has always been allowed to make.
-    state.countersChangedAt = new Date().toISOString();
-    return json(state.counters, 200, going("counters"));
   }
 
   return json({ error: "not found" }, 404);

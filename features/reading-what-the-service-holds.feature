@@ -16,7 +16,7 @@ Feature: Reading what is inside the service, and what is going away
       Given a service that answers "v1"
       When the service is asked what it holds
       Then it still names "v1" among the versions it serves
-      And it names "user.colour" as a field of "v1"
+      And it names "greeting.audience" as a field of "v1"
       And nothing in "v1" is going away
 
     @local
@@ -29,15 +29,15 @@ Feature: Reading what is inside the service, and what is going away
 
     @local
     Scenario: A retired field is named in the document, with the day it goes
-      Given a service that answers "v1" and retires "user.colour" on "2026-11-30"
+      Given a service that answers "v1" and retires "greeting.audience" on "2026-12-10"
       When the service is asked what it holds
-      Then it says "user.colour" goes on "2026-11-30"
-      And it gives a reason for retiring "user.colour"
-      And it still answers "user.colour"
+      Then it says "greeting.audience" goes on "2026-12-10"
+      And it gives a reason for retiring "greeting.audience"
+      And it still answers "greeting.audience"
 
     @local
     Scenario: A retirement naming a field the service does not answer stops it
-      Given a service told to retire "user.color", which it does not answer
+      Given a service told to retire "greeting.audiance", which it does not answer
       Then it refuses to start, and names what it does answer
 
     @local
@@ -49,58 +49,47 @@ Feature: Reading what is inside the service, and what is going away
 
     @local
     Scenario: The two headers, on the responses that carry the field
-      Given a service that answers "v1" and retires "user.colour" on "2026-11-30"
-      When a page reads the user from that service
-      Then that response is marked deprecated and sunset on "2026-11-30"
+      Given a service that answers "v1" and retires "greeting.audience" on "2026-12-10"
+      When a page reads the greeting from that service
+      Then that response is marked deprecated and sunset on "2026-12-10"
       And it points at the document for the reason
 
     @local
-    Scenario: A response that does not carry the field is not marked
-      Given a service that answers "v1" and retires "user.colour" on "2026-11-30"
-      When a page reads the counters from that service
+    Scenario: A response is not marked while nothing is going away
+      Given a service that answers "v1"
+      When a page reads the greeting from that service
       Then that response is not marked deprecated
 
     @local
     Scenario: A page on another origin is allowed to read the two headers
-      Given a service that answers "v1" and retires "user.colour" on "2026-11-30"
-      When a page reads the user from that service
+      Given a service that answers "v1" and retires "greeting.audience" on "2026-12-10"
+      When a page reads the greeting from that service
       Then another origin is permitted to read the sunset
 
-  Rule: An operator changes what the service offers, and nothing is rebuilt
+  Rule: An operator changes what the service holds, and nothing is rebuilt
 
     The unit tests call the handler directly. These drive the running process,
     because what they are for is the state SURVIVING one request and being read
     by the next - which a handler called twice in one function cannot show.
 
     @local
-    Scenario: A flag flipped stays flipped for the next reader
+    Scenario: A field written stays written for the next reader
       Given a service that answers "v1"
-      When an operator sets "flags" to {"showShares": false}
-      And a page reads "flags" from that service
-      Then it reads back {"showShares": false, "showTotals": true, "compact": false}
+      When an operator sets "greeting" to {"audience": "Berlin"}
+      And a page reads "greeting" from that service
+      Then it reads back {"text": "Hello", "audience": "Berlin"}
 
     @local
-    Scenario: A limit a page could not draw is refused, and nothing changes
+    Scenario: A greeting a page could not draw is refused, and nothing changes
       Given a service that answers "v1"
-      When an operator sets "limits" to {"step": 0}
-      Then the service refuses it, saying "step is below 1"
-      And a page reads "limits" from that service
-      And it reads back {"step": 5, "max": 100, "allowNegative": true}
+      When an operator sets "greeting" to {"text": ""}
+      Then the service refuses it, saying "text is not a non-empty string"
+      And a page reads "greeting" from that service
+      And it reads back {"text": "Hello", "audience": "world"}
 
     @local
-    Scenario: A message is put up, and taken down by naming null
+    Scenario: An empty audience is a value, and not a refusal
       Given a service that answers "v1"
-      When an operator sets "motd" to {"text": "back at 14:00", "level": "warn", "until": "2026-12-01"}
-      And a page reads "motd" from that service
-      Then it reads back {"text": "back at 14:00", "level": "warn", "until": "2026-12-01"}
-      When an operator sets "motd" to null
-      And a page reads "motd" from that service
-      Then it reads back null
-
-    @local
-    Scenario: What the service counts is counted from what the service holds
-      Given a service that answers "v1"
-      When a page raises the "alpha" counter by 3
-      And a page raises the "bravo" counter by 8
-      And a page reads "stats" from that service
-      Then what it read names 11 as the total and "bravo" as the busiest
+      When an operator sets "greeting" to {"audience": ""}
+      And a page reads "greeting" from that service
+      Then it reads back {"text": "Hello", "audience": ""}

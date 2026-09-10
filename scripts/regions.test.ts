@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { REGIONS, manifestKeys, regionDrift, regionsFor, unitsThatDiffer } from "./regions.ts";
 
-const ids = (shell: string, alpha = "aaaa1111") => ({ shell, alpha });
+const ids = (shell: string, hello = "aaaa1111") => ({ shell, hello });
 
 describe("which regions a promote writes", () => {
   test("all of them, when none is named", () => {
@@ -66,15 +66,15 @@ describe("when two regions disagree", () => {
 
   test("a unit one region has and the other does not is a difference", () => {
     const said = regionDrift([
-      { region: "eu", ids: { shell: "ff144709", alpha: "aaaa1111" } },
+      { region: "eu", ids: { shell: "ff144709", hello: "aaaa1111" } },
       { region: "us", ids: { shell: "ff144709" } },
     ]);
-    expect(said).toContain("alpha aaaa1111 != none");
+    expect(said).toContain("hello aaaa1111 != none");
   });
 
   test("the differing units are named, and the matching ones are not", () => {
-    expect(unitsThatDiffer({ shell: "a", alpha: "b" }, { shell: "a", alpha: "c" })).toEqual([
-      "alpha",
+    expect(unitsThatDiffer({ shell: "a", hello: "b" }, { shell: "a", hello: "c" })).toEqual([
+      "hello",
     ]);
   });
 });

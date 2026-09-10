@@ -20,10 +20,10 @@ Feature: Checking every file the page loads against the manifest
 
   @browser @test-channel
   Scenario Outline: A sub-app whose <file> does not match its digest does not run
-    Given the digest recorded for the <file> of "alpha" is wrong
-    When a visitor navigates to the counters view
-    Then the "bravo" panel is on the page
-    And the "alpha" panel is refused rather than rendered
+    Given the digest recorded for the <file> of "hello" is wrong
+    When a visitor navigates to the hello view
+    Then the "hello" panel is refused rather than rendered
+    And the frame is still drawn
 
     Examples:
       | file       |
@@ -31,8 +31,7 @@ Feature: Checking every file the page loads against the manifest
       | stylesheet |
 
   @browser @test-channel
-  Scenario: The page assembles from five bundles under its own policy
-    When a visitor opens the counters view
-    And they open the totals view
+  Scenario: The page assembles from its own bundles under its own policy
+    When a visitor opens the hello view
     Then every panel on the page is styled by its own stylesheet
     And the browser refused nothing the page asked for

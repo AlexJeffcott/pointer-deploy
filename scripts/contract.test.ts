@@ -6,7 +6,7 @@
 // probes read the direction they claim to read.
 
 import { describe, expect, test } from "bun:test";
-import { directionFrom, readRegistry, readSurface, type Surface } from "./contract.ts";
+import { directionFrom, type Surface } from "./contract.ts";
 
 /** Long enough for two tsc runs per comparison on a cold cache. */
 const SLOW = 30_000;
@@ -120,21 +120,8 @@ describe("the direction of a surface change", () => {
     SLOW,
   );
 
-  // Not a fixture. The two surfaces this repository has actually published,
-  // and the change between them - a mount() function became a component - is
-  // the one every published sub-app had to be rebuilt for.
-  test(
-    "the published pair reads as not additive",
-    async () => {
-      const registry = await readRegistry();
-      const older = registry.contracts.find((c) => c.name === "counters-2026-08");
-      const newer = registry.contracts.find((c) => c.name === "injected-store-2026-08");
-      if (!older || !newer) throw new Error("the registry no longer holds the pair this reads");
-
-      const d = await directionFrom(await readSurface(older), await readSurface(newer));
-      expect(d.additive).toBe(false);
-      expect(broken(d).length).toBeGreaterThan(0);
-    },
-    SLOW,
-  );
+  // The reading this file used to end on - the two surfaces this repository
+  // had actually published, and the direction between them - needs two minted
+  // contracts, and the slate holds one. It comes back the day a second is
+  // minted, which is the day the reading first means something again.
 });

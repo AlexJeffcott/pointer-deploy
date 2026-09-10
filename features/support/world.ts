@@ -131,8 +131,14 @@ export class PointerWorld {
   serviceResponse: Response | null = null;
   serviceRefusal: { code: number; said: string } | null = null;
   serviceRead: unknown = null;
-  /** What a counter stood at before a scenario raised it. */
-  countsBefore = new Map<string, number>();
+  /**
+   * What the greeting's audience was before a scenario wrote one.
+   *
+   * The service is shared by every visitor and every earlier run, so a write
+   * has to be put back. `restoreAudience` does it in an After hook, and null
+   * means this scenario never wrote.
+   */
+  audienceBefore: string | null = null;
 
   private ids = BUILD_IDS;
 
@@ -268,7 +274,6 @@ export class PointerWorld {
     this.serviceResponse = null;
     this.serviceRefusal = null;
     this.serviceRead = null;
-    this.countsBefore.clear();
     this.stub = null;
     this.localServer = false;
   }
@@ -427,6 +432,37 @@ export class PointerWorld {
           `${result.stderr}`,
       );
     }
+  }
+
+  /**
+   * Puts the audience back to what the scenario found.
+   *
+   * Written through the service rather than the page: by the time this runs
+   * the browser may be anywhere, and the service is what holds the value.
+   */
+  async restoreAudience(): Promise<void> {
+    if (this.audienceBefore === null) return;
+    const audience = this.audienceBefore;
+    this.audienceBefore = null;
+    const base = this.serviceBase || (await this.apiBaseOnPage());
+    if (!base) return;
+    await fetch(`${base}/v1/greeting`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ audience }),
+    }).catch(() => {});
+  }
+
+  private async apiBaseOnPage(): Promise<string> {
+    if (!this.page) return "";
+    return this.page
+      .evaluate(() => {
+        const el = document.getElementById("__BUILD__");
+        return el?.textContent
+          ? ((JSON.parse(el.textContent) as { apiBase?: string }).apiBase ?? "")
+          : "";
+      })
+      .catch(() => "");
   }
 
   async promoteUnit(channel: Channel, unit: Unit, id: string): Promise<Run> {

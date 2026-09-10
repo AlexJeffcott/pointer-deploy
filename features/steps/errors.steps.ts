@@ -27,12 +27,14 @@ Then("the {string} panel is drawn", async function (this: PointerWorld, app: str
   expect(errors).toBe(0);
 });
 
-Then("the {string} panel reads {int}", async function (this: PointerWorld, app: string, want: number) {
-  const text = await this.browserPage.$eval(
-    `[data-app="${app}"] section p:nth-of-type(2)`,
-    (el) => el.textContent?.trim() ?? "",
-  );
-  expect(text).toBe(String(want));
+// The other half of the boundary claim: the panel is gone and the frame is
+// not. The frame is the element carrying the unit marker, which the panel's
+// own error message is a child of.
+Then("the frame is still drawn", async function (this: PointerWorld) {
+  const frames = await this.browserPage.$$eval("div[data-unit-marker]", (nodes) => nodes.length);
+  expect(frames).toBe(1);
+  const shellErrors = await this.browserPage.$$eval("[data-shell-error]", (nodes) => nodes.length);
+  expect(shellErrors).toBe(0);
 });
 
 Then("the page reports that the frame failed", async function (this: PointerWorld) {

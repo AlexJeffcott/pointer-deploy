@@ -482,7 +482,7 @@ const MUTATIONS: Mutation[] = [
     replace:
       "  const kept = unit === \"shell\" ? current!.shell : current!.apps[unit]!;\n" +
       "  if (unit !== \"shell\") { continue; }",
-    scenario: "Deploying one sub-app leaves the others where they were",
+    scenario: "Deploying a sub-app leaves the frame where it was",
     live: true,
   },
   {
@@ -503,8 +503,8 @@ const MUTATIONS: Mutation[] = [
     // member the shell does not have.
     name: "a member the shell does not have is allowed through",
     file: "src/server/composition.ts",
-    find: "if (held === undefined) problems.push(",
-    replace: "if (false) problems.push(",
+    find: 'if (held === undefined) problems.push(`${name} uses ${path}, which this shell does not have`);',
+    replace: 'if (false) problems.push(`${name} uses ${path}, which this shell does not have`);',
     scenario: "A sub-app needing a member the shell does not have is refused",
     live: true,
   },
@@ -577,7 +577,7 @@ const MUTATIONS: Mutation[] = [
       "    .update(JSON.stringify([...files].sort()) + String(Bun.env.FALSIFY_COMMIT ?? Date.now()))\n" +
       "    .digest(\"hex\")\n" +
       "    .slice(0, 8);",
-    scenario: "Publishing after a change to one sub-app uploads that sub-app alone",
+    scenario: "Publishing after a change to one unit uploads that unit alone",
     live: true,
   },
   {
@@ -795,7 +795,7 @@ const MUTATIONS: Mutation[] = [
       "    Object.entries(m.imports).map(([name, file]) => [name, joinUrl(m.assetBase, file)]),\n" +
       "  );",
     replace: "  return {};",
-    scenario: "Five bundles resolved through one import map are still one application",
+    scenario: "Bundles resolved through one import map are still one application",
     live: true,
     browser: true,
   },
@@ -814,7 +814,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/html.ts",
     find: "  const integrity = moduleIntegrity(m);",
     replace: "  const integrity: Record<string, string> = {};",
-    scenario: "A sub-app whose script does not match its digest does not run",
+    scenario: "A sub-app whose <file> does not match its digest does not run",
     live: true,
     browser: true,
   },
@@ -825,7 +825,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/html.ts",
     find: "        const digest = a.css ? a.integrity?.[a.css] : undefined;",
     replace: "        const digest: string | undefined = undefined;",
-    scenario: "A sub-app whose stylesheet does not match its digest does not run",
+    scenario: "A sub-app whose <file> does not match its digest does not run",
     live: true,
     browser: true,
   },
@@ -837,7 +837,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/html.ts",
     find: "  const script = [...origins, ...(text === null ? [] : [`'${sha256(text)}'`])];",
     replace: "  const script = [...(text === null ? [] : [`'${sha256(text)}'`])];",
-    scenario: "The page assembles from five bundles under its own policy",
+    scenario: "The page assembles from its own bundles under its own policy",
     live: true,
     browser: true,
   },
@@ -849,7 +849,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/html.ts",
     find: "  const script = [...origins, ...(text === null ? [] : [`'${sha256(text)}'`])];",
     replace: "  const script = [...origins];",
-    scenario: "The page assembles from five bundles under its own policy",
+    scenario: "The page assembles from its own bundles under its own policy",
     live: true,
     browser: true,
   },
@@ -859,9 +859,9 @@ const MUTATIONS: Mutation[] = [
     // then renders unstyled, and every other check stays green.
     name: "a digest is attached without the CORS needed to check it",
     file: "src/server/html.ts",
-    find: " crossorigin=\"anonymous\"",
-    replace: "",
-    scenario: "The page assembles from five bundles under its own policy",
+    find: 'digest ? ` integrity="${attr(digest)}" crossorigin="anonymous"` : "";',
+    replace: 'digest ? ` integrity="${attr(digest)}"` : "";',
+    scenario: "The page assembles from its own bundles under its own policy",
     live: true,
     browser: true,
   },
@@ -906,7 +906,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/web/shell/AsyncAppLoader.tsx",
     find: "  componentDidCatch(error: unknown): void {",
     replace: "  componentDidNotCatch(error: unknown): void {",
-    scenario: "A sub-app that throws costs one panel and no more",
+    scenario: "A sub-app that throws costs its panel and not the frame",
     live: true,
     browser: true,
   },
@@ -931,55 +931,13 @@ const MUTATIONS: Mutation[] = [
   // hole the second Rule was written to close. Both name a scenario from that
   // Rule, whose Background builds and promotes from here.
 
-  {
-    // A write that never reaches the map the other panels read. alpha's own
-    // count still moves, the totals view still lists every namespace, and the
-    // panel that did not create the counter reads zero - which is the failure
-    // this whole design exists to prevent, and the one that looks like a
-    // working page.
-    name: "a sub-app's write does not reach the shared map",
-    file: "src/web/shell/api.ts",
-    find:
-      "  const snapshot = computed<Counts>(() =>\n" +
-      "    Object.entries(counters.value).sort(([a], [b]) => a.localeCompare(b)),\n" +
-      "  );",
-    replace:
-      "  const snapshot = computed<Counts>(() =>\n" +
-      "    Object.keys(counters.value).sort().map((k) => [k, 0] as const),\n" +
-      "  );",
-    scenario: "A count raised in one sub-app is read by another, from this tree",
-    live: true,
-    browser: true,
-  },
-  {
-    // The claim api.ts makes about itself: an accessor reads `.value` INSIDE
-    // itself, and that is what subscribes whichever component is rendering.
-    // `peek` reads the same data and subscribes nobody, so every panel shows
-    // the name it first rendered with and nothing on the page is wrong-looking.
-    name: "an accessor reads the store without subscribing to it",
-    file: "src/web/shell/api.ts",
-    find: "    user: () => user.value,",
-    replace: "    user: () => user.peek(),",
-    scenario: "The name the frame holds reaches every sub-app, from this tree",
-    live: true,
-    browser: true,
-  },
 
   // --- warming a sub-app's files -------------------------------------------
 
-  {
-    // Section 17. Without the tags the bundles for a view nobody has opened are
-    // not fetched at all, and the page is exactly the one that was served
-    // before preloading - which is why only a scenario that looks at the
-    // network can tell the two apart.
-    name: "the page warms none of the files a navigation will need",
-    file: "src/server/html.ts",
-    find: "</script>${preloadLinks(m)}",
-    replace: "</script>",
-    scenario: "The bundles for a view nobody has opened are warmed, not run",
-    live: true,
-    browser: true,
-  },
+  // Nothing here. Warming is about the bundles for a view nobody has opened,
+  // and every unit this repository builds is on the view a visitor lands on.
+  // `html.test.ts` covers the tags; the scenario that watched the network for
+  // them comes back with the second unit.
 
   // --- what the service says it holds, §26 ---------------------------------
 
@@ -1016,26 +974,6 @@ const MUTATIONS: Mutation[] = [
 
   // --- what the service offers, §27 ----------------------------------------
 
-  {
-    // A step of zero is accepted, every button on every page goes on working
-    // and adds nothing, and no request fails. The page looks alive and is not.
-    name: "the service accepts a limit no page can draw",
-    file: "api/service.ts",
-    find: "      if (step !== null && step < 1) return refuse(\"step\", \"is below 1\");",
-    replace: "      if (false) return refuse(\"step\", \"is below 1\");",
-    scenario: "A limit a page could not draw is refused, and nothing changes",
-  },
-  {
-    // The settings are read from five separate routes and applied in one
-    // write. Replacing instead of merging drops every resource this read did
-    // not name - so one 404 from an older service empties the other four, and
-    // the page draws from nothing rather than from its defaults.
-    name: "one settings read replaces the four the page already had",
-    file: "src/web/shell/api.ts",
-    find: "      settings.value = { ...settings.value, ...next };",
-    replace: "      settings.value = next as Settings;",
-    unitTest: "a resource an older service does not answer costs only that resource",
-  },
 
   // --- placement -----------------------------------------------------------
 
@@ -1085,6 +1023,33 @@ const MUTATIONS: Mutation[] = [
     find: "      if (e.value === null) e.checkedAt = before;",
     replace: "",
     unitTest: "a prime that found nothing leaves the entry blank",
+  },
+  {
+    // The whole shared-runtime claim in one line. `peek` reads the signal
+    // without subscribing, so the panel keeps drawing what it drew when it
+    // mounted - which is exactly what a sub-app carrying its OWN signals
+    // runtime would do.
+    name: "an accessor reads the store without subscribing to it",
+    file: "src/web/shell/api.ts",
+    find: "    greeting: () => greeting.value,",
+    replace: "    greeting: () => greeting.peek(),",
+    scenario: "What the panel writes comes back, from this tree",
+    live: true,
+    browser: true,
+  },
+  {
+    name: "a write replaces the greeting instead of merging into it",
+    file: "src/web/shell/api.ts",
+    find: "      greeting.value = { ...greeting.value, ...patch };",
+    replace: "      greeting.value = patch as Greeting;",
+    unitTest: "a write lands locally at once and is sent on",
+  },
+  {
+    name: "the service accepts a greeting no page can draw",
+    file: "api/service.ts",
+    find: '      if ("text" in body && text === null) return refuse("text", "is not a non-empty string");',
+    replace: '      if (false) return refuse("text", "is not a non-empty string");',
+    scenario: "A greeting a page could not draw is refused, and nothing changes",
   },
 ];
 

@@ -8,7 +8,6 @@ import {
   noteSunset,
   readApiBase,
   readService,
-  readSettings,
   serviceBacked,
 } from "./service.ts";
 import { Shell } from "./Shell.tsx";
@@ -58,15 +57,8 @@ render(
 if (client) {
   // Two reads, started together and settled apart. The document says what the
   // service holds; hydrate fills the page from it. Neither waits for the other,
-  // and a page whose schema read fails still shows the counters.
+  // and a page whose schema read fails still shows the greeting.
   void readService(store, client);
-  // A resource an older service does not have is reported, not thrown. The
-  // page keeps the defaults for that one and every other one still arrives.
-  void readSettings(store, client).then((missing) => {
-    document.documentElement.dataset.settings = missing.length
-      ? `missing ${missing.join(",")}`
-      : "ok";
-  });
   void hydrate(store, client).then((state) => {
     noteSunset(store, client);
     reportApi(state);

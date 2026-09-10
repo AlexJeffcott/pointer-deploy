@@ -1,27 +1,8 @@
 import type { BuildInfo } from "@pointer/blocks";
-import type {
-  Flags,
-  Labels,
-  Limits,
-  Motd,
-  ServiceField,
-  ServiceReport,
-  ServiceRoute,
-  Settings,
-  ShellStore,
-  Stats,
-} from "./api.ts";
+import type { Greeting, ServiceField, ServiceReport, ServiceRoute, ShellStore } from "./api.ts";
 import { NO_SERVICE } from "./api.ts";
 
-export type ApiTheme = { colour: string; dark: boolean };
-export type ApiUser = { name: string; colour: string; initials: string; theme: ApiTheme };
-export type ApiCounters = Record<string, number>;
-export type ApiLimits = { step: number; max: number; allowNegative: boolean };
-export type ApiLabel = { title: string; emoji: string };
-export type ApiLabels = Record<string, ApiLabel>;
-export type ApiFlags = { showShares: boolean; showTotals: boolean; compact: boolean };
-export type ApiStats = { total: number; busiest: string | null; updatedAt: string };
-export type ApiMotd = { text: string; level: "info" | "warn"; until: string } | null;
+export type ApiGreeting = Greeting;
 
 /**
  * The service's own account of what it holds, §26.
@@ -49,108 +30,29 @@ const obj = (name: string, value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : field(name, "is not an object");
 
-const num = (name: string, value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) ? value : field(name, "is not a number");
-
-const bool = (name: string, value: unknown): boolean =>
-  typeof value === "boolean" ? value : field(name, "is not a boolean");
-
 /**
  * Strict about what the page cannot draw without, tolerant about the rest.
  *
- * `name` and `colour` are required: a response without them is a response this
- * shell cannot use, and saying so by field is the whole reason this parser
- * exists. `initials` and `theme` were added to the service later, so absent
- * means an OLDER deploy and not a fault - the mirror of the rule that lets a
- * service add a field without breaking a shell published last month.
+ * `text` is required: a response without it is a response this shell cannot
+ * use, and saying so by field is the whole reason this parser exists.
+ * `audience` was added to the service later, so absent means an OLDER deploy
+ * and not a fault - the mirror of the rule that lets a service add a field
+ * without breaking a shell published last month.
  */
-export function parseUser(input: unknown): ApiUser {
-  const u = obj("user", input);
-  // Read in the order a person reads them, so a response missing two fields
-  // names the first one rather than whichever the object literal happened to
-  // evaluate first.
-  const name = str("user.name", u.name);
-  const colour = str("user.colour", u.colour);
-  const theme = u.theme === undefined ? {} : obj("user.theme", u.theme);
+export function parseGreeting(input: unknown): ApiGreeting {
+  const g = obj("greeting", input);
   return {
-    name,
-    colour,
-    initials: u.initials === undefined ? "" : str("user.initials", u.initials),
-    theme: {
-      colour: theme.colour === undefined ? colour : str("user.theme.colour", theme.colour),
-      dark: theme.dark === undefined ? false : bool("user.theme.dark", theme.dark),
-    },
+    text: str("greeting.text", g.text),
+    // Empty is a legitimate audience: it means the service holds none, and the
+    // panel greets nobody in particular. So it is checked for TYPE and not for
+    // length, which is the one place `str` is the wrong helper.
+    audience:
+      g.audience === undefined
+        ? ""
+        : typeof g.audience === "string"
+          ? g.audience
+          : field("greeting.audience", "is not a string"),
   };
-}
-
-export function parseLimits(input: unknown): ApiLimits {
-  const l = obj("limits", input);
-  return {
-    step: num("limits.step", l.step),
-    max: num("limits.max", l.max),
-    allowNegative: bool("limits.allowNegative", l.allowNegative),
-  };
-}
-
-export function parseLabels(input: unknown): ApiLabels {
-  const all = obj("labels", input);
-  const out: ApiLabels = {};
-  for (const [ns, entry] of Object.entries(all)) {
-    const label = obj(`labels.${ns}`, entry);
-    out[ns] = {
-      title: str(`labels.${ns}.title`, label.title),
-      // Empty is a legitimate emoji: it means the service holds none, and a
-      // panel draws the row without one. So it is checked for TYPE and not for
-      // length, which is the one place `str` is the wrong helper.
-      emoji: typeof label.emoji === "string" ? label.emoji : field(`labels.${ns}.emoji`, "is not a string"),
-    };
-  }
-  return out;
-}
-
-export function parseFlags(input: unknown): ApiFlags {
-  const f = obj("flags", input);
-  return {
-    showShares: bool("flags.showShares", f.showShares),
-    showTotals: bool("flags.showTotals", f.showTotals),
-    compact: bool("flags.compact", f.compact),
-  };
-}
-
-export function parseStats(input: unknown): ApiStats {
-  const s = obj("stats", input);
-  const busiest = s.busiest;
-  if (busiest !== null && typeof busiest !== "string") {
-    field("stats.busiest", "is neither a namespace nor null");
-  }
-  return {
-    total: num("stats.total", s.total),
-    busiest: busiest as string | null,
-    updatedAt: str("stats.updatedAt", s.updatedAt),
-  };
-}
-
-/** Null is a value here: it is how the service says there is no message. */
-export function parseMotd(input: unknown): ApiMotd {
-  if (input === null) return null;
-  const m = obj("motd", input);
-  const level = m.level;
-  if (level !== "info" && level !== "warn") field("motd.level", 'is neither "info" nor "warn"');
-  return {
-    text: str("motd.text", m.text),
-    level: level as "info" | "warn",
-    until: str("motd.until", m.until),
-  };
-}
-
-export function parseCounters(input: unknown): ApiCounters {
-  const c = obj("counters", input);
-  const out: ApiCounters = {};
-  for (const [ns, count] of Object.entries(c)) {
-    if (!Number.isFinite(count)) field(`counters.${ns}`, "is not a number");
-    out[ns] = count as number;
-  }
-  return out;
 }
 
 /**
@@ -234,15 +136,8 @@ export function readApiBase(): string {
 }
 
 export type ServiceClient = {
-  user(): Promise<ApiUser>;
-  counters(): Promise<ApiCounters>;
-  setUser(patch: Partial<ApiUser>): Promise<ApiUser>;
-  writeCounter(ns: string, body: Record<string, unknown>): Promise<ApiCounters>;
-  limits(): Promise<ApiLimits>;
-  labels(): Promise<ApiLabels>;
-  flags(): Promise<ApiFlags>;
-  stats(): Promise<ApiStats>;
-  motd(): Promise<ApiMotd>;
+  greeting(): Promise<ApiGreeting>;
+  setGreeting(patch: Partial<ApiGreeting>): Promise<ApiGreeting>;
   discovery(): Promise<Discovery>;
   /**
    * The `Sunset` header the last DATA response carried, or null.
@@ -279,16 +174,8 @@ export function createClient(base: string, options: ClientOptions = {}): Service
     });
 
   return {
-    user: async () => parseUser(await call(`/${API_VERSION}/user`)),
-    counters: async () => parseCounters(await call(`/${API_VERSION}/counters`)),
-    setUser: async (patch) => parseUser(await write(`/${API_VERSION}/user`, patch)),
-    writeCounter: async (ns, body) =>
-      parseCounters(await write(`/${API_VERSION}/counters/${encodeURIComponent(ns)}`, body)),
-    limits: async () => parseLimits(await call(`/${API_VERSION}/limits`)),
-    labels: async () => parseLabels(await call(`/${API_VERSION}/labels`)),
-    flags: async () => parseFlags(await call(`/${API_VERSION}/flags`)),
-    stats: async () => parseStats(await call(`/${API_VERSION}/stats`)),
-    motd: async () => parseMotd(await call(`/${API_VERSION}/motd`)),
+    greeting: async () => parseGreeting(await call(`/${API_VERSION}/greeting`)),
+    setGreeting: async (patch) => parseGreeting(await write(`/${API_VERSION}/greeting`, patch)),
     // Not under a version prefix. The document says which versions there are,
     // so asking for it at one of them would need the answer first.
     discovery: async () => parseDiscovery(await call(`/versions`)),
@@ -305,38 +192,13 @@ export function serviceBacked(
     void p.catch((e: unknown) => onError(e instanceof Error ? e.message : String(e)));
 
   return {
-    user: () => store.user(),
-    setUser: (next) => store.setUser(next),
-    countOf: (ns) => store.countOf(ns),
-    snapshot: () => store.snapshot(),
-    limits: () => store.limits(),
-    labelFor: (ns) => store.labelFor(ns),
-    flags: () => store.flags(),
-    stats: () => store.stats(),
-    motd: () => store.motd(),
-    setSettings: (next) => store.setSettings(next),
+    greeting: () => store.greeting(),
     service: () => store.service(),
     setService: (report) => store.setService(report),
     goingAway: (path) => store.goingAway(path),
-    setName: (name) => {
-      store.setName(name);
-      send(client.setUser({ name }));
-    },
-    setColour: (colour) => {
-      store.setColour(colour);
-      send(client.setUser({ colour }));
-    },
-    register: (ns) => {
-      store.register(ns);
-      send(client.writeCounter(ns, { register: true }));
-    },
-    increment: (ns, by) => {
-      store.increment(ns, by);
-      send(client.writeCounter(ns, { by: by ?? 1 }));
-    },
-    reset: (ns) => {
-      store.reset(ns);
-      send(client.writeCounter(ns, { reset: true }));
+    setGreeting: (patch) => {
+      store.setGreeting(patch);
+      send(client.setGreeting(patch));
     },
   };
 }
@@ -387,53 +249,15 @@ export function noteSunset(store: ShellStore, client: ServiceClient): void {
 }
 
 /**
- * Reads the five settings resources, and keeps whatever answered.
+ * Reads the greeting into the store, and keeps the defaults if it cannot.
  *
- * `allSettled` rather than `all`, because these are five separate routes on one
- * service and an older deploy answers 404 for some of them. Losing the four
- * that worked because the fifth is not there yet would make every addition to
- * the service a breaking change for every shell already published.
- *
- * Returns the resources that did not answer, in the order they were asked for.
+ * Never throws, and returns "ok" or what went wrong. A service that is not
+ * there costs the page the service's greeting and not the page: the store was
+ * built with one already.
  */
-export async function readSettings(store: ShellStore, client: ServiceClient): Promise<string[]> {
-  const asked = [
-    ["limits", client.limits()],
-    ["labels", client.labels()],
-    ["flags", client.flags()],
-    ["stats", client.stats()],
-    ["motd", client.motd()],
-  ] as const;
-
-  const settled = await Promise.allSettled(asked.map(([, p]) => p));
-  const next: Partial<Settings> = {};
-  const missing: string[] = [];
-
-  settled.forEach((result, i) => {
-    const name = asked[i]![0];
-    if (result.status === "rejected") {
-      missing.push(name);
-      return;
-    }
-    if (name === "limits") next.limits = result.value as Limits;
-    if (name === "labels") next.labels = result.value as Labels;
-    if (name === "flags") next.flags = result.value as Flags;
-    if (name === "stats") next.stats = result.value as Stats;
-    if (name === "motd") next.motd = result.value as Motd;
-  });
-
-  store.setSettings(next);
-  return missing;
-}
-
 export async function hydrate(store: ShellStore, client: ServiceClient): Promise<string> {
   try {
-    const [user, counters] = await Promise.all([client.user(), client.counters()]);
-    store.setUser(user);
-    for (const [ns, count] of Object.entries(counters)) {
-      store.register(ns);
-      if (count !== 0) store.increment(ns, count);
-    }
+    store.setGreeting(await client.greeting());
     return "ok";
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

@@ -4,8 +4,8 @@
 //   bun run e2e:schema
 //
 // The claim this exists to falsify: the deprecation of a service field reaches
-// five separately published units through the store they share, on the
-// SERVICE's deploy schedule and no unit's. Every other check in the repository
+// separately published units through the store they share, on the SERVICE's
+// deploy schedule and no unit's. Every other check in the repository
 // can be green while that is false. The unit tests hand `readService` a fake
 // client; the scenarios drive the service process and read its headers. Only
 // this one builds the real bundles, promotes them, and then reads what each
@@ -28,10 +28,10 @@ const HOST = Bun.env.E2E_HOST ?? "test-qa.localhost";
 const PROPAGATION_MS = 30_000;
 const RUN = Date.now().toString(36);
 
-const SUNSET = "2026-11-30";
-const REASON = "the colour moves into a theme object";
+const SUNSET = "2026-12-10";
+const REASON = "the audience moves onto the visitor";
 const RETIRE = JSON.stringify([
-  { path: "user.colour", since: "2026-08-31", sunset: SUNSET, reason: REASON, instead: null },
+  { path: "greeting.audience", since: "2026-09-10", sunset: SUNSET, reason: REASON, instead: null },
 ]);
 
 if (!CHANNEL.startsWith("test-")) {
@@ -129,24 +129,15 @@ async function startServer(): Promise<void> {
 // -- what the browser sees ---------------------------------------------------
 
 type Panels = {
-  alphaGoing: string | null;
-  alphaSteps: string[];
-  alphaMax: string | null;
-  bravoMinus: boolean;
-  bravoDays: string | null;
-  charlieCaption: string;
-  charlieTotals: boolean;
-  charlieAgrees: string | null;
-  deltaBars: string | null;
-  deltaShares: number;
-  deltaLabels: string[];
-  shellMotd: string | null;
-  shellCompact: string | null;
-  echoState: string | null;
-  echoFields: string[];
-  echoGoing: string[];
-  echoSunsetHeader: string | null;
-  echoServes: string | null;
+  /** What the panel draws, in full. */
+  greeting: string;
+  /** The field the panel says is going away, or null. */
+  panelGoing: string | null;
+  serviceState: string | null;
+  serves: string;
+  fields: string[];
+  going: string[];
+  headerSunset: string | null;
 };
 
 const textOf = async (page: Page, selector: string): Promise<string> => {
@@ -159,73 +150,36 @@ const attrOf = async (page: Page, selector: string, name: string): Promise<strin
   return el ? el.getAttribute(name) : null;
 };
 
-/** Every reading this run makes, taken from the rendered DOM of all three views. */
+/** Every reading this run makes, taken from the rendered DOM of both views. */
 async function readPanels(page: Page): Promise<Panels> {
   await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-app="alpha"] section', { timeout: 30_000 });
+  await page.waitForSelector('[data-app="hello"] section', { timeout: 30_000 });
   // The service reading arrives after the first paint, so wait for the shell to
   // have settled it rather than reading a page mid-flight.
   await page.waitForFunction(() => document.documentElement.dataset.api !== undefined, {
     timeout: 30_000,
   });
-  const alphaGoing = await attrOf(page, '[data-app="alpha"] [data-going]', "data-going");
-  const alphaSteps = await page.$$eval('[data-app="alpha"] [data-step]', (els) =>
-    els.map((e) => e.getAttribute("data-step") ?? ""),
-  );
-  const alphaMax = await attrOf(page, '[data-app="alpha"] [data-max]', "data-max");
-  const bravoMinus = (await page.$('[data-app="bravo"] [data-allow-negative]')) !== null;
-  const bravoDays = await attrOf(page, '[data-app="bravo"] [data-sunset-days]', "data-sunset-days");
-  const shellMotd = await attrOf(page, "[data-motd]", "data-motd");
-  const shellCompact = await attrOf(page, "[data-compact]", "data-compact");
+  const greeting = await textOf(page, "[data-greeting]");
+  const panelGoing = await attrOf(page, '[data-app="hello"] [data-going]', "data-going");
 
-  await page.goto(`${ADDRESS}/totals`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-app="charlie"] section', { timeout: 30_000 });
-  await page.waitForSelector('[data-app="delta"] [data-bars]', { timeout: 30_000 });
-  const charlieCaption = await textOf(page, '[data-app="charlie"] [data-source]');
-  const charlieTotals = (await page.$('[data-app="charlie"] [data-totals]')) !== null;
-  const charlieAgrees = await attrOf(page, '[data-app="charlie"] [data-agrees]', "data-agrees");
-  const deltaBars = await attrOf(page, '[data-app="delta"] [data-bars]', "data-bars");
-  const deltaShares = (await page.$$('[data-app="delta"] [data-share-for]')).length;
-  const deltaLabels = await page.$$eval('[data-app="delta"] [data-ns]', (els) =>
-    els.map((e) => (e.textContent ?? "").trim()),
+  await page.goto(`${ADDRESS}/service`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-service]", { timeout: 30_000 });
+  await page.waitForFunction(
+    () => document.querySelector("[data-service]")?.getAttribute("data-service") !== "unread",
+    undefined,
+    { timeout: 30_000 },
   );
-
-  await page.goto(`${ADDRESS}/api`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-app="echo"] section', { timeout: 30_000 });
-  const echoState = await attrOf(page, '[data-app="echo"] [data-service-state]', "data-service-state");
-  const echoFields = await page.$$eval('[data-app="echo"] [data-field]', (els) =>
+  const serviceState = await textOf(page, "[data-service-state]");
+  const serves = await textOf(page, "[data-service-serves]");
+  const fields = await page.$$eval("[data-field]", (els) =>
     els.map((e) => e.getAttribute("data-field") ?? ""),
   );
-  const echoGoing = await page.$$eval('[data-app="echo"] [data-going]', (els) =>
+  const going = await page.$$eval("[data-going]", (els) =>
     els.map((e) => e.getAttribute("data-going") ?? ""),
   );
-  const echoSunsetHeader = await attrOf(
-    page,
-    '[data-app="echo"] [data-header-sunset]',
-    "data-header-sunset",
-  );
-  const echoServes = await attrOf(page, '[data-app="echo"] [data-serves]', "data-serves");
+  const headerSunset = await attrOf(page, "[data-header-sunset]", "data-header-sunset");
 
-  return {
-    alphaGoing,
-    alphaSteps,
-    alphaMax,
-    bravoMinus,
-    bravoDays,
-    charlieCaption,
-    charlieTotals,
-    charlieAgrees,
-    deltaBars,
-    deltaShares,
-    deltaLabels,
-    shellMotd,
-    shellCompact,
-    echoState,
-    echoFields,
-    echoGoing,
-    echoSunsetHeader,
-    echoServes,
-  };
+  return { greeting, panelGoing, serviceState, serves, fields, going, headerSunset };
 }
 
 /** Writes to the running service, the way an operator does. */
@@ -272,7 +226,7 @@ async function awaitUnit(unit: Unit, id: string): Promise<void> {
 let browser: Browser | null = null;
 
 try {
-  heading("Build and publish all six units, then compose the channel from them");
+  heading("Build and publish both units, then compose the channel from them");
   const built = await sh(
     ["bun", "run", "build"],
     Object.fromEntries(UNITS.map((u) => [`BUILD_MARKER_${u.toUpperCase()}`, RUN])),
@@ -293,80 +247,51 @@ try {
     ...APPS.flatMap((a) => ["--app", `${a}=${ids[a]}`]),
   ]);
   if (promoted.code !== 0) throw new Error(`promote failed:\n${promoted.stderr}`);
-  await awaitUnit("echo", ids.echo);
+  await awaitUnit("hello", ids.hello);
 
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
 
-  heading("Nothing is going away. Every panel says so, and echo says what is there");
+  heading("Nothing is going away. The frame says what the service holds");
   const before = await readPanels(page);
   const unitsBefore = await unitsOnPage(page);
 
-  check("echo read the service", before.echoState === "ok", `state ${before.echoState}`);
+  check("the frame read the service", before.serviceState === "ok", `state ${before.serviceState}`);
   check(
-    "echo names every field the service publishes",
-    ["user.name", "user.colour", "counters.<ns>"].every((f) => before.echoFields.includes(f)),
-    JSON.stringify(before.echoFields),
+    "it names every field the service publishes",
+    ["greeting.text", "greeting.audience"].every((f) => before.fields.includes(f)),
+    JSON.stringify(before.fields),
   );
-  check("echo names the version this shell calls", before.echoServes === "v1", `${before.echoServes}`);
-  check("echo marks nothing as going away", before.echoGoing.length === 0, JSON.stringify(before.echoGoing));
-  check("alpha says nothing about a retirement", before.alphaGoing === null);
-  check("alpha draws the steps the service advises", before.alphaSteps.join(",") === "5,10", before.alphaSteps.join(","));
-  check("alpha names the ceiling the service advises", before.alphaMax === "100", `${before.alphaMax}`);
-  check("bravo offers a way down, because the service allows it", before.bravoMinus);
-  check("bravo shows no countdown", before.bravoDays === null);
-  check("charlie draws its totals row", before.charlieTotals);
-  check("charlie agrees with what the service counts", before.charlieAgrees === "true", `${before.charlieAgrees}`);
-  check("delta draws a share for every namespace", before.deltaShares > 0, `${before.deltaShares}`);
-  check(
-    "delta draws the service's labels, not the namespaces",
-    before.deltaLabels.some((l) => l.includes("Alpha")),
-    JSON.stringify(before.deltaLabels),
-  );
-  check("the frame shows no message", before.shellMotd === null);
-  check("the frame is not compact", before.shellCompact === "false", `${before.shellCompact}`);
-  check(
-    "charlie says which version it was read over",
-    before.charlieCaption.includes("Read over v1"),
-    before.charlieCaption,
-  );
-  check("delta draws its bars as settled", before.deltaBars === "settled", `${before.deltaBars}`);
+  check("it names the version this shell calls", before.serves === "v1", before.serves);
+  check("it marks nothing as going away", before.going.length === 0, JSON.stringify(before.going));
+  check("no response has carried a Sunset", before.headerSunset === null, `${before.headerSunset}`);
+  check("the panel draws what the service holds", before.greeting === "Hello, world", before.greeting);
+  check("and says nothing about a retirement", before.panelGoing === null, `${before.panelGoing}`);
 
-  heading(`Retire user.colour on the SERVICE only. No build, no publish, no promote`);
+  heading(`Retire greeting.audience on the SERVICE only. No build, no publish, no promote`);
   await startService(RETIRE);
   const after = await readPanels(page);
   const unitsAfter = await unitsOnPage(page);
 
   check(
-    "echo marks user.colour as going away",
-    after.echoGoing.includes("user.colour"),
-    JSON.stringify(after.echoGoing),
+    "the frame marks greeting.audience as going away",
+    after.going.includes("greeting.audience"),
+    JSON.stringify(after.going),
   );
   check(
-    "echo still names every other field",
-    after.echoFields.length === before.echoFields.length,
-    JSON.stringify(after.echoFields),
+    "it still names every other field",
+    after.fields.length === before.fields.length,
+    JSON.stringify(after.fields),
   );
-  check("alpha names the field being retired", after.alphaGoing === "user.colour", `${after.alphaGoing}`);
   check(
-    "bravo counts the days left, and there are some",
-    after.bravoDays !== null && Number(after.bravoDays) > 0,
-    `${after.bravoDays}`,
+    "the panel names the field being retired",
+    after.panelGoing === "greeting.audience",
+    `${after.panelGoing}`,
   );
-  // Derived from what echo read, not typed in: a count written here goes stale
-  // the next time the service publishes one more field, and reports a fault in
-  // charlie that is really a fault in this line.
-  const fields = before.echoFields.length;
-  check(
-    "charlie counts what is still current",
-    after.charlieCaption.includes(`${fields - 1} of ${fields} fields current`),
-    after.charlieCaption,
-  );
-  check("delta is unmoved: the reading is still good", after.deltaBars === "settled", `${after.deltaBars}`);
   check(
     "the page read the Sunset header off a data response",
-    after.echoSunsetHeader === new Date(`${SUNSET}T00:00:00Z`).toUTCString(),
-    `${after.echoSunsetHeader}`,
+    after.headerSunset === new Date(`${SUNSET}T00:00:00Z`).toUTCString(),
+    `${after.headerSunset}`,
   );
 
   // The claim the whole run exists for.
@@ -381,34 +306,14 @@ try {
     JSON.stringify(unitsAfter),
   );
 
-  heading("Change what the service OFFERS, with four writes and no deploy");
-  check("the service took the flags", (await tell("flags", { showShares: false, showTotals: false, compact: true })) === 200);
-  check("the service took the limits", (await tell("limits", { step: 20, allowNegative: false })) === 200);
-  check("the service took the labels", (await tell("labels", { alpha: { title: "Ay", emoji: "!" } })) === 200);
-  check(
-    "the service took the message",
-    (await tell("motd", { text: "back at 14:00", level: "warn", until: "2026-12-01" })) === 200,
-  );
-  check("and refused a step no page could draw", (await tell("limits", { step: 0 })) === 400);
+  heading("Change what the service HOLDS, with one write and no deploy");
+  check("the service took the greeting", (await tell("greeting", { text: "Hei", audience: "Oslo" })) === 200);
+  check("and refused a greeting no page could draw", (await tell("greeting", { text: "" })) === 400);
 
   const offered = await readPanels(page);
   const unitsOffered = await unitsOnPage(page);
 
-  check("alpha draws the new steps", offered.alphaSteps.join(",") === "20,40", offered.alphaSteps.join(","));
-  check("bravo no longer offers a way down", offered.bravoMinus === false);
-  check("charlie drops its totals row", offered.charlieTotals === false);
-  check("delta drops its share column", offered.deltaShares === 0, `${offered.deltaShares}`);
-  check(
-    "delta draws the renamed label",
-    offered.deltaLabels.some((l) => l.includes("Ay")),
-    JSON.stringify(offered.deltaLabels),
-  );
-  check("the frame shows the message", offered.shellMotd === "warn", `${offered.shellMotd}`);
-  check("the frame is compact", offered.shellCompact === "true", `${offered.shellCompact}`);
-
-  // Each write lands on some panels and not others. That is the whole reason
-  // the fields are owned one at a time rather than as one settings object.
-  check("and alpha was not touched by the flags", offered.alphaMax === "100", `${offered.alphaMax}`);
+  check("the panel draws the new greeting", offered.greeting === "Hei, Oslo", offered.greeting);
   check(
     "not one unit moved for any of it",
     JSON.stringify(unitsOffered) === JSON.stringify(unitsBefore),
@@ -421,14 +326,12 @@ try {
   service.proc = null;
   const gone = await readPanels(page);
 
-  check("echo reports the service as failed", gone.echoState === "failed", `${gone.echoState}`);
-  check("delta stops claiming the bars are the whole set", gone.deltaBars === "failed", `${gone.deltaBars}`);
-  check(
-    "charlie says the counts are the page's own",
-    gone.charlieCaption.includes("did not answer"),
-    gone.charlieCaption,
-  );
-  check("and the page still renders every panel", (await unitsOnPage(page)).shell === ids.shell);
+  check("the frame reports the service as failed", gone.serviceState === "failed", `${gone.serviceState}`);
+  check("it names no field, because it read none", gone.fields.length === 0, JSON.stringify(gone.fields));
+  // The default the store was built with. A slow or absent service costs the
+  // page the service's greeting and never the page.
+  check("and the panel still draws a greeting", gone.greeting === "Hello, world", gone.greeting);
+  check("the page still serves every unit", (await unitsOnPage(page)).shell === ids.shell);
 } finally {
   await browser?.close();
   service.proc?.kill();

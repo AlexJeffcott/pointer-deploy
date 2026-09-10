@@ -5,6 +5,7 @@
   --muted: #5a6472;
   --accent: #1f5fd0;
   --line: #dfe3e9;
+  --hover: #f1f3f6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -14,17 +15,8 @@
     --muted: #9aa4b2;
     --accent: #7aa7f0;
     --line: #2a313b;
+    --hover: #1c222b;
   }
-}
-
-/* What the service asks for, through user.theme.dark. It wins over the
-   operating system's preference, because it was asked for on purpose. */
-:root[data-dark="true"] {
-  --fg: #e6e9ee;
-  --bg: #14181f;
-  --muted: #9aa4b2;
-  --accent: #7aa7f0;
-  --line: #2a313b;
 }
 
 * {

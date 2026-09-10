@@ -28,7 +28,7 @@
 import { UNITS, type Unit } from "./contract.ts";
 import { configFromEnv, publicOrigin } from "./store.ts";
 
-const APP: Unit = "alpha";
+const APP: Unit = "hello";
 
 /** The store's 5 s object cache plus the server's 10 s document TTL, and room. */
 const PROPAGATION_MS = 40_000;

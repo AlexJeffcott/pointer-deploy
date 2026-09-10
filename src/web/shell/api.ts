@@ -1,42 +1,13 @@
-import { computed, signal } from "@preact/signals";
-
-export type Theme = { colour: string; dark: boolean };
-
-export type User = { name: string; colour: string; initials: string; theme: Theme };
+import { signal } from "@preact/signals";
 
 /**
- * What a panel is allowed to do to a counter, as the service advises it.
+ * The one thing the shell owns and a panel draws.
  *
- * Advice and not a rule: the service accepts a write outside these, because a
- * panel published before a limit existed would otherwise start being refused
- * for something it has always been allowed to do. What a limit decides is how
- * the page DRAWS - which buttons there are, and which are disabled.
+ * Two fields rather than one, and that is deliberate: a single field cannot be
+ * retired in favour of anything, so the service could publish a deprecation
+ * nothing could act on. `audience` exists so `text` has somewhere to go.
  */
-export type Limits = { step: number; max: number; allowNegative: boolean };
-
-/** How one namespace is drawn. The service holds none for a namespace it has never seen. */
-export type Label = { title: string; emoji: string };
-export type Labels = Record<string, Label>;
-
-/** Which optional parts of a panel are drawn at all. */
-export type Flags = { showShares: boolean; showTotals: boolean; compact: boolean };
-
-/** Counted by the service, from the counters the service holds. */
-export type Stats = { total: number; busiest: string | null; updatedAt: string };
-
-/** A message for the frame. Null is a value: it means there is no message. */
-export type Motd = { text: string; level: "info" | "warn"; until: string } | null;
-
-/** Everything the service holds that is not the user and not the counters. */
-export type Settings = {
-  limits: Limits;
-  labels: Labels;
-  flags: Flags;
-  stats: Stats;
-  motd: Motd;
-};
-
-export type Counts = ReadonlyArray<readonly [string, number]>;
+export type Greeting = { text: string; audience: string };
 
 /** One route the service publishes, as it publishes it. */
 export type ServiceRoute = { method: string; path: string };
@@ -62,7 +33,7 @@ export type ServiceField = { path: string; type: string; going: FieldSunset | nu
  * What the page knows about the service it was told to call, §26.
  *
  * A sub-app reads this and never fetches: the shell owns the one read, the
- * same way it owns the counters. `state` is the reading a panel acts on, and
+ * same way it owns the greeting. `state` is the reading a panel acts on, and
  * "unread" is a real value rather than a missing one - a page whose service is
  * slow has not failed, and must not be drawn as though it had.
  */
@@ -90,22 +61,9 @@ export type ServiceReport = {
 };
 
 export type ShellStore = {
-  user(): User;
-  setUser(next: User): void;
-  setName(name: string): void;
-  setColour(colour: string): void;
-  register(ns: string): void;
-  increment(ns: string, by?: number): void;
-  countOf(ns: string): number;
-  reset(ns: string): void;
-  snapshot(): Counts;
-  limits(): Limits;
-  /** The service's label for a namespace, or one made from the namespace itself. */
-  labelFor(ns: string): Label;
-  flags(): Flags;
-  stats(): Stats;
-  motd(): Motd;
-  setSettings(next: Partial<Settings>): void;
+  greeting(): Greeting;
+  /** Names the fields to change. The rest stay as they are. */
+  setGreeting(patch: Partial<Greeting>): void;
   service(): ServiceReport;
   setService(report: ServiceReport): void;
   /** The sunset on one field path, or null when the service does not mark it. */
@@ -114,16 +72,10 @@ export type ShellStore = {
 
 /**
  * What the page draws before the service has answered, and keeps if it never
- * does. Every one of these is a value a panel can render, so a slow service
- * costs a DIFFERENT page and never a blank one.
+ * does. Both fields are values a panel can render, so a slow service costs a
+ * DIFFERENT page and never a blank one.
  */
-export const DEFAULTS: Settings = {
-  limits: { step: 5, max: 100, allowNegative: true },
-  labels: {},
-  flags: { showShares: true, showTotals: true, compact: false },
-  stats: { total: 0, busiest: null, updatedAt: "" },
-  motd: null,
-};
+export const DEFAULT_GREETING: Greeting = { text: "Hello", audience: "world" };
 
 export const NO_SERVICE: ServiceReport = {
   base: "",
@@ -137,52 +89,14 @@ export const NO_SERVICE: ServiceReport = {
   readAt: null,
 };
 
-export function createStore(initial?: Partial<User>): ShellStore {
-  const user = signal<User>({
-    name: initial?.name ?? "Alex",
-    colour: initial?.colour ?? "#1f5fd0",
-    initials: initial?.initials ?? "AJ",
-    theme: initial?.theme ?? { colour: "#1f5fd0", dark: false },
-  });
-
-  const counters = signal<Record<string, number>>({});
-  const settings = signal<Settings>(DEFAULTS);
+export function createStore(initial?: Partial<Greeting>): ShellStore {
+  const greeting = signal<Greeting>({ ...DEFAULT_GREETING, ...initial });
   const service = signal<ServiceReport>(NO_SERVICE);
 
-  const snapshot = computed<Counts>(() =>
-    Object.entries(counters.value).sort(([a], [b]) => a.localeCompare(b)),
-  );
-
   return {
-    user: () => user.value,
-    setUser: (next) => {
-      user.value = next;
-    },
-    setName: (name) => {
-      user.value = { ...user.value, name };
-    },
-    setColour: (colour) => {
-      user.value = { ...user.value, colour };
-    },
-    register: (ns) => {
-      if (ns in counters.value) return;
-      counters.value = { ...counters.value, [ns]: 0 };
-    },
-    increment: (ns, by = 1) => {
-      counters.value = { ...counters.value, [ns]: (counters.value[ns] ?? 0) + by };
-    },
-    countOf: (ns) => counters.value[ns] ?? 0,
-    reset: (ns) => {
-      counters.value = { ...counters.value, [ns]: 0 };
-    },
-    snapshot: () => snapshot.value,
-    limits: () => settings.value.limits,
-    labelFor: (ns) => settings.value.labels[ns] ?? { title: ns, emoji: "" },
-    flags: () => settings.value.flags,
-    stats: () => settings.value.stats,
-    motd: () => settings.value.motd,
-    setSettings: (next) => {
-      settings.value = { ...settings.value, ...next };
+    greeting: () => greeting.value,
+    setGreeting: (patch) => {
+      greeting.value = { ...greeting.value, ...patch };
     },
     service: () => service.value,
     setService: (report) => {

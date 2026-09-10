@@ -5,7 +5,7 @@ Feature: Rolling a channel back onto a manifest from before the schema changed
 
   Background:
     Given the qa channel points at the kept schema 2 manifest
-    And a visitor opens the counters view
+    And a visitor opens the hello view
 
   @browser @test-channel
   Scenario: A page served from a schema 2 manifest comes from one build directory
@@ -13,7 +13,6 @@ Feature: Rolling a channel back onto a manifest from before the schema changed
     And every file the page fetched from the store came from that one directory
 
   @browser @test-channel
-  Scenario: Five bundles resolved through one import map are still one application
-    When they raise the "alpha" counter by 6
-    And they open the totals view
-    Then every sub-app that lists counters reads "alpha" as 6
+  Scenario: Bundles resolved through one import map are still one application
+    When they set the audience to "Bologna"
+    Then the panel greets "Bologna"

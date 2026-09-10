@@ -35,7 +35,7 @@ async function askUntilJudged(
 }
 
 Given("that unit is recorded in the {word} channel's history", async function (this: PointerWorld, channel: string) {
-  await this.recordInHistory(channel as Channel, "alpha", {
+  await this.recordInHistory(channel as Channel, "hello", {
     unitId: INCOMPATIBLE(),
     contracts: ["0000000"],
     surface: null,
@@ -54,7 +54,7 @@ When("a visitor asks the {word} origin for that shell", async function (this: Po
 });
 
 When("a visitor asks the {word} origin for that unit", async function (this: PointerWorld, channel: string) {
-  await askUntilJudged(this, channel as Channel, `/?alpha=${INCOMPATIBLE()}`);
+  await askUntilJudged(this, channel as Channel, `/?hello=${INCOMPATIBLE()}`);
 });
 
 Then("the request is refused because this server cannot feed that shell", function (this: PointerWorld) {
@@ -74,7 +74,7 @@ When("a visitor asks the {word} origin for build {string}'s {string} unit", asyn
   await this.visit(channel as Channel, `/?${app}=${id}`);
 });
 
-When("a visitor asks the {word} origin for an {string} unit it has never served", async function (this: PointerWorld, channel: string, app: string) {
+When("a visitor asks the {word} origin for a {string} unit it has never served", async function (this: PointerWorld, channel: string, app: string) {
   await this.visit(channel as Channel, `/?${app}=0000dead`);
 });
 

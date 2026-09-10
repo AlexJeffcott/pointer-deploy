@@ -46,6 +46,6 @@ Feature: Reading the page's values from a service on its own schedule
 
     @browser
     Scenario: The page is permitted to reach the service it was told about
-      Given a visitor opens the counters view
+      Given a visitor opens the hello view
       Then the page is allowed to fetch from that service
       But it is not allowed to fetch from the store

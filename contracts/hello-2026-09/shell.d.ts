@@ -1,8 +1,7 @@
-export type User = {
-    name: string;
-    colour: string;
+export type Greeting = {
+    text: string;
+    audience: string;
 };
-export type Counts = ReadonlyArray<readonly [string, number]>;
 export type ServiceRoute = {
     method: string;
     path: string;
@@ -30,17 +29,12 @@ export type ServiceReport = {
     readAt: string | null;
 };
 export type ShellStore = {
-    user(): User;
-    setName(name: string): void;
-    setColour(colour: string): void;
-    register(ns: string): void;
-    increment(ns: string, by?: number): void;
-    countOf(ns: string): number;
-    reset(ns: string): void;
-    snapshot(): Counts;
+    greeting(): Greeting;
+    setGreeting(patch: Partial<Greeting>): void;
     service(): ServiceReport;
     setService(report: ServiceReport): void;
     goingAway(path: string): FieldSunset | null;
 };
+export declare const DEFAULT_GREETING: Greeting;
 export declare const NO_SERVICE: ServiceReport;
-export declare function createStore(initial?: Partial<User>): ShellStore;
+export declare function createStore(initial?: Partial<Greeting>): ShellStore;

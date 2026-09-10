@@ -114,7 +114,7 @@ Given(
   },
 );
 
-When("a visitor navigates to the counters view", async function (this: PointerWorld) {
+When("a visitor navigates to the hello view", async function (this: PointerWorld) {
   await this.browserPage.goto(`${this.originFor("qa")}/`);
   await this.browserPage.waitForSelector("[data-app] section, [data-app-error]", {
     timeout: 20_000,

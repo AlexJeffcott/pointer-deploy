@@ -5,10 +5,10 @@ import type { PointerWorld } from "../support/world.ts";
 type Field = { path: string; type: string; deprecated?: Record<string, unknown> };
 type Doc = { serves: string[]; versions?: Record<string, { fields: Field[]; routes: unknown[] }> };
 
-const REASON = "the colour moves into a theme object";
+const REASON = "the audience moves onto the visitor";
 
 const decision = (path: string, sunset: string) =>
-  JSON.stringify([{ path, since: "2026-08-31", sunset, reason: REASON, instead: null }]);
+  JSON.stringify([{ path, since: "2026-09-10", sunset, reason: REASON, instead: null }]);
 
 const doc = (world: PointerWorld): Doc => {
   const held = world.serviceDoc;
@@ -45,12 +45,12 @@ Given(
 Given(
   "a service told to retire {string}, which it does not answer",
   async function (this: PointerWorld, path: string) {
-    this.serviceRefusal = await refusedStart(decision(path, "2026-11-30"));
+    this.serviceRefusal = await refusedStart(decision(path, "2026-12-10"));
   },
 );
 
 Given("a service told to retire something that is not JSON", async function (this: PointerWorld) {
-  this.serviceRefusal = await refusedStart("user.colour goes in November");
+  this.serviceRefusal = await refusedStart("greeting.audience goes in December");
 });
 
 async function refusedStart(deprecated: string): Promise<{ code: number; said: string }> {
@@ -72,12 +72,8 @@ When("the service is asked what it holds", async function (this: PointerWorld) {
   this.serviceDoc = (await res.json()) as Doc;
 });
 
-When("a page reads the user from that service", async function (this: PointerWorld) {
-  this.serviceResponse = await fetch(`${this.serviceBase}/v1/user`);
-});
-
-When("a page reads the counters from that service", async function (this: PointerWorld) {
-  this.serviceResponse = await fetch(`${this.serviceBase}/v1/counters`);
+When("a page reads the greeting from that service", async function (this: PointerWorld) {
+  this.serviceResponse = await fetch(`${this.serviceBase}/v1/greeting`);
 });
 
 Then(
@@ -125,7 +121,7 @@ Then("it refuses to start, and names what it does answer", function (this: Point
   const refusal = this.serviceRefusal!;
   expect(refusal.code).not.toBe(0);
   expect(refusal.said).toContain("which this service does not answer");
-  expect(refusal.said).toContain("user.colour");
+  expect(refusal.said).toContain("greeting.audience");
 });
 
 Then("it refuses to start, and says which part it could not read", function (this: PointerWorld) {
@@ -188,14 +184,6 @@ When(
   },
 );
 
-When(
-  "a page raises the {string} counter by {int}",
-  async function (this: PointerWorld, ns: string, by: number) {
-    this.serviceResponse = await send(this, `counters/${ns}`, JSON.stringify({ by }));
-    expect(this.serviceResponse.status).toBe(200);
-  },
-);
-
 Then("it reads back {}", function (this: PointerWorld, expected: string) {
   expect(this.serviceRead).toEqual(JSON.parse(expected));
 });
@@ -205,10 +193,3 @@ Then("the service refuses it, saying {string}", async function (this: PointerWor
   expect(res.status).toBe(400);
   expect(await res.json()).toEqual({ error: why });
 });
-
-Then(
-  "what it read names {int} as the total and {string} as the busiest",
-  function (this: PointerWorld, total: number, busiest: string) {
-    expect(this.serviceRead).toMatchObject({ total, busiest });
-  },
-);

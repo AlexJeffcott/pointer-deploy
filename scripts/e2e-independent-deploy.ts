@@ -8,8 +8,8 @@
 // of the served HTML, which is the manifest talking about itself. This drives
 // the documented commands end to end and then reads the RENDERED PAGE - the
 // marker each sub-app painted into the DOM - because that is the only place
-// "alpha moved and bravo did not" is a fact about the application rather than
-// a fact about a JSON file.
+// "hello moved and the shell did not" is a fact about the application rather
+// than a fact about a JSON file.
 //
 // It writes only the test-* channels, never the two the application is served
 // from, and it starts from whatever those channels held: the first step
@@ -44,9 +44,9 @@ const PROPAGATION_MS = 30_000;
  * Markers unique to this run.
  *
  * Fixed markers would produce unit ids already in the store from an earlier
- * run, publish would correctly skip them, and "publish uploaded only alpha"
+ * run, publish would correctly skip them, and "publish uploaded only hello"
  * would fail on every run after the first - reporting a defect in the run
- * rather than in the code. Five more immutable units per run is the price;
+ * rather than in the code. Two more immutable units per run is the price;
  * nothing is ever deleted from this bucket anyway.
  */
 const RUN = Date.now().toString(36);
@@ -124,17 +124,19 @@ async function promote(args: string[]): Promise<Run> {
  */
 async function markersOnPage(page: Page): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  for (const [path, apps] of [
-    ["/", ["alpha", "bravo"]],
-    ["/totals", ["charlie", "delta"]],
-    ["/api", ["echo"]],
-  ] as const) {
+  for (const [path, apps] of [["/", ["hello"]]] as const) {
     const url = `${ADDRESS}${path}`;
     await page.goto(url, { waitUntil: "domcontentloaded" });
     for (const app of apps) {
       const el = await page.waitForSelector(`[data-app="${app}"] section`, { timeout: 30_000 });
       out[app] = (await el.getAttribute("data-unit-marker")) ?? "";
     }
+    // The frame is a unit too, and the whole point is that it moves apart from
+    // the panels inside it.
+    out.shell =
+      (await page.evaluate(
+        () => document.querySelector("div[data-unit-marker]")?.getAttribute("data-unit-marker") ?? "",
+      )) ?? "";
   }
   return out;
 }
@@ -214,127 +216,94 @@ try {
   await startServer();
   console.log(`   serving ${ADDRESS} from the real store`);
 
-  heading(`Compose the channel from scratch: five units, every marker ${V1}`);
+  heading(`Compose the channel from scratch: both units, every marker ${V1}`);
   const v1 = await buildAndPublish(Object.fromEntries(UNITS.map((u) => [u, V1])));
   await promote([
     "--shell", v1.shell,
     ...APPS.flatMap((a) => ["--app", `${a}=${v1[a]}`]),
   ]);
-  await awaitUnit("alpha", v1.alpha);
+  await awaitUnit("hello", v1.hello);
 
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
 
   let seen = await markersOnPage(page);
   check(
-    "every sub-app renders the first marker",
-    APPS.every((a) => seen[a] === V1),
+    "the frame and the sub-app both render the first marker",
+    UNITS.every((u) => seen[u] === V1),
     JSON.stringify(seen),
   );
 
-  heading("Change alpha only. Publish must upload alpha and nothing else");
-  const alphaV2 = await buildAndPublish({
+  heading("Change hello only. Publish must upload hello and nothing else");
+  const helloV2 = await buildAndPublish({
     ...Object.fromEntries(UNITS.map((u) => [u, V1])),
-    alpha: V2,
+    hello: V2,
   });
-  check("publish uploaded only alpha", uploadedUnits().join(",") === "alpha", `uploaded: ${uploadedUnits().join(",") || "nothing"}`);
-  check("alpha's unit id moved", alphaV2.alpha !== v1.alpha);
-  check(
-    "the other five unit ids did not",
-    UNITS.filter((u) => u !== "alpha").every((u) => alphaV2[u] === v1[u]),
-  );
+  check("publish uploaded only hello", uploadedUnits().join(",") === "hello", `uploaded: ${uploadedUnits().join(",") || "nothing"}`);
+  check("hello's unit id moved", helloV2.hello !== v1.hello);
+  check("the shell's unit id did not", helloV2.shell === v1.shell);
 
-  heading("Deploy alpha alone");
-  await promote(["--app", `alpha=${alphaV2.alpha}`]);
-  const t1 = await awaitUnit("alpha", alphaV2.alpha);
+  heading("Deploy hello alone");
+  await promote(["--app", `hello=${helloV2.hello}`]);
+  const t1 = await awaitUnit("hello", helloV2.hello);
   console.log(`     visible in ${t1} ms`);
 
   seen = await markersOnPage(page);
-  check("alpha renders the new marker", seen.alpha === V2, JSON.stringify(seen));
-  check(
-    "bravo, charlie, delta and echo still render the first marker",
-    ["bravo", "charlie", "delta", "echo"].every((a) => seen[a] === V1),
-    JSON.stringify(seen),
-  );
+  check("hello renders the new marker", seen.hello === V2, JSON.stringify(seen));
+  check("the frame still renders the first marker", seen.shell === V1, JSON.stringify(seen));
 
-  heading("Change bravo only, and deploy bravo alone");
-  const bravoV2 = await buildAndPublish({
-    ...Object.fromEntries(UNITS.map((u) => [u, V1])),
-    alpha: V2,
-    bravo: V2,
-  });
-  check("publish uploaded only bravo", uploadedUnits().join(",") === "bravo", `uploaded: ${uploadedUnits().join(",") || "nothing"}`);
-  await promote(["--app", `bravo=${bravoV2.bravo}`]);
-  await awaitUnit("bravo", bravoV2.bravo);
-
-  seen = await markersOnPage(page);
-  check("bravo renders the new marker", seen.bravo === V2, JSON.stringify(seen));
-  check("alpha is still at the new marker, not dragged back", seen.alpha === V2, JSON.stringify(seen));
-  check(
-    "charlie, delta and echo still render the first marker",
-    ["charlie", "delta", "echo"].every((a) => seen[a] === V1),
-    JSON.stringify(seen),
-  );
-
-  heading("Roll alpha back, and only alpha");
-  await promote(["--app", `alpha=${v1.alpha}`]);
-  await awaitUnit("alpha", v1.alpha);
-
-  seen = await markersOnPage(page);
-  check("alpha is back at the first marker", seen.alpha === V1, JSON.stringify(seen));
-  check("bravo stayed at its new marker through alpha's rollback", seen.bravo === V2, JSON.stringify(seen));
-
-  heading("Deploy the shell alone. The sub-apps must not move with it");
+  heading("Deploy the shell alone. The sub-app must not move with it");
   const shellV2 = await buildAndPublish({
     ...Object.fromEntries(UNITS.map((u) => [u, V1])),
     shell: V2,
-    bravo: V2,
+    hello: V2,
   });
   check("publish uploaded only the shell", uploadedUnits().join(",") === "shell", `uploaded: ${uploadedUnits().join(",") || "nothing"}`);
   await promote(["--shell", shellV2.shell]);
   await awaitUnit("shell", shellV2.shell);
 
-  const frameMarker = await page.evaluate(() =>
-    document.querySelector("[data-unit-marker]")?.getAttribute("data-unit-marker") ?? "",
-  );
-  await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-app="alpha"] section', { timeout: 30_000 });
-  check(
-    "the frame is at the new marker",
-    (await page.evaluate(() =>
-      document.querySelector("div[data-unit-marker]")?.getAttribute("data-unit-marker") ?? "",
-    )) === V2,
-    `frame was ${frameMarker}`,
-  );
   seen = await markersOnPage(page);
-  check("alpha stayed where the rollback left it", seen.alpha === V1, JSON.stringify(seen));
-  check("bravo stayed at its new marker", seen.bravo === V2, JSON.stringify(seen));
+  check("the frame is at the new marker", seen.shell === V2, JSON.stringify(seen));
+  check("hello stayed where its own deploy left it", seen.hello === V2, JSON.stringify(seen));
+
+  heading("Roll hello back, and only hello");
+  await promote(["--app", `hello=${v1.hello}`]);
+  await awaitUnit("hello", v1.hello);
+
+  seen = await markersOnPage(page);
+  check("hello is back at the first marker", seen.hello === V1, JSON.stringify(seen));
+  // The claim a rollback is worth having for: what shipped in between stays
+  // shipped. The shell was deployed after hello and is not dragged back with it.
+  check("the frame stayed at the marker deployed after it", seen.shell === V2, JSON.stringify(seen));
 
   heading("The page is still one application");
   await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-app="alpha"] section', { timeout: 30_000 });
-  // Five bundles published at three different times, sharing one signals
-  // runtime. If any of them carried its own Preact this stays at 0.
-  await page.click('[data-app="alpha"] button');
-  await page.click('[data-app="alpha"] button');
-  await page.click('[data-app="bravo"] button');
-  await page.click('a[href="/totals"]');
-  await page.waitForSelector('[data-app="charlie"] section', { timeout: 30_000 });
-  const totals = await page.evaluate(() => {
-    const rows = document.querySelectorAll('[data-app="charlie"] tbody tr');
-    return Object.fromEntries(
-      [...rows].map((r) => [
-        r.querySelector("td")?.textContent?.trim() ?? "",
-        r.querySelectorAll("td")[1]?.textContent?.trim() ?? "",
-      ]),
-    );
-  });
-  check(
-    "a counter raised in a rolled-back alpha is read by charlie",
-    totals.alpha === "2",
-    JSON.stringify(totals),
+  await page.waitForSelector('[data-app="hello"] section', { timeout: 30_000 });
+  // Two bundles published at different times, sharing one signals runtime. The
+  // greeting is a signal the SHELL's bundle created; the panel writes it and
+  // re-renders from it. If hello carried its own Preact this line never changes.
+  await page.fill('[data-app="hello"] input', "Berlin");
+  await page.waitForFunction(
+    () => document.querySelector("[data-greeting]")?.textContent?.trim() === "Hello, Berlin",
+    undefined,
+    { timeout: 10_000 },
   );
-  check("and one raised in a freshly deployed bravo is too", totals.bravo === "1", JSON.stringify(totals));
+  check("what the panel writes, the panel reads back through the frame's store", true);
+
+  // And the state is the FRAME's: unmounting the panel and mounting it again
+  // finds the value still there, because the panel never held it.
+  await page.click('a[href="/service"]');
+  await page.waitForSelector("[data-service]", { timeout: 30_000 });
+  await page.click('a[href="/"]');
+  await page.waitForSelector('[data-app="hello"] section', { timeout: 30_000 });
+  const afterRemount = await page.evaluate(
+    () => document.querySelector("[data-greeting]")?.textContent?.trim() ?? "",
+  );
+  check(
+    "the value survives the panel being unmounted, because the frame owns it",
+    afterRemount === "Hello, Berlin",
+    afterRemount,
+  );
 
   heading("No machine was built, restarted or replaced");
   const machinesAfter = await machineFingerprint();
@@ -353,8 +322,8 @@ try {
 
 console.log(
   failures.length === 0
-    ? `\nSUCCESS: one app deployed, another deployed, the first rolled back, ` +
-        `and each left the others where they were.`
+    ? `\nSUCCESS: the sub-app deployed, the frame deployed, the sub-app rolled ` +
+        `back, and each left the other where it was.`
     : `\nFAILURE: ${failures.length} check(s) failed:\n${failures.map((f) => `  - ${f}`).join("\n")}`,
 );
 process.exit(failures.length === 0 ? 0 : 1);

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import type { ShellStore } from "./api.ts";
 import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
@@ -8,12 +8,12 @@ import styles from "./Shell.module.css";
 
 const apps: AppMap = readAppMap();
 
-function Tab({ path, label }: { path: string; label: string }) {
+function NavItem({ path, label }: { path: string; label: string }) {
   const current = route.value === path;
   return (
     <a
       href={path}
-      class={current ? `${styles.tab} ${styles.tabCurrent}` : styles.tab}
+      class={current ? `${styles.navItem} ${styles.navItemCurrent}` : styles.navItem}
       aria-current={current ? "page" : undefined}
       onClick={(e: MouseEvent) => {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -26,91 +26,127 @@ function Tab({ path, label }: { path: string; label: string }) {
   );
 }
 
-/** The frame's own three fields from the service, §27. */
-function Motd({ store }: { store: ShellStore }) {
-  const message = store.motd();
-  if (message === null) return null;
+/**
+ * What the shell knows about the service, drawn by the shell, §26.
+ *
+ * No unit is fetched for this view. The shell read the discovery document once
+ * and this reads the store, so the reading on screen is the one every panel
+ * acts on rather than a second call that could disagree with it.
+ */
+function ServiceView({ store }: { store: ShellStore }) {
+  const report = store.service();
   return (
-    <p
-      class={message.level === "warn" ? `${styles.motd} ${styles.motdWarn}` : styles.motd}
-      data-motd={message.level}
-    >
-      {message.text} <span class={styles.motdUntil}>until {message.until}</span>
-    </p>
+    <div class={styles.report} data-service={report.state}>
+      <dl class={styles.pairs}>
+        <dt>State</dt>
+        <dd data-service-state>{report.state}</dd>
+        <dt>Base</dt>
+        <dd>{report.base || "none named"}</dd>
+        <dt>Calling</dt>
+        <dd>{report.calling || "nothing"}</dd>
+        <dt>Serves</dt>
+        <dd data-service-serves>{report.serves.join(", ") || "unknown"}</dd>
+        <dt>Read at</dt>
+        <dd>{report.readAt ?? "never"}</dd>
+        {/* What one response said, kept apart from what the document says. A
+            proxy or a different deploy can make the two disagree. */}
+        <dt>Sunset header</dt>
+        <dd data-header-sunset={report.headerSunset ?? undefined}>
+          {report.headerSunset ?? "none"}
+        </dd>
+        {report.error ? (
+          <>
+            <dt>Error</dt>
+            <dd data-service-error>{report.error}</dd>
+          </>
+        ) : null}
+      </dl>
+
+      <table class={styles.fields}>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Going away</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.fields.length === 0 ? (
+            <tr>
+              <td colSpan={3} class={styles.muted}>
+                The service publishes no fields to this shell.
+              </td>
+            </tr>
+          ) : (
+            report.fields.map((f) => (
+              <tr key={f.path} data-field={f.path}>
+                <td>
+                  <code>{f.path}</code>
+                </td>
+                <td class={styles.muted}>{f.type}</td>
+                <td data-going={f.going ? f.path : undefined}>
+                  {f.going
+                    ? `${f.going.sunset} — ${f.going.reason}` +
+                      (f.going.instead ? ` Use ${f.going.instead}.` : " Nothing replaces it.")
+                    : ""}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 export function Shell({ store }: { store: ShellStore }) {
-  const view = VIEWS[route.value] ?? VIEWS[DEFAULT_ROUTE]!;
-  const who = store.user();
-  const compact = store.flags().compact;
+  const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE;
+  const view = VIEWS[path]!;
   const [boom, setBoom] = useState(false);
-
-  // On the root element rather than in the tree: the palette is CSS custom
-  // properties, and the body has to see them too. Set in a layout effect so a
-  // page never paints one theme and then the other.
-  useLayoutEffect(() => {
-    document.documentElement.dataset.dark = String(who.theme.dark);
-  }, [who.theme.dark]);
 
   if (boom) throw new Error("the shell was asked to throw");
 
   return (
-    <div
-      class={compact ? `${styles.frame} ${styles.compact}` : styles.frame}
-      data-unit-marker={__UNIT_MARKER__}
-      data-compact={compact}
-    >
-      <header class={styles.masthead}>
+    <div class={styles.frame} data-unit-marker={__UNIT_MARKER__}>
+      <nav class={styles.sidenav}>
         <h1 class={styles.title}>pointer-deploy</h1>
-        <div class={styles.identity}>
-          <label for="who">Name</label>
-          <input
-            id="who"
-            type="text"
-            value={who.name}
-            onInput={(e: Event) => store.setName((e.currentTarget as HTMLInputElement).value)}
-          />
-          <label for="colour">Colour</label>
-          <input
-            id="colour"
-            type="color"
-            value={who.colour}
-            onInput={(e: Event) => store.setColour((e.currentTarget as HTMLInputElement).value)}
-          />
-          <button type="button" data-throw="shell" onClick={() => setBoom(true)}>
+        <div class={styles.navItems}>
+          {Object.entries(VIEWS).map(([to, v]) => (
+            <NavItem key={to} path={to} label={v.title} />
+          ))}
+        </div>
+        <div class={styles.navFoot}>
+          {/* A test affordance, and the only way to reach the frame's error
+              boundary from a browser. It stays until something real needs the
+              same corner. */}
+          <button
+            type="button"
+            class={styles.throw}
+            data-throw="shell"
+            onClick={() => setBoom(true)}
+          >
             Throw
           </button>
+          {__BUILD_MARKER__ ? (
+            <code class={styles.marker} data-build-marker={__BUILD_MARKER__}>
+              {__BUILD_MARKER__}
+            </code>
+          ) : null}
         </div>
-      </header>
-
-      <Motd store={store} />
-
-      <nav class={styles.nav}>
-        {Object.entries(VIEWS).map(([path, v]) => (
-          <Tab key={path} path={path} label={v.title} />
-        ))}
       </nav>
 
-      <p class={styles.footnote} style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
-        {view.note}
-      </p>
+      <main class={styles.main}>
+        <h2 class={styles.viewTitle}>{view.title}</h2>
+        <p class={styles.note}>{view.note}</p>
 
-      <div class={styles.pair}>
-        {view.apps.map((name) => (
-          <AsyncAppLoader key={name} name={name} assets={apps[name]} store={store} />
-        ))}
-      </div>
+        {path === "/service" ? <ServiceView store={store} /> : null}
 
-      <p class={styles.footnote}>
-        The frame owns the name, the colour and every counter, and hands each panel
-        the store as a prop. Each panel above is a separate bundle fetched from the
-        object store when its view first appears, rendered inside this tree so one
-        boundary can catch what it throws.
-        {__BUILD_MARKER__ ? (
-          <> Build label: <code data-build-marker={__BUILD_MARKER__}>{__BUILD_MARKER__}</code>.</>
-        ) : null}
-      </p>
+        <div class={styles.panels}>
+          {view.apps.map((name) => (
+            <AsyncAppLoader key={name} name={name} assets={apps[name]} store={store} />
+          ))}
+        </div>
+      </main>
     </div>
   );
 }

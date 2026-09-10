@@ -4,15 +4,15 @@ import type { UnitManifest } from "./publish.ts";
 
 const manifest = (over: Partial<UnitManifest> = {}): UnitManifest => ({
   schema: 3,
-  unit: "alpha",
+  unit: "hello",
   id: "a1",
   commit: "c".repeat(40),
   dirty: false,
   publishedAt: "2026-08-01T00:00:00.000Z",
-  assetBase: "https://store.test/units/alpha/a1/",
-  js: "alpha-a1.js",
-  css: "alpha-a1.css",
-  files: ["alpha-a1.js", "alpha-a1.css"],
+  assetBase: "https://store.test/units/hello/a1/",
+  js: "hello-a1.js",
+  css: "hello-a1.css",
+  files: ["hello-a1.js", "hello-a1.css"],
   contracts: ["c2"],
   shared: {},
   marker: "",
@@ -25,12 +25,12 @@ const reads = (ms: UnitManifest[]) =>
 
 describe("composedUnit", () => {
   test("carries the digests, so a composed page can still check its files", () => {
-    const integrity = { "alpha-a1.js": "sha384-x" };
+    const integrity = { "hello-a1.js": "sha384-x" };
     expect(composedUnit(manifest({ integrity }))).toMatchObject({
       unitId: "a1",
-      assetBase: "https://store.test/units/alpha/a1/",
-      js: "alpha-a1.js",
-      css: "alpha-a1.css",
+      assetBase: "https://store.test/units/hello/a1/",
+      js: "hello-a1.js",
+      css: "hello-a1.css",
       integrity,
     });
   });
@@ -66,7 +66,7 @@ describe("entryOf", () => {
 
 describe("unitNameOf", () => {
   test("takes the unit from the key, which is what says which unit it is", () => {
-    expect(unitNameOf("units/alpha/a1/unit.json")).toBe("alpha");
+    expect(unitNameOf("units/hello/a1/unit.json")).toBe("hello");
   });
 });
 
@@ -77,7 +77,7 @@ describe("catalogueFrom", () => {
       manifest({ id: "a3", publishedAt: "2026-08-03T00:00:00.000Z" }),
       manifest({ id: "a2", publishedAt: "2026-08-02T00:00:00.000Z" }),
     ]));
-    expect(built.catalogue.units.alpha?.map((e) => e.unit.unitId)).toEqual(["a3", "a2", "a1"]);
+    expect(built.catalogue.units.hello?.map((e) => e.unit.unitId)).toEqual(["a3", "a2", "a1"]);
   });
 
   test("orders two publishes of the same instant by id, so a rebuild does not reshuffle", () => {
@@ -90,8 +90,8 @@ describe("catalogueFrom", () => {
       manifest({ id: "b1", publishedAt: at }),
       manifest({ id: "b2", publishedAt: at }),
     ]));
-    expect(first.catalogue.units.alpha?.map((e) => e.unit.unitId)).toEqual(["b1", "b2"]);
-    expect(again.catalogue.units.alpha?.map((e) => e.unit.unitId)).toEqual(["b1", "b2"]);
+    expect(first.catalogue.units.hello?.map((e) => e.unit.unitId)).toEqual(["b1", "b2"]);
+    expect(again.catalogue.units.hello?.map((e) => e.unit.unitId)).toEqual(["b1", "b2"]);
   });
 
   test("lists a build the harness made, and counts it", () => {
@@ -100,23 +100,23 @@ describe("catalogueFrom", () => {
       manifest({ id: "a1", publishedAt: "2026-08-01T00:00:00.000Z" }),
       manifest({ id: "a2", marker: "e2e", publishedAt: "2026-08-02T00:00:00.000Z" }),
     ]));
-    expect(built.catalogue.units.alpha?.map((e) => e.unit.unitId)).toEqual(["a2", "a1"]);
+    expect(built.catalogue.units.hello?.map((e) => e.unit.unitId)).toEqual(["a2", "a1"]);
     expect(built.marked).toBe(1);
   });
 
   test("leaves out what it could not read, and counts it", () => {
     const built = catalogueFrom([null, ...reads([manifest({ id: "a1" })])]);
     expect(built.unreadable).toBe(1);
-    expect(built.catalogue.units.alpha).toHaveLength(1);
+    expect(built.catalogue.units.hello).toHaveLength(1);
   });
 
   test("puts the shell first, whatever order the store listed", () => {
     const built = catalogueFrom(reads([
-      manifest({ unit: "delta", id: "d1" }),
+      manifest({ unit: "fourth", id: "d1" }),
       manifest({ unit: "shell", id: "s1" }),
-      manifest({ unit: "alpha", id: "a1" }),
+      manifest({ unit: "hello", id: "a1" }),
     ]));
-    expect(Object.keys(built.catalogue.units)).toEqual(["shell", "alpha", "delta"]);
+    expect(Object.keys(built.catalogue.units)).toEqual(["shell", "hello", "fourth"]);
   });
 
   test("is a history, so a channel-shaped reader parses it unchanged", () => {

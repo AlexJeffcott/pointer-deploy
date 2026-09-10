@@ -43,68 +43,68 @@ const reasonFor = (result: ReturnType<typeof plan>, group: string) =>
 describe("which files a sweep may remove", () => {
   test("a unit a channel serves stays, however old it is", () => {
     const result = plan({
-      objects: [object("units/alpha/aaaa1111/index.js", 400)],
-      pointed: new Set(["units/alpha/aaaa1111"]),
+      objects: [object("units/hello/aaaa1111/index.js", 400)],
+      pointed: new Set(["units/hello/aaaa1111"]),
     });
     expect(result.deleteKeys).toEqual([]);
-    expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("served");
+    expect(reasonFor(result, "units/hello/aaaa1111")).toBe("served");
   });
 
   test("a unit an override can still reach stays", () => {
     const result = plan({
-      objects: [object("units/alpha/aaaa1111/index.js", 400)],
+      objects: [object("units/hello/aaaa1111/index.js", 400)],
       histories: [
         history("qa", {
-          alpha: [{ unitId: "aaaa1111", contracts: ["e0160a6"], supersededAt: daysAgo(300) }],
+          hello: [{ unitId: "aaaa1111", contracts: ["e0160a6"], supersededAt: daysAgo(300) }],
         }),
       ],
     });
     expect(result.deleteKeys).toEqual([]);
-    expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("offered");
+    expect(reasonFor(result, "units/hello/aaaa1111")).toBe("offered");
   });
 
   // The floor's first half, and the state the sweep was in before it existed:
   // a unit published an hour ago, superseded by the next promote, and deletable
   // the moment its contract set stopped being retained.
   test("a unit written inside the floor stays, even with nothing naming it", () => {
-    const result = plan({ objects: [object("units/alpha/aaaa1111/index.js", 1)] });
+    const result = plan({ objects: [object("units/hello/aaaa1111/index.js", 1)] });
     expect(result.deleteKeys).toEqual([]);
-    expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("young");
+    expect(reasonFor(result, "units/hello/aaaa1111")).toBe("young");
   });
 
   // The floor's second half, and the one an age-since-publish rule gets wrong.
   // A year-old unit that was serving traffic yesterday is a day out of use.
   test("an old unit a channel stopped serving inside the floor stays", () => {
     const result = plan({
-      objects: [object("units/alpha/aaaa1111/index.js", 400)],
+      objects: [object("units/hello/aaaa1111/index.js", 400)],
       histories: [
         history("qa", {
-          alpha: [{ unitId: "aaaa1111", contracts: ["gone1234"], supersededAt: daysAgo(2) }],
+          hello: [{ unitId: "aaaa1111", contracts: ["gone1234"], supersededAt: daysAgo(2) }],
         }),
       ],
     });
     expect(result.deleteKeys).toEqual([]);
-    expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("recently served");
+    expect(reasonFor(result, "units/hello/aaaa1111")).toBe("recently served");
   });
 
   test("an old unit nothing has served since the floor is removed, files and all", () => {
     const result = plan({
       objects: [
-        object("units/alpha/aaaa1111/index.js", 200),
-        object("units/alpha/aaaa1111/index.css", 200),
+        object("units/hello/aaaa1111/index.js", 200),
+        object("units/hello/aaaa1111/index.css", 200),
       ],
       histories: [
         history("qa", {
-          alpha: [{ unitId: "aaaa1111", contracts: ["gone1234"], supersededAt: daysAgo(180) }],
+          hello: [{ unitId: "aaaa1111", contracts: ["gone1234"], supersededAt: daysAgo(180) }],
         }),
       ],
     });
     expect(result.deleteKeys.sort()).toEqual([
-      "units/alpha/aaaa1111/index.css",
-      "units/alpha/aaaa1111/index.js",
+      "units/hello/aaaa1111/index.css",
+      "units/hello/aaaa1111/index.js",
     ]);
     expect(result.historyDrops).toEqual([
-      { channel: "qa", region: "eu", unit: "alpha", unitId: "aaaa1111" },
+      { channel: "qa", region: "eu", unit: "hello", unitId: "aaaa1111" },
     ]);
   });
 
@@ -112,10 +112,10 @@ describe("which files a sweep may remove", () => {
   // Dropping one whose files STAY would retire a build the floor is keeping.
   test("a history entry is kept when the floor keeps its unit", () => {
     const result = plan({
-      objects: [object("units/alpha/aaaa1111/index.js", 2)],
+      objects: [object("units/hello/aaaa1111/index.js", 2)],
       histories: [
         history("qa", {
-          alpha: [{ unitId: "aaaa1111", contracts: ["gone1234"], supersededAt: daysAgo(1) }],
+          hello: [{ unitId: "aaaa1111", contracts: ["gone1234"], supersededAt: daysAgo(1) }],
         }),
       ],
     });
@@ -127,32 +127,32 @@ describe("which files a sweep may remove", () => {
   // so that is what it counts as.
   test("an entry with no stamp counts as the last promote on its channel", () => {
     const result = plan({
-      objects: [object("units/alpha/aaaa1111/index.js", 400)],
-      histories: [history("qa", { alpha: [{ unitId: "aaaa1111", contracts: ["gone1234"] }] }, daysAgo(3))],
+      objects: [object("units/hello/aaaa1111/index.js", 400)],
+      histories: [history("qa", { hello: [{ unitId: "aaaa1111", contracts: ["gone1234"] }] }, daysAgo(3))],
     });
-    expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("recently served");
+    expect(reasonFor(result, "units/hello/aaaa1111")).toBe("recently served");
   });
 
   test("and is removed once that promote is itself past the floor", () => {
     const result = plan({
-      objects: [object("units/alpha/aaaa1111/index.js", 400)],
-      histories: [history("qa", { alpha: [{ unitId: "aaaa1111", contracts: ["gone1234"] }] }, daysAgo(120))],
+      objects: [object("units/hello/aaaa1111/index.js", 400)],
+      histories: [history("qa", { hello: [{ unitId: "aaaa1111", contracts: ["gone1234"] }] }, daysAgo(120))],
     });
-    expect(result.deleteKeys).toEqual(["units/alpha/aaaa1111/index.js"]);
+    expect(result.deleteKeys).toEqual(["units/hello/aaaa1111/index.js"]);
   });
 
   // A missing reading is not a zero. The safe direction for one is to keep.
   test("an object the store gave no date for stays", () => {
-    const result = plan({ objects: [{ key: "units/alpha/aaaa1111/index.js", lastModified: "" }] });
+    const result = plan({ objects: [{ key: "units/hello/aaaa1111/index.js", lastModified: "" }] });
     expect(result.deleteKeys).toEqual([]);
-    expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("young");
+    expect(reasonFor(result, "units/hello/aaaa1111")).toBe("young");
   });
 
   test("a unit is judged whole: one young file keeps the directory", () => {
     const result = plan({
       objects: [
-        object("units/alpha/aaaa1111/index.js", 200),
-        object("units/alpha/aaaa1111/late.js", 1),
+        object("units/hello/aaaa1111/index.js", 200),
+        object("units/hello/aaaa1111/late.js", 1),
       ],
     });
     expect(result.deleteKeys).toEqual([]);
@@ -167,28 +167,28 @@ describe("which files a sweep may remove", () => {
   });
 
   test("a shorter floor removes what the 90-day one keeps", () => {
-    const objects = [object("units/alpha/aaaa1111/index.js", 30)];
+    const objects = [object("units/hello/aaaa1111/index.js", 30)];
     expect(plan({ objects }).deleteKeys).toEqual([]);
     expect(plan({ objects, floorDays: 7 }).deleteKeys).toEqual([
-      "units/alpha/aaaa1111/index.js",
+      "units/hello/aaaa1111/index.js",
     ]);
   });
 });
 
 describe("reading a plan", () => {
   test("a unit's files group under its directory, and nothing else does", () => {
-    expect(groupOf("units/alpha/aaaa1111/index.js")).toBe("units/alpha/aaaa1111");
-    expect(groupOf("units/alpha/aaaa1111/nested/deep.js")).toBe("units/alpha/aaaa1111");
+    expect(groupOf("units/hello/aaaa1111/index.js")).toBe("units/hello/aaaa1111");
+    expect(groupOf("units/hello/aaaa1111/nested/deep.js")).toBe("units/hello/aaaa1111");
     expect(groupOf("builds/old/index.js")).toBe("builds/old/index.js");
   });
 
   test("the held rows count by reason", () => {
     const result = plan({
       objects: [
-        object("units/alpha/aaaa1111/index.js", 1),
-        object("units/bravo/bbbb2222/index.js", 400),
+        object("units/hello/aaaa1111/index.js", 1),
+        object("units/second/bbbb2222/index.js", 400),
       ],
-      pointed: new Set(["units/bravo/bbbb2222"]),
+      pointed: new Set(["units/second/bbbb2222"]),
     });
     expect(heldByReason(result.held)).toEqual({
       served: 1,

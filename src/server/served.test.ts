@@ -10,7 +10,7 @@ const entry = (over: Partial<ServedEntry> = {}): ServedEntry => ({
   channel: "qa",
   region: "eu",
   buildId: "sh1",
-  units: { shell: "sh1", alpha: "a1" },
+  units: { shell: "sh1", hello: "a1" },
   contract: "c1",
   overridden: false,
   ...over,
@@ -49,7 +49,7 @@ describe("counting what was handed out", () => {
       channel: "qa",
       region: "eu",
       buildId: "sh1",
-      units: { shell: "sh1", alpha: "a1" },
+      units: { shell: "sh1", hello: "a1" },
       contract: "c1",
       responses: 1,
       overrides: 0,
@@ -75,8 +75,8 @@ describe("counting what was handed out", () => {
 
   test("does not split one composition over the order its units are named in", () => {
     const log = createServedLog();
-    log.record(entry({ units: { shell: "sh1", alpha: "a1" } }));
-    log.record(entry({ units: { alpha: "a1", shell: "sh1" } }));
+    log.record(entry({ units: { shell: "sh1", hello: "a1" } }));
+    log.record(entry({ units: { hello: "a1", shell: "sh1" } }));
     expect(log.read().compositions).toHaveLength(1);
   });
 
@@ -96,9 +96,9 @@ describe("counting what was handed out", () => {
 
   test("separates two compositions that differ in one unit", () => {
     const log = createServedLog();
-    log.record(entry({ units: { shell: "sh1", alpha: "a1" } }));
-    log.record(entry({ units: { shell: "sh1", alpha: "a2" } }));
-    expect(log.read().compositions.map((r) => r.units.alpha).sort()).toEqual(["a1", "a2"]);
+    log.record(entry({ units: { shell: "sh1", hello: "a1" } }));
+    log.record(entry({ units: { shell: "sh1", hello: "a2" } }));
+    expect(log.read().compositions.map((r) => r.units.hello).sort()).toEqual(["a1", "a2"]);
   });
 
   test("separates one set of units served at two contracts", () => {
@@ -214,10 +214,10 @@ describe("the reading is a copy", () => {
 
   test("the caller's own units object is not held onto", () => {
     const log = createServedLog();
-    const units = { shell: "sh1", alpha: "a1" };
+    const units = { shell: "sh1", hello: "a1" };
     log.record(entry({ units }));
-    units.alpha = "a2";
-    expect(log.read().compositions[0]!.units).toEqual({ shell: "sh1", alpha: "a1" });
+    units.hello = "a2";
+    expect(log.read().compositions[0]!.units).toEqual({ shell: "sh1", hello: "a1" });
   });
 });
 

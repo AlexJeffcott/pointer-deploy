@@ -71,6 +71,9 @@ BeforeWithFixtures({ tags: "@browser" }, async ({ page, world }) => {
 });
 
 After(async function (this: PointerWorld) {
+  // Before the server is stopped: a local service is reached through this
+  // world, and stopping first would leave the write nowhere to go.
+  await this.restoreAudience();
   await this.stopLocal();
   await this.restorePointer();
   await this.restoreHistory();

@@ -29,7 +29,7 @@ const v2: Manifest = {
   assetBase: BASE,
   shell: { js: "index-a.js", css: "index-b.css" },
   imports: { preact: "preact-c.js", "@pointer/shell": "api-d.js" },
-  apps: { alpha: { js: "apps/alpha-e.js", css: "apps/alpha-f.css" } },
+  apps: { hello: { js: "apps/hello-e.js", css: "apps/hello-f.css" } },
 };
 
 const v1: Manifest = {
@@ -64,7 +64,7 @@ describe("a shell manifest", () => {
   test("tells the shell where each sub-app lives", () => {
     const apps = JSON.parse(/id="__APPS__">(.*?)<\/script>/s.exec(html)![1]!);
     expect(apps).toEqual({
-      alpha: { js: `${BASE}apps/alpha-e.js`, css: `${BASE}apps/alpha-f.css` },
+      hello: { js: `${BASE}apps/hello-e.js`, css: `${BASE}apps/hello-f.css` },
     });
   });
 
@@ -140,8 +140,8 @@ test("a manifest naming no origin this server can parse allows nothing", () => {
 
 describe("a composition of independently published units", () => {
   const SHELL_BASE = "https://store.test/units/shell/s1/";
-  const ALPHA_BASE = "https://store.test/units/alpha/a9/";
-  const BRAVO_BASE = "https://store.test/units/bravo/b7/";
+  const HELLO_BASE = "https://store.test/units/hello/a9/";
+  const SECOND_BASE = "https://store.test/units/second/b7/";
 
   const v3: ManifestV3 = {
     schema: 3,
@@ -157,8 +157,8 @@ describe("a composition of independently published units", () => {
       marker: "",
     },
     apps: {
-      alpha: { unitId: "a9", commit: "a".repeat(40), assetBase: ALPHA_BASE, js: "alpha-e.js", css: "alpha-f.css", marker: "v2" },
-      bravo: { unitId: "b7", commit: "b".repeat(40), assetBase: BRAVO_BASE, js: "bravo-g.js", css: null, marker: "" },
+      hello: { unitId: "a9", commit: "a".repeat(40), assetBase: HELLO_BASE, js: "hello-e.js", css: "hello-f.css", marker: "v2" },
+      second: { unitId: "b7", commit: "b".repeat(40), assetBase: SECOND_BASE, js: "second-g.js", css: null, marker: "" },
     },
   };
 
@@ -172,8 +172,8 @@ describe("a composition of independently published units", () => {
   test("loads each sub-app from its own unit's base", () => {
     const apps = JSON.parse(/id="__APPS__">(.*?)<\/script>/s.exec(html)![1]!);
     expect(apps).toEqual({
-      alpha: { js: `${ALPHA_BASE}alpha-e.js`, css: `${ALPHA_BASE}alpha-f.css` },
-      bravo: { js: `${BRAVO_BASE}bravo-g.js` },
+      hello: { js: `${HELLO_BASE}hello-e.js`, css: `${HELLO_BASE}hello-f.css` },
+      second: { js: `${SECOND_BASE}second-g.js` },
     });
   });
 
@@ -207,8 +207,8 @@ describe("a composition of independently published units", () => {
       contract: "9e79879",
       units: {
         shell: { unitId: "s1", commit: "c".repeat(40), marker: "" },
-        alpha: { unitId: "a9", commit: "a".repeat(40), marker: "v2" },
-        bravo: { unitId: "b7", commit: "b".repeat(40), marker: "" },
+        hello: { unitId: "a9", commit: "a".repeat(40), marker: "v2" },
+        second: { unitId: "b7", commit: "b".repeat(40), marker: "" },
       },
       channel: "qa",
       region: "eu",
@@ -245,7 +245,7 @@ test("the shell response is never stored by a cache", () => {
 
 describe("a composition carrying digests", () => {
   const SHELL_BASE = "https://store.test/units/shell/s1/";
-  const ALPHA_BASE = "https://store.test/units/alpha/a9/";
+  const HELLO_BASE = "https://store.test/units/hello/a9/";
 
   const D = {
     shellJs: "sha384-shellentry",
@@ -253,8 +253,8 @@ describe("a composition carrying digests", () => {
     shared: "sha384-sharedchunk",
     preact: "sha384-preactcopy",
     api: "sha384-storeapi",
-    alphaJs: "sha384-alphaentry",
-    alphaCss: "sha384-alphastyle",
+    helloJs: "sha384-helloentry",
+    helloCss: "sha384-hellostyle",
   };
 
   const signed: ManifestV3 = {
@@ -278,13 +278,13 @@ describe("a composition carrying digests", () => {
       marker: "",
     },
     apps: {
-      alpha: {
+      hello: {
         unitId: "a9",
         commit: "a".repeat(40),
-        assetBase: ALPHA_BASE,
-        js: "alpha-e.js",
-        css: "alpha-f.css",
-        integrity: { "alpha-e.js": D.alphaJs, "alpha-f.css": D.alphaCss },
+        assetBase: HELLO_BASE,
+        js: "hello-e.js",
+        css: "hello-f.css",
+        integrity: { "hello-e.js": D.helloJs, "hello-f.css": D.helloCss },
         marker: "",
       },
     },
@@ -304,7 +304,7 @@ describe("a composition carrying digests", () => {
       [`${SHELL_BASE}shared-e.js`]: D.shared,
       [`${SHELL_BASE}preact-c.js`]: D.preact,
       [`${SHELL_BASE}api-d.js`]: D.api,
-      [`${ALPHA_BASE}alpha-e.js`]: D.alphaJs,
+      [`${HELLO_BASE}hello-e.js`]: D.helloJs,
     });
   });
 
@@ -323,10 +323,10 @@ describe("a composition carrying digests", () => {
 
   test("a sub-app's stylesheet digest is handed to the loader", () => {
     const apps = JSON.parse(/id="__APPS__">(.*?)<\/script>/s.exec(html)![1]!);
-    expect(apps.alpha).toEqual({
-      js: `${ALPHA_BASE}alpha-e.js`,
-      css: `${ALPHA_BASE}alpha-f.css`,
-      cssIntegrity: D.alphaCss,
+    expect(apps.hello).toEqual({
+      js: `${HELLO_BASE}hello-e.js`,
+      css: `${HELLO_BASE}hello-f.css`,
+      cssIntegrity: D.helloCss,
     });
   });
 
@@ -375,7 +375,7 @@ describe("a composition carrying digests", () => {
       const elsewhere: ManifestV3 = {
         ...signed,
         apps: {
-          alpha: { ...signed.apps.alpha!, assetBase: "https://other.test/units/alpha/a9/" },
+          hello: { ...signed.apps.hello!, assetBase: "https://other.test/units/hello/a9/" },
         },
       };
       const other = policyOf(elsewhere);
@@ -398,14 +398,14 @@ test("a composition with no digests renders and is still restricted", () => {
 
 describe("preloading the apps a navigation would need", () => {
   const SHELL_BASE = "https://store.test/units/shell/s1/";
-  const ALPHA_BASE = "https://store.test/units/alpha/a9/";
-  const BRAVO_BASE = "https://store.test/units/bravo/b7/";
+  const HELLO_BASE = "https://store.test/units/hello/a9/";
+  const SECOND_BASE = "https://store.test/units/second/b7/";
 
   const D = {
     shellJs: "sha384-shellentry",
-    alphaJs: "sha384-alphaentry",
-    alphaCss: "sha384-alphastyle",
-    bravoJs: "sha384-bravoentry",
+    helloJs: "sha384-helloentry",
+    helloCss: "sha384-hellostyle",
+    secondJs: "sha384-secondentry",
   };
 
   const composed: ManifestV3 = {
@@ -423,22 +423,22 @@ describe("preloading the apps a navigation would need", () => {
       marker: "",
     },
     apps: {
-      alpha: {
+      hello: {
         unitId: "a9",
         commit: "a".repeat(40),
-        assetBase: ALPHA_BASE,
-        js: "alpha-e.js",
-        css: "alpha-f.css",
-        integrity: { "alpha-e.js": D.alphaJs, "alpha-f.css": D.alphaCss },
+        assetBase: HELLO_BASE,
+        js: "hello-e.js",
+        css: "hello-f.css",
+        integrity: { "hello-e.js": D.helloJs, "hello-f.css": D.helloCss },
         marker: "",
       },
-      bravo: {
+      second: {
         unitId: "b7",
         commit: "b".repeat(40),
-        assetBase: BRAVO_BASE,
-        js: "bravo-g.js",
+        assetBase: SECOND_BASE,
+        js: "second-g.js",
         css: null,
-        integrity: { "bravo-g.js": D.bravoJs },
+        integrity: { "second-g.js": D.secondJs },
         marker: "",
       },
     },
@@ -447,8 +447,8 @@ describe("preloading the apps a navigation would need", () => {
   const html = renderShell(composed, TARGET);
 
   test("names every sub-app's script as a module preload", () => {
-    expect(html).toContain(`<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js"`);
-    expect(html).toContain(`<link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js"`);
+    expect(html).toContain(`<link rel="modulepreload" href="${HELLO_BASE}hello-e.js"`);
+    expect(html).toContain(`<link rel="modulepreload" href="${SECOND_BASE}second-g.js"`);
   });
 
   test("evaluates nothing: no second module script appears", () => {
@@ -457,42 +457,42 @@ describe("preloading the apps a navigation would need", () => {
 
   test("a preload carries the digest the import map declares for that URL", () => {
     const declared = moduleIntegrity(composed);
-    expect(declared[`${ALPHA_BASE}alpha-e.js`]).toBe(D.alphaJs);
+    expect(declared[`${HELLO_BASE}hello-e.js`]).toBe(D.helloJs);
     expect(html).toContain(
-      `<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js" ` +
-        `integrity="${D.alphaJs}" crossorigin="anonymous" />`,
+      `<link rel="modulepreload" href="${HELLO_BASE}hello-e.js" ` +
+        `integrity="${D.helloJs}" crossorigin="anonymous" />`,
     );
   });
 
   test("a preload without a digest still states its CORS mode", () => {
     const noDigests: ManifestV3 = {
       ...composed,
-      apps: { bravo: { ...composed.apps.bravo!, integrity: {} } },
+      apps: { second: { ...composed.apps.second!, integrity: {} } },
     };
     expect(renderShell(noDigests, TARGET)).toContain(
-      `<link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js" crossorigin="anonymous" />`,
+      `<link rel="modulepreload" href="${SECOND_BASE}second-g.js" crossorigin="anonymous" />`,
     );
   });
 
   test("a sub-app's stylesheet is preloaded as a stylesheet, with its digest", () => {
     expect(html).toContain(
-      `<link rel="preload" as="style" href="${ALPHA_BASE}alpha-f.css" ` +
-        `integrity="${D.alphaCss}" crossorigin="anonymous" />`,
+      `<link rel="preload" as="style" href="${HELLO_BASE}hello-f.css" ` +
+        `integrity="${D.helloCss}" crossorigin="anonymous" />`,
     );
   });
 
   test("a stylesheet with no digest is preloaded the way the loader will ask for it", () => {
     const unsigned: ManifestV3 = {
       ...composed,
-      apps: { alpha: { ...composed.apps.alpha!, integrity: {} } },
+      apps: { hello: { ...composed.apps.hello!, integrity: {} } },
     };
     expect(renderShell(unsigned, TARGET)).toContain(
-      `<link rel="preload" as="style" href="${ALPHA_BASE}alpha-f.css" />`,
+      `<link rel="preload" as="style" href="${HELLO_BASE}hello-f.css" />`,
     );
   });
 
   test("a unit that published no stylesheet is preloaded as a script alone", () => {
-    expect(html).not.toContain(`as="style" href="${BRAVO_BASE}`);
+    expect(html).not.toContain(`as="style" href="${SECOND_BASE}`);
   });
 
   test("preloads the composition being served, not another one", () => {
@@ -500,12 +500,12 @@ describe("preloading the apps a navigation would need", () => {
       ...composed,
       apps: {
         ...composed.apps,
-        alpha: { ...composed.apps.alpha!, unitId: "a1", assetBase: "https://store.test/units/alpha/a1/" },
+        hello: { ...composed.apps.hello!, unitId: "a1", assetBase: "https://store.test/units/hello/a1/" },
       },
     };
     const served = renderShell(overridden, TARGET);
-    expect(served).toContain(`<link rel="modulepreload" href="https://store.test/units/alpha/a1/alpha-e.js"`);
-    expect(served).not.toContain(`<link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js"`);
+    expect(served).toContain(`<link rel="modulepreload" href="https://store.test/units/hello/a1/hello-e.js"`);
+    expect(served).not.toContain(`<link rel="modulepreload" href="${HELLO_BASE}hello-e.js"`);
   });
 
   test("comes after the shell's own entry script", () => {
@@ -527,12 +527,12 @@ describe("preloading the apps a navigation would need", () => {
     const block = html.slice(after, html.indexOf("</body>"));
 
     expect(block).toBe(
-      `\n    <link rel="modulepreload" href="${ALPHA_BASE}alpha-e.js" ` +
-        `integrity="${D.alphaJs}" crossorigin="anonymous" />` +
-        `\n    <link rel="preload" as="style" href="${ALPHA_BASE}alpha-f.css" ` +
-        `integrity="${D.alphaCss}" crossorigin="anonymous" />` +
-        `\n    <link rel="modulepreload" href="${BRAVO_BASE}bravo-g.js" ` +
-        `integrity="${D.bravoJs}" crossorigin="anonymous" />` +
+      `\n    <link rel="modulepreload" href="${HELLO_BASE}hello-e.js" ` +
+        `integrity="${D.helloJs}" crossorigin="anonymous" />` +
+        `\n    <link rel="preload" as="style" href="${HELLO_BASE}hello-f.css" ` +
+        `integrity="${D.helloCss}" crossorigin="anonymous" />` +
+        `\n    <link rel="modulepreload" href="${SECOND_BASE}second-g.js" ` +
+        `integrity="${D.secondJs}" crossorigin="anonymous" />` +
         "\n  ",
     );
   });

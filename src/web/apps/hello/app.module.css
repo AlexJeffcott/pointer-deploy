@@ -1,0 +1,50 @@
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  border-top: 3px solid var(--accent);
+}
+
+.greeting {
+  margin: 0 0 1.25rem;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.label {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.input {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  width: 10rem;
+}
+
+.button {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.going {
+  margin: 1rem 0 0;
+  font-size: 0.8125rem;
+  color: #b4342a;
+}

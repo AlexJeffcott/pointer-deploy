@@ -62,7 +62,7 @@ When("the operator promotes build {string}'s {string} unit to the {word} channel
   this.lastRun = await this.promoteUnit(channel as Channel, app as Unit, this.unitIdOf(name, app as Unit));
 });
 
-When("the operator promotes an {string} unit that was never published", async function (this: PointerWorld, app: string) {
+When("the operator promotes a {string} unit that was never published", async function (this: PointerWorld, app: string) {
   this.lastRun = await this.promoteUnit("qa", app as Unit, "0000dead");
 });
 
@@ -85,10 +85,10 @@ Then("the {word} channel still serves the new {string} unit", async function (th
   expect(unitIdsInShell(this.lastBody)[app as Unit]).toBe(fresh.get(app));
 });
 
-Then("the {word} channel still serves build {string} for bravo, charlie, delta and the shell", async function (this: PointerWorld, channel: string, name: string) {
+Then("the {word} channel still serves build {string} for the shell", async function (this: PointerWorld, channel: string, name: string) {
   await this.visit(channel as Channel);
   const served = unitIdsInShell(this.lastBody);
-  for (const unit of UNITS.filter((u) => u !== "alpha")) {
+  for (const unit of UNITS.filter((u) => u !== "hello")) {
     expect(`${unit}=${served[unit]}`).toBe(`${unit}=${this.unitIdOf(name, unit)}`);
   }
 });
@@ -127,11 +127,11 @@ async function publishIncompatible(
 ): Promise<void> {
   const cfg = configFromEnv();
   const id = `incompat-${Bun.hash(`${process.pid}`).toString(16)}`;
-  const prefix = `units/alpha/${id}`;
-  const baseline = world.unitIdOf("one", "alpha");
+  const prefix = `units/hello/${id}`;
+  const baseline = world.unitIdOf("one", "hello");
 
   const source = await fetch(
-    `https://${cfg.bucket}.${new URL(cfg.endpoint).host}/units/alpha/${baseline}/unit.json`,
+    `https://${cfg.bucket}.${new URL(cfg.endpoint).host}/units/hello/${baseline}/unit.json`,
   );
   const manifest = (await source.json()) as Record<string, unknown> & { files: string[] };
 
@@ -181,7 +181,7 @@ Given(
 );
 
 When("the operator promotes that unit to the {word} channel", async function (this: PointerWorld, channel: string) {
-  this.lastRun = await this.promoteUnit(channel as Channel, "alpha", fresh.get("incompatible")!);
+  this.lastRun = await this.promoteUnit(channel as Channel, "hello", fresh.get("incompatible")!);
 });
 
 Then("the promotion is refused because no contract is shared", function (this: PointerWorld) {
@@ -195,7 +195,7 @@ Then(
   function (this: PointerWorld) {
     expect(this.lastRun?.code).not.toBe(0);
     expect(this.lastRun?.stderr).toContain(
-      "alpha uses ShellStore.teleport, which this shell does not have",
+      "hello uses ShellStore.teleport, which this shell does not have",
     );
     expect(this.lastRun?.stderr).toContain("Nothing was changed");
     expect(this.lastRun?.stderr).not.toContain("no contract is supported");

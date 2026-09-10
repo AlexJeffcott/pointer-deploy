@@ -1,24 +1,27 @@
 export type View = {
   title: string;
+  /** The units placed on this view. Empty means the shell draws it alone. */
   apps: readonly string[];
   note: string;
 };
 
+/**
+ * Where each unit appears, and what the shell draws by itself.
+ *
+ * The shell owns placement. A view naming no app is a legitimate view: the
+ * frame draws it, nothing is fetched for it, and it is how a page exists
+ * before a unit has been built for it.
+ */
 export const VIEWS: Record<string, View> = {
   "/": {
-    title: "Counters",
-    apps: ["alpha", "bravo"],
-    note: "Two sub-apps, each its own bundle. Both write to the shell's store.",
+    title: "Hello",
+    apps: ["hello"],
+    note: "One sub-app, its own bundle, fetched from the object store when this view first appears.",
   },
-  "/totals": {
-    title: "Totals",
-    apps: ["charlie", "delta"],
-    note: "Two more bundles. Neither created a counter on this page, and both read the ones that did.",
-  },
-  "/api": {
+  "/service": {
     title: "Service",
-    apps: ["echo"],
-    note: "One bundle, reporting what the service says it holds. It fetches nothing: the shell read the document once and handed the reading down with the store.",
+    apps: [],
+    note: "Drawn by the shell from the one reading it took of the service. Nothing is fetched for this view.",
   },
 };
 

@@ -1,82 +1,45 @@
-Feature: Sharing state between independently loaded sub-apps
+Feature: Sharing state between the frame and a sub-app deployed apart from it
   As a visitor
-  I want every panel on the page to agree about my name, my colour and every count
+  I want the frame and the panel inside it to agree about what the page says
   So that the page behaves as one application even though it is assembled from
   bundles that were built and published separately
 
   Rule: The composition the channel serves
 
     Background:
-      Given a visitor opens the counters view
+      Given a visitor opens the hello view
 
     @browser
-    Scenario: A count raised in one sub-app is read by a sub-app on another view
-      The counters this page starts with belong to the service, which is shared
-      by every visitor and every earlier run. So what is asserted is the pair of
-      facts this scenario is actually for: every panel holds the SAME number,
-      and it moved by what was clicked.
+    Scenario: The panel draws what the service holds, through the frame
+      The panel never calls the service. The frame reads it once and hands the
+      reading down, so what is on screen and what the service holds are the
+      same fact rather than two calls that could disagree.
 
-      When they raise the "alpha" counter by 6
-      And they raise the "bravo" counter by 3
-      And they open the totals view
-      Then every sub-app that lists counters agrees about "alpha"
-      And the "alpha" count rose by 6
-      And every sub-app that lists counters agrees about "bravo"
-      And the "bravo" count rose by 3
+      Then the panel greets what the service holds
 
     @browser
-    Scenario: A sub-app that created no counter still sees the ones that exist
-      When they raise the "alpha" counter by 2
-      And they open the totals view
-      Then the totals view lists the namespaces alpha, bravo, charlie and delta
+    Scenario: What the panel writes reaches the frame's store and comes back
+      The panel holds no state. It writes into a signal the SHELL's bundle
+      created, and redraws because both bundles share one runtime. A panel
+      carrying its own Preact would write the value and never redraw.
+
+      When they set the audience to "Bologna"
+      Then the panel greets "Bologna"
 
     @browser
-    Scenario: A sub-app that draws a count shows a larger one as a longer bar
-      When they raise the "alpha" counter by 4
-      And they open the totals view
-      Then the bar for "alpha" is longer than the bar for "charlie"
-
-    @browser
-    Scenario: The name the frame holds reaches every sub-app
-      When they set the name to "Bologna"
-      Then every sub-app on the page names "Bologna"
-
-    @browser
-    Scenario: The colour the frame holds reaches every sub-app
-      When they set the colour to "#e2703a"
-      Then every sub-app on the page is drawn in that colour
+    Scenario: The value survives the panel being unmounted, because the frame owns it
+      When they set the audience to "Bologna"
+      And they open the service view
+      And they open the hello view
+      Then the panel greets "Bologna"
 
   Rule: The composition this working tree builds
 
     Background:
       Given the qa channel points at build "tree"
-      And a visitor opens the counters view
+      And a visitor opens the hello view
 
     @browser @test-channel
-    Scenario: A count raised in one sub-app is read by another, from this tree
-      When they raise the "alpha" counter by 6
-      And they open the totals view
-      Then every sub-app that lists counters reads "alpha" as 6
-
-    @browser @test-channel
-    Scenario: The name the frame holds reaches every sub-app, from this tree
-      When they set the name to "Bologna"
-      Then every sub-app on the page names "Bologna"
-
-  Rule: Fetching a sub-app's files
-
-    Background:
-      Given the qa channel points at build "tree"
-      And a visitor opens the counters view
-
-    @browser @test-channel
-    Scenario: The bundles for a view nobody has opened are warmed, not run
-      Then the bundles for the totals view have been fetched
-      And no sub-app on the totals view has run
-
-    @browser @test-channel
-    Scenario: Returning to a view does not fetch its bundles again
-      When they open the totals view
-      And they open the counters view
-      And they open the totals view
-      Then each bundle for the totals view was fetched once
+    Scenario: What the panel writes comes back, from this tree
+      When they set the audience to "Bologna"
+      Then the panel greets "Bologna"

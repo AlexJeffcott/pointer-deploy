@@ -62,66 +62,29 @@ describe("readMembers, against the surface this repository ships", () => {
     async () => {
       const reading = await readMembers(await emitSurface(), [...APPS]);
 
-      // The claim the whole gate rests on: two of ShellStore's members are
-      // called by no sub-app, so removing either must cost nothing.
-      expect(Object.keys(reading.uses.alpha!)).not.toContain("ShellStore.setName");
-      expect(Object.keys(reading.uses.bravo!)).not.toContain("ShellStore.setName");
-      expect(Object.keys(reading.uses.charlie!)).not.toContain("ShellStore.setColour");
-      expect(Object.keys(reading.uses.delta!)).not.toContain("ShellStore.setColour");
-
-      // And one that exactly one app calls.
-      expect(Object.keys(reading.uses.bravo!)).toContain("ShellStore.reset");
-      expect(Object.keys(reading.uses.alpha!)).not.toContain("ShellStore.reset");
-      expect(Object.keys(reading.uses.charlie!)).not.toContain("ShellStore.reset");
-
-      // Every app asks who the user is, and paints itself in their colour.
-      for (const app of APPS) {
-        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.user");
-        expect(Object.keys(reading.uses[app]!)).toContain("User.colour");
+      // The claim the whole gate rests on: members of ShellStore that no
+      // sub-app calls, so removing any of them costs a sub-app nothing.
+      for (const member of ["ShellStore.service", "ShellStore.setService"]) {
+        expect(APPS.filter((a) => member in (reading.uses[a] ?? {}))).toEqual([]);
+        expect(Object.keys(reading.provides)).toContain(member);
       }
 
-      // The counters are not universal. echo reports on the service and takes
-      // no part in the shared state, so a member removed from the counting half
-      // of the surface costs it nothing.
-      for (const app of APPS.filter((a) => a !== "echo")) {
-        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.increment");
-        expect(Object.keys(reading.uses[app]!)).toContain("User.name");
-      }
-      expect(Object.keys(reading.uses.echo!)).not.toContain("ShellStore.increment");
-
-      // The service half, §26, splits the apps the other way: two ask whether
-      // one field is going away, three read the whole report, and each records
-      // only what it asked for.
-      for (const app of ["alpha", "bravo"]) {
-        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.goingAway");
-        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.service");
-      }
-      for (const app of ["charlie", "delta", "echo"]) {
-        expect(Object.keys(reading.uses[app]!)).toContain("ShellStore.service");
-        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.goingAway");
-      }
-      // Nothing but the shell writes it.
-      for (const app of APPS) {
-        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.setService");
-        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.setSettings");
-        expect(Object.keys(reading.uses[app]!)).not.toContain("ShellStore.setUser");
+      // And what the one app there is does call.
+      for (const member of ["ShellStore.greeting", "ShellStore.setGreeting", "ShellStore.goingAway"]) {
+        expect(Object.keys(reading.uses.hello!)).toContain(member);
       }
 
-      // §27, and the reading the whole widening was for: ownership at the
-      // FIELD, not at the resource. Removing one field of `Limits` refuses
-      // exactly the apps that draw with it, and `readMembers` says which.
+      // Ownership comes out at the FIELD and not at the type. The panel draws
+      // both halves of the greeting, and reads two of the four dates and names
+      // on a sunset - so a service retiring `reason` costs this panel nothing
+      // and `readMembers` says so.
       const owner: Record<string, string[]> = {
-        "Limits.step": ["alpha"],
-        "Limits.max": ["alpha", "bravo"],
-        "Limits.allowNegative": ["bravo"],
-        "Label.title": ["charlie", "delta"],
-        "Label.emoji": ["delta"],
-        "Flags.showTotals": ["charlie"],
-        "Flags.showShares": ["delta"],
-        "Stats.total": ["charlie"],
-        "Stats.busiest": ["delta"],
-        "Stats.updatedAt": ["echo"],
-        "User.initials": ["charlie"],
+        "Greeting.text": ["hello"],
+        "Greeting.audience": ["hello"],
+        "FieldSunset.sunset": ["hello"],
+        "FieldSunset.instead": ["hello"],
+        "FieldSunset.since": [],
+        "FieldSunset.reason": [],
       };
       for (const [member, expected] of Object.entries(owner)) {
         const actual = APPS.filter((a) => member in (reading.uses[a] ?? {}));
@@ -129,27 +92,20 @@ describe("readMembers, against the surface this repository ships", () => {
       }
 
       // Two members of this surface hold the SAME TEXT, so they hold the same
-      // digest: `colour: string;` is both `Theme.colour` and `User.colour`,
-      // and `path: string;` is both `ServiceField.path` and `ServiceRoute.path`.
-      // The probe used to name its scratch directory after the digest, so each
-      // pair shared one directory, raced across lanes, and compiled against
-      // whichever cut surface won - which read as "nobody uses this" for a
-      // member every app calls. Named after the path now. Asserted here so the
-      // pair stays a pair: if a rename ever pulls the digests apart, this fails
-      // and says the guard is no longer exercised rather than passing quietly.
-      for (const [a, b] of [
-        ["Theme.colour", "User.colour"],
-        ["ServiceField.path", "ServiceRoute.path"],
-      ]) {
-        expect(reading.provides[a!]).toBe(reading.provides[b!]!);
-      }
-      expect(APPS.filter((app) => "User.colour" in (reading.uses[app] ?? {}))).toEqual([...APPS]);
-      expect(APPS.filter((app) => "Theme.colour" in (reading.uses[app] ?? {}))).toEqual([]);
+      // digest: `path: string;` is both `ServiceField.path` and
+      // `ServiceRoute.path`. The probe used to name its scratch directory after
+      // the digest, so each pair shared one directory, raced across lanes, and
+      // compiled against whichever cut surface won - which read as "nobody uses
+      // this" for a member every app calls. Named after the path now. Asserted
+      // here so the pair stays a pair: if a rename ever pulls the digests
+      // apart, this fails and says the guard is no longer exercised rather than
+      // passing quietly.
+      expect(reading.provides["ServiceField.path"]).toBe(reading.provides["ServiceRoute.path"]!);
 
       // Read by the frame alone, so no sub-app records them. They are still
       // provided, and a removal would still be refused by the compiler where
       // the shell reads them - which is a different check, in a different file.
-      for (const member of ["Flags.compact", "Theme.dark", "ShellStore.motd"]) {
+      for (const member of ["ServiceReport.serves", "ServiceReport.readAt", "ServiceReport.error"]) {
         expect(APPS.filter((a) => member in (reading.uses[a] ?? {}))).toEqual([]);
         expect(Object.keys(reading.provides)).toContain(member);
       }
@@ -158,7 +114,7 @@ describe("readMembers, against the surface this repository ships", () => {
       // surface being a surface. Reported, never counted as provided.
       expect(reading.structural).toContain("ShellStore");
       expect(Object.keys(reading.provides)).not.toContain("ShellStore");
-      expect(Object.keys(reading.provides)).toContain("ShellStore.reset");
+      expect(Object.keys(reading.provides)).toContain("ShellStore.greeting");
 
       // Every member an app uses must be one the shell provides, or the gate
       // would refuse the composition this repository builds.

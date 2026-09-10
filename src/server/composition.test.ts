@@ -36,7 +36,7 @@ const manifest: ManifestV3 = {
   composedAt: "2026-08-28T00:00:00.000Z",
   contract: "c2",
   shell: unit("shell", "s1", { imports: { preact: "preact-a.js" } }),
-  apps: { alpha: unit("alpha", "a1"), bravo: unit("bravo", "b1") },
+  apps: { hello: unit("hello", "a1"), second: unit("second", "b1") },
 };
 
 const history: ChannelHistory = {
@@ -47,35 +47,35 @@ const history: ChannelHistory = {
       { unit: unit("shell", "s1", { imports: { preact: "preact-a.js" } }), contracts: ["c1", "c2"] },
       { unit: unit("shell", "s0", { imports: { preact: "preact-a.js" } }), contracts: ["c1"] },
     ],
-    alpha: [
-      { unit: unit("alpha", "a1"), contracts: ["c2"] },
-      { unit: unit("alpha", "a0"), contracts: ["c1", "c2"] },
+    hello: [
+      { unit: unit("hello", "a1"), contracts: ["c2"] },
+      { unit: unit("hello", "a0"), contracts: ["c1", "c2"] },
     ],
-    bravo: [{ unit: unit("bravo", "b1"), contracts: ["c1", "c2"] }],
+    second: [{ unit: unit("second", "b1"), contracts: ["c1", "c2"] }],
   },
 };
 
-const served = { shell: "s1", alpha: "a1", bravo: "b1" };
+const served = { shell: "s1", hello: "a1", second: "b1" };
 
 describe("sharedContracts", () => {
   test("keeps only what every unit supports", () => {
-    expect(sharedContracts({ shell: ["c1", "c2"], alpha: ["c2"], bravo: ["c1", "c2"] })).toEqual(["c2"]);
+    expect(sharedContracts({ shell: ["c1", "c2"], hello: ["c2"], second: ["c1", "c2"] })).toEqual(["c2"]);
   });
 
   test("is empty when nothing is common", () => {
-    expect(sharedContracts({ shell: ["c1"], alpha: ["c2"] })).toEqual([]);
+    expect(sharedContracts({ shell: ["c1"], hello: ["c2"] })).toEqual([]);
   });
 
   test("reports in the shell's order", () => {
-    expect(sharedContracts({ shell: ["c1", "c2"], alpha: ["c2", "c1"] })).toEqual(["c1", "c2"]);
+    expect(sharedContracts({ shell: ["c1", "c2"], hello: ["c2", "c1"] })).toEqual(["c1", "c2"]);
   });
 
   test("a unit that supports nothing empties the set", () => {
-    expect(sharedContracts({ shell: ["c1", "c2"], alpha: [] })).toEqual([]);
+    expect(sharedContracts({ shell: ["c1", "c2"], hello: [] })).toEqual([]);
   });
 
   test("a shell that supports nothing empties the set", () => {
-    expect(sharedContracts({ alpha: ["c1"] })).toEqual([]);
+    expect(sharedContracts({ hello: ["c1"] })).toEqual([]);
   });
 
   test("a composition of no units shares nothing", () => {
@@ -85,11 +85,11 @@ describe("sharedContracts", () => {
 
 describe("chooseContract", () => {
   test("takes the last shared hash", () => {
-    expect(chooseContract({ shell: ["c1", "c2"], alpha: ["c1", "c2"] })).toBe("c2");
+    expect(chooseContract({ shell: ["c1", "c2"], hello: ["c1", "c2"] })).toBe("c2");
   });
 
   test("is null when no contract is shared", () => {
-    expect(chooseContract({ shell: ["c1"], alpha: ["c2"] })).toBeNull();
+    expect(chooseContract({ shell: ["c1"], hello: ["c2"] })).toBeNull();
   });
 });
 
@@ -106,7 +106,7 @@ describe("historyUrl", () => {
 
 describe("currentIds", () => {
   test("names the shell and every app", () => {
-    expect(currentIds(manifest)).toEqual({ shell: "s1", alpha: "a1", bravo: "b1" });
+    expect(currentIds(manifest)).toEqual({ shell: "s1", hello: "a1", second: "b1" });
   });
 });
 
@@ -115,7 +115,7 @@ describe("parseHistory", () => {
     const parsed = parseHistory(JSON.parse(JSON.stringify(history)));
     expect(parsed.updatedAt).toBe("2026-08-28T00:00:00.000Z");
     expect(parsed.units.shell?.map((e) => e.unit.unitId)).toEqual(["s1", "s0"]);
-    expect(parsed.units.alpha?.[1]?.contracts).toEqual(["c1", "c2"]);
+    expect(parsed.units.hello?.[1]?.contracts).toEqual(["c1", "c2"]);
   });
 
   test("accepts a history that names no units at all", () => {
@@ -212,8 +212,8 @@ describe("parseHistory", () => {
 
   test("rejects contracts that are not an array", () => {
     rejects(
-      { schema: 1, updatedAt: "t", units: { alpha: [{ unit: { unitId: "a1" }, contracts: "c1" }] } },
-      "history field units.alpha[0].contracts is not an array",
+      { schema: 1, updatedAt: "t", units: { hello: [{ unit: { unitId: "a1" }, contracts: "c1" }] } },
+      "history field units.hello[0].contracts is not an array",
     );
   });
 
@@ -284,16 +284,16 @@ describe("the block gate", () => {
             surface: { blocks: { "BuildInfo.channel": "l1" } },
           },
         ],
-        alpha: [
+        hello: [
           {
-            unit: unit("alpha", "a1"),
+            unit: unit("hello", "a1"),
             contracts: ["c1"],
             surface: { blocks: { "BuildInfo.region": "d1" } },
           },
         ],
       },
     };
-    expect(refuseComposition(h, { shell: "s1", alpha: "a1" }, WRITES)).toBeNull();
+    expect(refuseComposition(h, { shell: "s1", hello: "a1" }, WRITES)).toBeNull();
   });
 
 });
@@ -333,10 +333,10 @@ describe("the API gate", () => {
       updatedAt: "2026-08-29T00:00:00.000Z",
       units: {
         shell: [{ unit: unit("shell", "s1"), contracts: ["c1"], surface: { api: ["v1"] } }],
-        alpha: [{ unit: unit("alpha", "a1"), contracts: ["c1"], surface: { api: ["v9"] } }],
+        hello: [{ unit: unit("hello", "a1"), contracts: ["c1"], surface: { api: ["v9"] } }],
       },
     };
-    expect(refuseComposition(h, { shell: "s1", alpha: "a1" }, {}, ["v1"])).toBeNull();
+    expect(refuseComposition(h, { shell: "s1", hello: "a1" }, {}, ["v1"])).toBeNull();
   });
 
   test("refuseComposition refuses a chosen shell the service cannot feed", () => {
@@ -407,7 +407,7 @@ describe("parseHistory carries the member reading", () => {
     };
     expect(surfaceOf(h, "shell", "s1")).toEqual({ subapps: ["sub1"] });
     expect(surfaceOf(h, "shell", "s9")).toBeUndefined();
-    expect(surfaceOf(h, "alpha", "a1")).toBeUndefined();
+    expect(surfaceOf(h, "hello", "a1")).toBeUndefined();
   });
 });
 
@@ -417,17 +417,17 @@ describe("refuseComposition", () => {
   });
 
   test("allows an older unit the rest can be composed with", () => {
-    expect(refuseComposition(history, { ...served, alpha: "a0" })).toBeNull();
+    expect(refuseComposition(history, { ...served, hello: "a0" })).toBeNull();
   });
 
   test("refuses an id this channel has never served", () => {
-    expect(refuseComposition(history, { ...served, alpha: "0000dead" })).toBe(
-      "the alpha unit 0000dead is not one this channel can serve",
+    expect(refuseComposition(history, { ...served, hello: "0000dead" })).toBe(
+      "the hello unit 0000dead is not one this channel can serve",
     );
   });
 
   test("refuses a unit the history knows nothing about", () => {
-    expect(refuseComposition(history, { ...served, charlie: "c1" })).toContain("charlie");
+    expect(refuseComposition(history, { ...served, third: "c1" })).toContain("third");
   });
 
   test("refuses a chosen shell this server cannot feed, and names the field", () => {
@@ -476,14 +476,14 @@ describe("the member gate", () => {
     "ShellStore.setColour": "o1",
     "ShellStore.snapshot": "s1",
   };
-  const ALPHA = { "ShellStore.user": "u1", "ShellStore.register": "r1", "ShellStore.increment": "i1" };
-  const BRAVO = { ...ALPHA, "ShellStore.reset": "x1" };
+  const HELLO = { "ShellStore.user": "u1", "ShellStore.register": "r1", "ShellStore.increment": "i1" };
+  const SECOND = { ...HELLO, "ShellStore.reset": "x1" };
 
-  const DISJOINT = { shell: ["c9"], alpha: ["c1"], bravo: ["c1"] };
+  const DISJOINT = { shell: ["c9"], hello: ["c1"], second: ["c1"] };
   const surfaces = (provides: Record<string, string>) => ({
     shell: shell(provides),
-    alpha: app(ALPHA),
-    bravo: app(BRAVO),
+    hello: app(HELLO),
+    second: app(SECOND),
   });
 
   test("a member added changes nothing", () => {
@@ -499,17 +499,17 @@ describe("the member gate", () => {
   test("a member removed that one app uses refuses, and names both", () => {
     const { "ShellStore.reset": _gone, ...smaller } = FULL;
     const refusal = compositionRefusal(DISJOINT, surfaces(smaller));
-    expect(refusal).toContain("bravo");
+    expect(refusal).toContain("second");
     expect(refusal).toContain("ShellStore.reset");
-    expect(refusal).not.toContain("alpha");
+    expect(refusal).not.toContain("hello");
   });
 
   test("a re-declared member refuses only the apps that name it", () => {
     const narrowed = { ...FULL, "ShellStore.reset": "x2" };
     const refusal = compositionRefusal(DISJOINT, surfaces(narrowed));
-    expect(refusal).toContain("bravo");
+    expect(refusal).toContain("second");
     expect(refusal).toContain("declares differently");
-    expect(refusal).not.toContain("alpha");
+    expect(refusal).not.toContain("hello");
   });
 
   test("a re-declared member no app uses changes nothing", () => {
@@ -519,22 +519,22 @@ describe("the member gate", () => {
   test("a different SubApp half refuses even when every member fits", () => {
     const refusal = compositionRefusal(DISJOINT, {
       shell: shell(FULL, ["sub2"]),
-      alpha: app(ALPHA),
-      bravo: app(BRAVO),
+      hello: app(HELLO),
+      second: app(SECOND),
     });
-    expect(refusal).toContain("alpha");
+    expect(refusal).toContain("hello");
     expect(refusal).toContain("SubApp");
   });
 
   test("the contract sets decide when the shell carries no reading", () => {
-    expect(compositionRefusal(DISJOINT, { shell: {}, alpha: app(ALPHA), bravo: app(BRAVO) })).toBe(
+    expect(compositionRefusal(DISJOINT, { shell: {}, hello: app(HELLO), second: app(SECOND) })).toBe(
       "no contract is supported by every unit in that composition",
     );
   });
 
   test("an app with no reading falls back to the contract sets", () => {
-    const mixed = { shell: shell(FULL), alpha: app(ALPHA), bravo: undefined };
-    expect(compositionRefusal({ shell: ["c9"], alpha: ["c1"], bravo: ["c9"] }, mixed)).toBeNull();
+    const mixed = { shell: shell(FULL), hello: app(HELLO), second: undefined };
+    expect(compositionRefusal({ shell: ["c9"], hello: ["c1"], second: ["c9"] }, mixed)).toBeNull();
     expect(compositionRefusal(DISJOINT, mixed)).toBe(
       "no contract is supported by every unit in that composition",
     );
@@ -542,29 +542,29 @@ describe("the member gate", () => {
 
   test("memberRefusal cannot answer without both sides", () => {
     expect(memberRefusal({ shell: shell(FULL) })).toBeUndefined();
-    expect(memberRefusal({ shell: {}, alpha: app(ALPHA) })).toBeUndefined();
-    expect(memberRefusal({ shell: shell(FULL), alpha: app(ALPHA) })).toBeNull();
+    expect(memberRefusal({ shell: {}, hello: app(HELLO) })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), hello: app(HELLO) })).toBeNull();
   });
 
   test("a shell recording only half of its own surface cannot answer", () => {
-    expect(memberRefusal({ shell: { provides: FULL }, alpha: app(ALPHA) })).toBeUndefined();
-    expect(memberRefusal({ shell: { subapps: [HALF] }, alpha: app(ALPHA) })).toBeUndefined();
+    expect(memberRefusal({ shell: { provides: FULL }, hello: app(HELLO) })).toBeUndefined();
+    expect(memberRefusal({ shell: { subapps: [HALF] }, hello: app(HELLO) })).toBeUndefined();
   });
 
   test("an app with no reading is skipped rather than judged", () => {
-    expect(memberRefusal({ shell: shell(FULL), alpha: undefined })).toBeUndefined();
-    expect(memberRefusal({ shell: shell(FULL), alpha: undefined, bravo: app(BRAVO) })).toBeNull();
+    expect(memberRefusal({ shell: shell(FULL), hello: undefined })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), hello: undefined, second: app(SECOND) })).toBeNull();
   });
 
   test("an app that records members but not its SubApp half is skipped", () => {
-    expect(memberRefusal({ shell: shell(FULL), alpha: { uses: ALPHA } })).toBeUndefined();
-    expect(memberRefusal({ shell: shell(FULL), alpha: { subapps: [HALF] } })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), hello: { uses: HELLO } })).toBeUndefined();
+    expect(memberRefusal({ shell: shell(FULL), hello: { subapps: [HALF] } })).toBeUndefined();
   });
 
   test("a member the shell does not have is named as missing, not as changed", () => {
     const { "ShellStore.reset": _gone, ...smaller } = FULL;
-    expect(memberRefusal({ shell: shell(smaller), bravo: app(BRAVO) })).toBe(
-      "bravo uses ShellStore.reset, which this shell does not have",
+    expect(memberRefusal({ shell: shell(smaller), second: app(SECOND) })).toBe(
+      "second uses ShellStore.reset, which this shell does not have",
     );
   });
 
@@ -572,30 +572,30 @@ describe("the member gate", () => {
     expect(
       memberRefusal({
         shell: shell(FULL, ["sub1", "sub2"]),
-        alpha: app(ALPHA, ["sub2", "sub3"]),
+        hello: app(HELLO, ["sub2", "sub3"]),
       }),
     ).toBeNull();
   });
 
   test("two problems are reported as two", () => {
     const { "ShellStore.reset": _gone, ...smaller } = FULL;
-    expect(memberRefusal({ shell: shell(smaller, ["sub2"]), bravo: app(BRAVO) })).toBe(
-      "bravo uses ShellStore.reset, which this shell does not have; " +
-        "bravo was built against a different SubApp type",
+    expect(memberRefusal({ shell: shell(smaller, ["sub2"]), second: app(SECOND) })).toBe(
+      "second uses ShellStore.reset, which this shell does not have; " +
+        "second was built against a different SubApp type",
     );
   });
 
   test("a shell alone in the contract half is not refused for sharing nothing", () => {
     expect(
-      compositionRefusal({ shell: [], alpha: ["c1"] }, { shell: shell(FULL), alpha: app(ALPHA) }),
+      compositionRefusal({ shell: [], hello: ["c1"] }, { shell: shell(FULL), hello: app(HELLO) }),
     ).toBeNull();
   });
 
   test("decidesMembers needs all four fields", () => {
-    expect(decidesMembers(shell(FULL), app(ALPHA))).toBe(true);
-    expect(decidesMembers({ provides: FULL }, app(ALPHA))).toBe(false);
-    expect(decidesMembers(shell(FULL), { uses: ALPHA })).toBe(false);
-    expect(decidesMembers(undefined, app(ALPHA))).toBe(false);
+    expect(decidesMembers(shell(FULL), app(HELLO))).toBe(true);
+    expect(decidesMembers({ provides: FULL }, app(HELLO))).toBe(false);
+    expect(decidesMembers(shell(FULL), { uses: HELLO })).toBe(false);
+    expect(decidesMembers(undefined, app(HELLO))).toBe(false);
   });
 
 });
@@ -604,21 +604,21 @@ describe("compose", () => {
   test("substitutes the shell and keeps every app", () => {
     const out = compose(manifest, history, { ...served, shell: "s0" });
     expect(out.shell.unitId).toBe("s0");
-    expect(out.apps.alpha?.unitId).toBe("a1");
-    expect(out.apps.bravo?.unitId).toBe("b1");
+    expect(out.apps.hello?.unitId).toBe("a1");
+    expect(out.apps.second?.unitId).toBe("b1");
   });
 
   test("substitutes one app and leaves the others where they were", () => {
-    const out = compose(manifest, history, { ...served, alpha: "a0" });
-    expect(out.apps.alpha?.unitId).toBe("a0");
-    expect(out.apps.alpha?.assetBase).toBe("https://store.test/units/alpha/a0/");
-    expect(out.apps.bravo?.unitId).toBe("b1");
+    const out = compose(manifest, history, { ...served, hello: "a0" });
+    expect(out.apps.hello?.unitId).toBe("a0");
+    expect(out.apps.hello?.assetBase).toBe("https://store.test/units/hello/a0/");
+    expect(out.apps.second?.unitId).toBe("b1");
     expect(out.shell.unitId).toBe("s1");
   });
 
   test("recomputes the contract for what was chosen", () => {
-    expect(compose(manifest, history, { ...served, alpha: "a0" }).contract).toBe("c2");
-    expect(compose(manifest, history, { shell: "s0", alpha: "a0", bravo: "b1" }).contract).toBe("c1");
+    expect(compose(manifest, history, { ...served, hello: "a0" }).contract).toBe("c2");
+    expect(compose(manifest, history, { shell: "s0", hello: "a0", second: "b1" }).contract).toBe("c1");
   });
 
   test("keeps the base's contract when the choice resolves at none", () => {
@@ -626,15 +626,15 @@ describe("compose", () => {
   });
 
   test("keeps the base's unit when the history does not hold the id", () => {
-    const out = compose(manifest, history, { shell: "gone", alpha: "gone", bravo: "b1" });
+    const out = compose(manifest, history, { shell: "gone", hello: "gone", second: "b1" });
     expect(out.shell.unitId).toBe("s1");
-    expect(out.apps.alpha?.unitId).toBe("a1");
+    expect(out.apps.hello?.unitId).toBe("a1");
   });
 
   test("a unit the history never names leaves the composition alone", () => {
-    const out = compose(manifest, history, { ...served, charlie: "c9" });
-    expect(out.apps.charlie).toBeUndefined();
-    expect(out.apps.alpha?.unitId).toBe("a1");
+    const out = compose(manifest, history, { ...served, third: "c9" });
+    expect(out.apps.third).toBeUndefined();
+    expect(out.apps.hello?.unitId).toBe("a1");
     expect(out.shell.unitId).toBe("s1");
   });
 
@@ -643,7 +643,7 @@ describe("compose", () => {
   });
 
   test("everything else about the manifest survives", () => {
-    const out = compose(manifest, history, { ...served, alpha: "a0" });
+    const out = compose(manifest, history, { ...served, hello: "a0" });
     expect(out.schema).toBe(3);
     expect(out.composedAt).toBe("2026-08-28T00:00:00.000Z");
     expect(out.shell.imports).toEqual({ preact: "preact-a.js" });
@@ -672,32 +672,32 @@ describe("mergeKnown", () => {
     schema: 1,
     updatedAt: "2026-08-31T00:00:00.000Z",
     units: {
-      alpha: [
-        { unit: unit("alpha", "a9"), contracts: ["c2"], publishedAt: "2026-08-31T00:00:00.000Z" },
-        { unit: unit("alpha", "a1"), contracts: ["c9"], publishedAt: "2026-08-01T00:00:00.000Z" },
+      hello: [
+        { unit: unit("hello", "a9"), contracts: ["c2"], publishedAt: "2026-08-31T00:00:00.000Z" },
+        { unit: unit("hello", "a1"), contracts: ["c9"], publishedAt: "2026-08-01T00:00:00.000Z" },
       ],
-      charlie: [{ unit: unit("charlie", "c1"), contracts: ["c2"] }],
+      third: [{ unit: unit("third", "c1"), contracts: ["c2"] }],
     },
   };
 
   test("adds a published build this channel has never served", () => {
     const merged = mergeKnown(history, catalogue);
-    expect(merged.units.alpha?.map((e) => e.unit.unitId)).toEqual(["a1", "a0", "a9"]);
+    expect(merged.units.hello?.map((e) => e.unit.unitId)).toEqual(["a1", "a0", "a9"]);
   });
 
   test("adds a unit the channel has no history for at all", () => {
-    expect(mergeKnown(history, catalogue).units.charlie?.map((e) => e.unit.unitId)).toEqual(["c1"]);
+    expect(mergeKnown(history, catalogue).units.third?.map((e) => e.unit.unitId)).toEqual(["c1"]);
   });
 
   test("what the channel served wins, because only it knows the order and the stamps", () => {
     const merged = mergeKnown(history, catalogue);
-    expect(merged.units.alpha?.find((e) => e.unit.unitId === "a1")?.contracts).toEqual(["c2"]);
+    expect(merged.units.hello?.find((e) => e.unit.unitId === "a1")?.contracts).toEqual(["c2"]);
   });
 
   test("keeps every unit the channel has served", () => {
     const merged = mergeKnown(history, catalogue);
     expect(merged.units.shell?.map((e) => e.unit.unitId)).toEqual(["s1", "s0"]);
-    expect(merged.units.bravo?.map((e) => e.unit.unitId)).toEqual(["b1"]);
+    expect(merged.units.second?.map((e) => e.unit.unitId)).toEqual(["b1"]);
   });
 
   test("no catalogue leaves the channel exactly as it was", () => {
@@ -708,9 +708,9 @@ describe("mergeKnown", () => {
     const withHarness: ChannelHistory = {
       schema: 1,
       updatedAt: "t",
-      units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
+      units: { hello: [{ unit: unit("hello", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
     };
-    expect(mergeKnown(history, withHarness).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+    expect(mergeKnown(history, withHarness).units.hello?.map((e) => e.unit.unitId)).toEqual([
       "a1",
       "a0",
     ]);
@@ -720,10 +720,10 @@ describe("mergeKnown", () => {
     const withHarness: ChannelHistory = {
       schema: 1,
       updatedAt: "t",
-      units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
+      units: { hello: [{ unit: unit("hello", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
     };
     expect(
-      mergeKnown(history, withHarness, () => true).units.alpha?.map((e) => e.unit.unitId),
+      mergeKnown(history, withHarness, () => true).units.hello?.map((e) => e.unit.unitId),
     ).toEqual(["a1", "a0", "a7"]);
   });
 
@@ -732,15 +732,15 @@ describe("mergeKnown", () => {
       schema: 1,
       updatedAt: "t",
       units: {
-        alpha: [
-          { unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] },
-          { unit: unit("alpha", "a8", { marker: "pr-42" }), contracts: ["c2"] },
-          { unit: unit("alpha", "a9"), contracts: ["c2"] },
+        hello: [
+          { unit: unit("hello", "a7", { marker: "e2e" }), contracts: ["c2"] },
+          { unit: unit("hello", "a8", { marker: "pr-42" }), contracts: ["c2"] },
+          { unit: unit("hello", "a9"), contracts: ["c2"] },
         ],
       },
     };
     const admits = (m: string) => m === "" || m === "pr-42";
-    expect(mergeKnown(history, marked, admits).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+    expect(mergeKnown(history, marked, admits).units.hello?.map((e) => e.unit.unitId)).toEqual([
       "a1",
       "a0",
       "a8",
@@ -753,13 +753,13 @@ describe("mergeKnown", () => {
       schema: 1,
       updatedAt: "t",
       units: {
-        alpha: [
-          { unit: unit("alpha", "a8", { marker: "pr-42" }), contracts: ["c2"] },
-          { unit: unit("alpha", "a9"), contracts: ["c2"] },
+        hello: [
+          { unit: unit("hello", "a8", { marker: "pr-42" }), contracts: ["c2"] },
+          { unit: unit("hello", "a9"), contracts: ["c2"] },
         ],
       },
     };
-    expect(mergeKnown(history, marked).units.alpha?.map((e) => e.unit.unitId)).toEqual([
+    expect(mergeKnown(history, marked).units.hello?.map((e) => e.unit.unitId)).toEqual([
       "a1",
       "a0",
       "a9",
@@ -770,15 +770,15 @@ describe("mergeKnown", () => {
     const served: ChannelHistory = {
       schema: 1,
       updatedAt: "t",
-      units: { alpha: [{ unit: unit("alpha", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
+      units: { hello: [{ unit: unit("hello", "a7", { marker: "e2e" }), contracts: ["c2"] }] },
     };
-    expect(mergeKnown(served, { schema: 1, updatedAt: "t", units: {} }).units.alpha).toHaveLength(1);
+    expect(mergeKnown(served, { schema: 1, updatedAt: "t", units: {} }).units.hello).toHaveLength(1);
   });
 
   test("a composition is judged the same whichever side an entry came from", () => {
     const merged = mergeKnown(history, catalogue);
-    expect(refuseComposition(merged, { shell: "s1", alpha: "a9", bravo: "b1" })).toBeNull();
-    expect(compose(manifest, merged, { shell: "s1", alpha: "a9", bravo: "b1" }).apps.alpha?.unitId).toBe(
+    expect(refuseComposition(merged, { shell: "s1", hello: "a9", second: "b1" })).toBeNull();
+    expect(compose(manifest, merged, { shell: "s1", hello: "a9", second: "b1" }).apps.hello?.unitId).toBe(
       "a9",
     );
   });
@@ -791,7 +791,7 @@ describe("parseHistory of a catalogue", () => {
       schema: 1,
       updatedAt: "t",
       units: {
-        alpha: [
+        hello: [
           {
             unit: { unitId: "a1" },
             contracts: [],
@@ -801,17 +801,17 @@ describe("parseHistory of a catalogue", () => {
         ],
       },
     });
-    expect(parsed.units.alpha?.[0]?.publishedAt).toBe("2026-08-01T00:00:00.000Z");
-    expect(parsed.units.alpha?.[0]?.dirty).toBe(true);
+    expect(parsed.units.hello?.[0]?.publishedAt).toBe("2026-08-01T00:00:00.000Z");
+    expect(parsed.units.hello?.[0]?.dirty).toBe(true);
   });
 
   test("a history that records neither carries neither", () => {
     const parsed = parseHistory({
       schema: 1,
       updatedAt: "t",
-      units: { alpha: [{ unit: { unitId: "a1" }, contracts: [] }] },
+      units: { hello: [{ unit: { unitId: "a1" }, contracts: [] }] },
     });
-    expect(parsed.units.alpha?.[0]).not.toHaveProperty("publishedAt");
-    expect(parsed.units.alpha?.[0]).not.toHaveProperty("dirty");
+    expect(parsed.units.hello?.[0]).not.toHaveProperty("publishedAt");
+    expect(parsed.units.hello?.[0]).not.toHaveProperty("dirty");
   });
 });

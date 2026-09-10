@@ -30,7 +30,7 @@ const doc = (buildId: string) => ({
   schema: 2,
   shell: { js: "index-aaaa.js", css: "index-bbbb.css" },
   imports: { preact: "preact-cccc.js", "@pointer/shell": "api-dddd.js" },
-  apps: { alpha: { js: "apps/alpha-eeee.js", css: "apps/alpha-ffff.css" } },
+  apps: { hello: { js: "apps/hello-eeee.js", css: "apps/hello-ffff.css" } },
 });
 
 const unit = (name: string, id: string, extra: Record<string, unknown> = {}) => ({
@@ -43,7 +43,7 @@ const unit = (name: string, id: string, extra: Record<string, unknown> = {}) => 
   ...extra,
 });
 
-const composed = (shellId: string, alphaId = "a1") => ({
+const composed = (shellId: string, helloId = "a1") => ({
   schema: 3,
   composedAt: "2026-08-27T10:00:00.000Z",
   contract: "9e79879",
@@ -52,7 +52,7 @@ const composed = (shellId: string, alphaId = "a1") => ({
     css: "index-bbbb.css",
     imports: { preact: "preact-cccc.js", "@pointer/shell": "api-dddd.js" },
   }),
-  apps: { alpha: unit("alpha", alphaId) },
+  apps: { hello: unit("hello", helloId) },
 });
 
 const loosen = (value: unknown): Record<string, unknown> =>
@@ -67,7 +67,7 @@ function harness(ttlMs = 10_000) {
   const state = {
     clock: 1_000_000,
     calls: 0,
-    respond: async (): Promise<Response> => Response.json(doc("alpha")),
+    respond: async (): Promise<Response> => Response.json(doc("first")),
   };
   const store = createManifestStore({
     ttlMs,
@@ -92,7 +92,7 @@ test("manifestUrl joins base, region and channel", () => {
 describe("caching", () => {
   test("a cold read fetches once and returns the manifest", async () => {
     const h = harness();
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
   });
 
@@ -100,7 +100,7 @@ describe("caching", () => {
     const h = harness();
     await h.store.get(URL_QA);
     h.tick(9_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
   });
 
@@ -118,7 +118,7 @@ describe("caching", () => {
     h.state.respond = async () => Response.json(doc("beta"));
     h.tick(11_000);
 
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(2);
 
     await settle();
@@ -133,7 +133,7 @@ describe("caching", () => {
 
     h.tick(-60_000);
 
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(2);
     await settle();
     expect(idOf(await h.store.get(URL_QA))).toBe("beta");
@@ -162,7 +162,7 @@ describe("caching", () => {
     const h = harness();
     h.store.peek(URL_QA);
     await settle();
-    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(idOf(h.store.peek(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
   });
 
@@ -170,7 +170,7 @@ describe("caching", () => {
     const h = harness();
     await h.store.get(URL_QA);
     h.tick(9_000);
-    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(idOf(h.store.peek(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
   });
 
@@ -188,7 +188,7 @@ describe("caching", () => {
     h.state.respond = async () => Response.json(doc("beta"));
     h.tick(11_000);
 
-    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(idOf(h.store.peek(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(2);
     await settle();
     expect(idOf(h.store.peek(URL_QA))).toBe("beta");
@@ -219,7 +219,7 @@ describe("caching", () => {
     h.tick(11_000);
     h.store.peek(URL_QA);
     await settle();
-    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(idOf(h.store.peek(URL_QA))).toBe("first");
   });
 
   test("a burst of cold readers causes one fetch", async () => {
@@ -227,7 +227,7 @@ describe("caching", () => {
     const results = await Promise.all(
       Array.from({ length: 25 }, () => h.store.get(URL_QA)),
     );
-    expect(results.every((m) => idOf(m) === "alpha")).toBe(true);
+    expect(results.every((m) => idOf(m) === "first")).toBe(true);
     expect(h.state.calls).toBe(1);
   });
 });
@@ -246,7 +246,7 @@ describe("defaults", () => {
       onWarn: () => {},
       fetchImpl: (async () => {
         state.calls++;
-        return Response.json(doc("alpha"));
+        return Response.json(doc("first"));
       }) as unknown as typeof fetch,
     });
     return {
@@ -263,7 +263,7 @@ describe("defaults", () => {
   test("the default TTL is ten seconds", async () => {
     const h = unconfigured();
     try {
-      expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+      expect(idOf(await h.store.get(URL_QA))).toBe("first");
       h.tick(9_999);
       await h.store.get(URL_QA);
       expect(h.state.calls).toBe(1);
@@ -279,7 +279,7 @@ describe("defaults", () => {
   test("a cold read with the default timeout returns the manifest", async () => {
     const h = unconfigured();
     try {
-      expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+      expect(idOf(await h.store.get(URL_QA))).toBe("first");
     } finally {
       h.restore();
     }
@@ -295,10 +295,10 @@ describe("failure", () => {
     };
     h.tick(11_000);
 
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     await settle();
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
   });
 
   test("a malformed document does not replace a good build", async () => {
@@ -310,7 +310,7 @@ describe("failure", () => {
     await settle();
 
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
   });
 
   test("a non-2xx response does not replace a good build", async () => {
@@ -322,7 +322,7 @@ describe("failure", () => {
     await settle();
 
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
   });
 
   test("a non-2xx response is rejected even when its body is a manifest", async () => {
@@ -334,7 +334,7 @@ describe("failure", () => {
     await settle();
 
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
   });
 
   test("a cold read with a dead store yields null", async () => {
@@ -397,7 +397,7 @@ describe("failure", () => {
 
 describe("a refresh that never settles", () => {
   function stuck(timeoutMs = 20) {
-    const state = { clock: 1_000_000, calls: 0, hang: false, id: "alpha" };
+    const state = { clock: 1_000_000, calls: 0, hang: false, id: "first" };
     const store = createManifestStore({
       ttlMs: 10_000,
       timeoutMs,
@@ -414,23 +414,23 @@ describe("a refresh that never settles", () => {
 
   test("the entry is refreshed again once the deadline has passed", async () => {
     const h = stuck();
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
 
     h.state.hang = true;
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(2);
 
     await Bun.sleep(60);
 
     h.state.hang = false;
-    h.state.id = "bravo";
+    h.state.id = "second";
     h.tick(11_000);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(3);
     await settle();
-    expect(idOf(await h.store.get(URL_QA))).toBe("bravo");
+    expect(idOf(await h.store.get(URL_QA))).toBe("second");
   });
 
   test("the abandoned refresh is named, and the age goes on growing", async () => {
@@ -543,11 +543,11 @@ describe("state", () => {
 
 describe("parseManifest", () => {
   test("accepts a shell manifest with its apps", () => {
-    const m = parseManifest(doc("alpha"));
-    expect(idOf(m)).toBe("alpha");
+    const m = parseManifest(doc("first"));
+    expect(idOf(m)).toBe("first");
     expect(m.schema).toBe(2);
     if (m.schema !== 2) throw new Error("unreachable");
-    expect(Object.keys(m.apps)).toEqual(["alpha"]);
+    expect(Object.keys(m.apps)).toEqual(["hello"]);
     expect(m.imports["@pointer/shell"]).toBe("api-dddd.js");
   });
 
@@ -595,26 +595,26 @@ describe("parseManifest", () => {
   });
 
   test("rejects an app that is not an object", () => {
-    rejects({ ...doc("a"), apps: { alpha: null } }, "apps.alpha");
-    rejects({ ...doc("a"), apps: { alpha: 42 } }, "apps.alpha");
+    rejects({ ...doc("a"), apps: { hello: null } }, "apps.hello");
+    rejects({ ...doc("a"), apps: { hello: 42 } }, "apps.hello");
   });
 
   test("rejects an app that names no script", () => {
-    rejects({ ...doc("a"), apps: { alpha: { css: "x.css" } } }, "apps.alpha.js");
+    rejects({ ...doc("a"), apps: { hello: { css: "x.css" } } }, "apps.hello.js");
   });
 
   test("rejects an app stylesheet that is not a string", () => {
-    rejects({ ...doc("a"), apps: { alpha: { js: "a.js", css: 42 } } }, "apps.alpha.css");
+    rejects({ ...doc("a"), apps: { hello: { js: "a.js", css: 42 } } }, "apps.hello.css");
   });
 
   test("keeps an app's stylesheet, and accepts an app without one", () => {
     const kept = parseManifest(doc("a"));
     if (kept.schema !== 2) throw new Error("unreachable");
-    expect(kept.apps.alpha!.css).toBe("apps/alpha-ffff.css");
+    expect(kept.apps.hello!.css).toBe("apps/hello-ffff.css");
 
-    const bare = parseManifest({ ...doc("a"), apps: { alpha: { js: "apps/alpha-eeee.js" } } });
+    const bare = parseManifest({ ...doc("a"), apps: { hello: { js: "apps/hello-eeee.js" } } });
     if (bare.schema !== 2) throw new Error("unreachable");
-    expect(bare.apps.alpha!.css).toBeUndefined();
+    expect(bare.apps.hello!.css).toBeUndefined();
   });
 
   test("rejects a missing shell script", () => {
@@ -663,36 +663,36 @@ describe("parseManifest", () => {
     expect(m.schema).toBe(3);
     if (m.schema !== 3) throw new Error("unreachable");
     expect(m.shell.unitId).toBe("s1");
-    expect(m.apps.alpha!.unitId).toBe("a9");
+    expect(m.apps.hello!.unitId).toBe("a9");
     expect(m.shell.assetBase).toBe("https://store.test/units/shell/s1/");
-    expect(m.apps.alpha!.assetBase).toBe("https://store.test/units/alpha/a9/");
+    expect(m.apps.hello!.assetBase).toBe("https://store.test/units/hello/a9/");
     expect(m.contract).toBe("9e79879");
   });
 
   test("accepts a composed app with no stylesheet", () => {
     const doc3 = composed("s1");
-    doc3.apps.alpha.css = null as unknown as string;
+    doc3.apps.hello.css = null as unknown as string;
     const m = parseManifest(doc3);
     if (m.schema !== 3) throw new Error("unreachable");
-    expect(m.apps.alpha!.css).toBeNull();
+    expect(m.apps.hello!.css).toBeNull();
   });
 
   test("keeps a composed unit's stylesheet, and accepts one with no css field", () => {
     const kept = parseManifest(composed("s1"));
     if (kept.schema !== 3) throw new Error("unreachable");
-    expect(kept.apps.alpha!.css).toBe("alpha-bbbb.css");
+    expect(kept.apps.hello!.css).toBe("hello-bbbb.css");
 
     const doc3 = composed("s1");
-    delete loosen(doc3.apps.alpha).css;
+    delete loosen(doc3.apps.hello).css;
     const m = parseManifest(doc3);
     if (m.schema !== 3) throw new Error("unreachable");
-    expect(m.apps.alpha!.css).toBeNull();
+    expect(m.apps.hello!.css).toBeNull();
   });
 
   test("rejects a composed unit whose stylesheet is not a string", () => {
     const doc3 = composed("s1");
-    loosen(doc3.apps.alpha).css = 42;
-    rejects(doc3, "apps.alpha.css");
+    loosen(doc3.apps.hello).css = 42;
+    rejects(doc3, "apps.hello.css");
   });
 
   test("rejects a composition whose shell carries no import map", () => {
@@ -709,25 +709,25 @@ describe("parseManifest", () => {
 
   test("rejects a composed unit with no base", () => {
     const doc3 = composed("s1");
-    delete (doc3.apps.alpha as { assetBase?: unknown }).assetBase;
-    rejects(doc3, "apps.alpha.assetBase");
+    delete (doc3.apps.hello as { assetBase?: unknown }).assetBase;
+    rejects(doc3, "apps.hello.assetBase");
   });
 
   test("rejects a composed unit with no id", () => {
     const doc3 = composed("s1");
-    delete loosen(doc3.apps.alpha).unitId;
-    rejects(doc3, "apps.alpha.unitId");
+    delete loosen(doc3.apps.hello).unitId;
+    rejects(doc3, "apps.hello.unitId");
   });
 
   test("rejects a composed unit with no script", () => {
     const doc3 = composed("s1");
-    delete loosen(doc3.apps.alpha).js;
-    rejects(doc3, "apps.alpha.js");
+    delete loosen(doc3.apps.hello).js;
+    rejects(doc3, "apps.hello.js");
   });
 
   test("rejects a composed unit that is not an object", () => {
-    rejects({ ...composed("s1"), apps: { alpha: null } }, "apps.alpha");
-    rejects({ ...composed("s1"), apps: { alpha: 42 } }, "apps.alpha");
+    rejects({ ...composed("s1"), apps: { hello: null } }, "apps.hello");
+    rejects({ ...composed("s1"), apps: { hello: 42 } }, "apps.hello");
   });
 
   test("rejects a composition whose apps is not an object", () => {
@@ -737,18 +737,18 @@ describe("parseManifest", () => {
 
   test("rejects a composed unit whose imports is not an object", () => {
     const nulled = composed("s1");
-    loosen(nulled.apps.alpha).imports = null;
-    rejects(nulled, "apps.alpha.imports");
+    loosen(nulled.apps.hello).imports = null;
+    rejects(nulled, "apps.hello.imports");
 
     const stringy = composed("s1");
-    loosen(stringy.apps.alpha).imports = "preact-cccc.js";
-    rejects(stringy, "apps.alpha.imports");
+    loosen(stringy.apps.hello).imports = "preact-cccc.js";
+    rejects(stringy, "apps.hello.imports");
   });
 
   test("rejects a composed unit import that names no file", () => {
     const doc3 = composed("s1");
-    loosen(doc3.apps.alpha).imports = { preact: 42 };
-    rejects(doc3, "apps.alpha.imports.preact");
+    loosen(doc3.apps.hello).imports = { preact: 42 };
+    rejects(doc3, "apps.hello.imports.preact");
   });
 
   test("rejects a composition whose shell is malformed", () => {
@@ -775,55 +775,55 @@ describe("parseManifest", () => {
 
   test("keeps the digests a unit carries", () => {
     const doc3 = composed("s1");
-    loosen(doc3.apps.alpha).integrity = {
-      "alpha-aaaa.js": "sha384-one",
-      "alpha-bbbb.css": "sha384-two",
+    loosen(doc3.apps.hello).integrity = {
+      "hello-aaaa.js": "sha384-one",
+      "hello-bbbb.css": "sha384-two",
     };
     const m = parseManifest(doc3);
     if (m.schema !== 3) throw new Error("unreachable");
-    expect(m.apps.alpha!.integrity).toEqual({
-      "alpha-aaaa.js": "sha384-one",
-      "alpha-bbbb.css": "sha384-two",
+    expect(m.apps.hello!.integrity).toEqual({
+      "hello-aaaa.js": "sha384-one",
+      "hello-bbbb.css": "sha384-two",
     });
   });
 
   test("accepts a composed unit with no digests at all", () => {
     const m = parseManifest(composed("s1"));
     if (m.schema !== 3) throw new Error("unreachable");
-    expect(m.apps.alpha!.integrity).toBeUndefined();
+    expect(m.apps.hello!.integrity).toBeUndefined();
   });
 
   test("rejects a digest that is not a string", () => {
     const doc3 = composed("s1");
-    loosen(doc3.apps.alpha).integrity = { "alpha-aaaa.js": 7 };
-    rejects(doc3, "apps.alpha.integrity.alpha-aaaa.js");
+    loosen(doc3.apps.hello).integrity = { "hello-aaaa.js": 7 };
+    rejects(doc3, "apps.hello.integrity.hello-aaaa.js");
   });
 
   test("rejects a composed unit whose integrity is not an object", () => {
     const nulled = composed("s1");
-    loosen(nulled.apps.alpha).integrity = null;
-    rejects(nulled, "apps.alpha.integrity");
+    loosen(nulled.apps.hello).integrity = null;
+    rejects(nulled, "apps.hello.integrity");
 
     const stringy = composed("s1");
-    loosen(stringy.apps.alpha).integrity = "sha384-one";
-    rejects(stringy, "apps.alpha.integrity");
+    loosen(stringy.apps.hello).integrity = "sha384-one";
+    rejects(stringy, "apps.hello.integrity");
   });
 
   test("keeps a composed unit's commit and marker, and defaults each to empty", () => {
     const doc3 = composed("s1");
-    loosen(doc3.apps.alpha).marker = "e2e";
+    loosen(doc3.apps.hello).marker = "e2e";
     const m = parseManifest(doc3);
     if (m.schema !== 3) throw new Error("unreachable");
-    expect(m.apps.alpha!.commit).toBe(unit("alpha", "a1").commit);
-    expect(m.apps.alpha!.marker).toBe("e2e");
+    expect(m.apps.hello!.commit).toBe(unit("hello", "a1").commit);
+    expect(m.apps.hello!.marker).toBe("e2e");
 
     const older = composed("s1");
-    delete loosen(older.apps.alpha).commit;
-    delete loosen(older.apps.alpha).marker;
+    delete loosen(older.apps.hello).commit;
+    delete loosen(older.apps.hello).marker;
     const m2 = parseManifest(older);
     if (m2.schema !== 3) throw new Error("unreachable");
-    expect(m2.apps.alpha!.commit).toBe("");
-    expect(m2.apps.alpha!.marker).toBe("");
+    expect(m2.apps.hello!.commit).toBe("");
+    expect(m2.apps.hello!.marker).toBe("");
   });
 });
 
@@ -832,14 +832,14 @@ describe("priming at boot", () => {
     const h = harness();
     await h.store.prime(URL_QA);
     expect(h.state.calls).toBe(1);
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
   });
 
   test("a primed document is there for the first peek", async () => {
     const h = harness();
     await h.store.prime(URL_QA);
-    expect(idOf(h.store.peek(URL_QA))).toBe("alpha");
+    expect(idOf(h.store.peek(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(1);
   });
 
@@ -852,8 +852,8 @@ describe("priming at boot", () => {
     await h.store.prime(URL_QA);
     expect(h.state.calls).toBe(1);
 
-    h.state.respond = async () => Response.json(doc("alpha"));
-    expect(idOf(await h.store.get(URL_QA))).toBe("alpha");
+    h.state.respond = async () => Response.json(doc("first"));
+    expect(idOf(await h.store.get(URL_QA))).toBe("first");
     expect(h.state.calls).toBe(2);
   });
 
