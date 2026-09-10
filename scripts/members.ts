@@ -27,27 +27,7 @@
 
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-// TypeScript 7 ships no parser in JavaScript. `createSourceFile` and the rest
-// of the compiler API are gone from the package - its main entry exports the
-// version string and nothing else - and the parser now lives in the Go binary.
-// What is left on this side is `unstable/ast`, which carries the node types,
-// the type guards and the scanner but cannot produce a tree, and the API
-// client, which asks the binary for one.
-//
-// So the tree is fetched rather than built, and `membersIn` is async for it.
-// The SYNC client cannot be used: it reads `stdout._handle.fd`, a Node
-// internal Bun does not expose, and constructing it throws. The async client
-// talks over ordinary streams and works.
-//
-// Nothing is written to disk for it. `createVirtualFileSystem` answers the
-// binary's reads from a map, so the one declaration file and the tsconfig that
-// names it exist only in memory, and a specifier the surface imports and this
-// project cannot resolve costs a diagnostic nobody reads - the parse is what
-// is wanted and it succeeds either way.
-import { API } from "typescript/unstable/async";
-import { skipTrivia, type Node, type TypeNode } from "typescript/unstable/ast";
-import { isInterfaceDeclaration, isTypeAliasDeclaration, isTypeLiteralNode } from "typescript/unstable/ast/is";
-import { createVirtualFileSystem } from "typescript/unstable/fs";
+import * as ts from "typescript";
 import { emitBlocks, filesFor, runTsc, type Surface, type Unit } from "./contract.ts";
 
 const ROOT = ".contract-members";
@@ -102,9 +82,9 @@ export type MemberReading = {
 const digestOf = (text: string): string =>
   new Bun.CryptoHasher("sha256").update(text.replace(/\s+/g, " ").trim()).digest("hex").slice(0, 7);
 
-const named = (node: Node): string | null => {
-  const name = (node as { name?: { text?: string } }).name;
-  return typeof name?.text === "string" ? name.text : null;
+const named = (node: ts.Node): string | null => {
+  const name = (node as { name?: ts.Node }).name;
+  return name && "getText" in name ? (name as ts.Identifier).text : null;
 };
 
 /**
@@ -113,81 +93,47 @@ const named = (node: Node): string | null => {
  * Two levels is what the surface has and the recursion is general, so a type
  * literal nested inside another is reached too.
  */
-export async function membersOf(surface: Surface): Promise<Member[]> {
+export function membersOf(surface: Surface): Member[] {
   return membersIn(surface["shell.d.ts"], "shell.d.ts");
 }
 
-/**
- * The same, over any declaration file's text.
- *
- * One client per call, opened and closed. Measured on 2026-09-10: about 30 ms
- * for the spawn, the snapshot and the one file, against the 9.8 s the member
- * reading it feeds takes - so a client held open between calls would buy
- * nothing and would leave a process alive under `bun test`.
- */
-export async function membersIn(text: string, name: string): Promise<Member[]> {
-  const dir = "/surface";
-  const path = `${dir}/${name}`;
-  const config = `${dir}/tsconfig.json`;
-  const api = new API({
-    cwd: dir,
-    fs: createVirtualFileSystem({
-      [config]: JSON.stringify({
-        compilerOptions: { noEmit: true, skipLibCheck: true, types: [] },
-        files: [name],
-      }),
-      [path]: text,
-    }),
-  });
+/** The same, over any declaration file's text. */
+export function membersIn(text: string, name: string): Member[] {
+  const file = ts.createSourceFile(name, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const found: Member[] = [];
 
-  try {
-    const snapshot = await api.updateSnapshot({ openProjects: [config] });
-    const project = snapshot.getProject(config);
-    if (!project) throw new Error(`could not open a project for ${name}`);
-    const file = await project.program.getSourceFile(path);
-    if (!file) throw new Error(`${name} did not come back as a source file`);
+  const take = (node: ts.Node, path: string) => {
+    const own = text.slice(node.getStart(file), node.getEnd());
+    found.push({ path, text: own, digest: digestOf(own), start: node.getStart(file), end: node.getEnd() });
+  };
 
-    const found: Member[] = [];
-
-    // `node.pos` is where the node's LEADING TRIVIA starts, not where the node
-    // does. TypeScript 5's `getStart(file)` skipped that trivia; here it is
-    // skipped by hand, which is what `getStart` did underneath.
-    const take = (node: Node, path: string) => {
-      const start = skipTrivia(text, node.pos);
-      const own = text.slice(start, node.end);
-      found.push({ path, text: own, digest: digestOf(own), start, end: node.end });
-    };
-
-    const descend = (type: TypeNode | undefined, prefix: string) => {
-      if (!type || !isTypeLiteralNode(type)) return;
-      for (const m of type.members) {
-        const name = named(m);
-        if (!name) continue;
-        take(m, `${prefix}.${name}`);
-        const inner = (m as { type?: TypeNode }).type;
-        descend(inner, `${prefix}.${name}`);
-      }
-    };
-
-    for (const statement of file.statements) {
-      const name = named(statement);
+  const descend = (type: ts.TypeNode | undefined, prefix: string) => {
+    if (!type || !ts.isTypeLiteralNode(type)) return;
+    for (const m of type.members) {
+      const name = named(m);
       if (!name) continue;
-      take(statement, name);
-      if (isTypeAliasDeclaration(statement)) descend(statement.type, name);
-      if (isInterfaceDeclaration(statement)) {
-        for (const m of statement.members) {
-          const member = named(m);
-          if (member) take(m, `${name}.${member}`);
-        }
+      take(m, `${prefix}.${name}`);
+      const inner = (m as { type?: ts.TypeNode }).type;
+      descend(inner, `${prefix}.${name}`);
+    }
+  };
+
+  for (const statement of file.statements) {
+    const name = named(statement);
+    if (!name) continue;
+    take(statement, name);
+    if (ts.isTypeAliasDeclaration(statement)) descend(statement.type, name);
+    if (ts.isInterfaceDeclaration(statement)) {
+      for (const m of statement.members) {
+        const member = named(m);
+        if (member) take(m, `${name}.${member}`);
       }
     }
-
-    // Longest path first, so a nested member is offered before the declaration
-    // that contains it. Nothing depends on the order; a stable one is reportable.
-    return found.sort((a, b) => a.path.localeCompare(b.path));
-  } finally {
-    await api.close();
   }
+
+  // Longest path first, so a nested member is offered before the declaration
+  // that contains it. Nothing depends on the order; a stable one is reportable.
+  return found.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /** One file's text with a declaration cut out. */
@@ -236,8 +182,9 @@ async function compileWith(
   await mkdir(workDir, { recursive: true });
   const config = {
     extends: resolve("tsconfig.json"),
-    // No baseUrl: TypeScript 7 removed it, and every path handed in is
-    // absolute already. See `compileAgainst` in contract.ts.
+    // No baseUrl. Every path handed in is absolute, so the option named a
+    // root that nothing resolved against - and TypeScript 7 removes it
+    // outright (TS5102). See `compileAgainst` in contract.ts.
     compilerOptions: { noEmit: true, paths },
     include: [],
     files: files.map((f) => resolve(f)),
@@ -389,7 +336,7 @@ async function probeMembers(spec: Spec): Promise<MemberReading> {
     );
   }
 
-  const members = await membersIn(spec.files[spec.name]!, spec.name);
+  const members = membersIn(spec.files[spec.name]!, spec.name);
   // By PATH, which is unique, and never by digest, which is not. Two members
   // can hold the same text: `Theme.colour` and `User.colour` are both
   // `colour: string;`, and so are `ServiceField.path` and `ServiceRoute.path`.

@@ -16,8 +16,8 @@ const surface = (shell: string): Surface => ({
 });
 
 describe("membersOf", () => {
-  test("names a top-level declaration and every member of a type literal in it", async () => {
-    const found = await membersOf(
+  test("names a top-level declaration and every member of a type literal in it", () => {
+    const found = membersOf(
       surface(`export type User = {
     name: string;
 };
@@ -38,18 +38,18 @@ export declare function createStore(): Store;
     ]);
   });
 
-  test("reaches a type literal nested inside another", async () => {
-    const found = await membersOf(surface("export type A = { b: { c: string } };\n"));
+  test("reaches a type literal nested inside another", () => {
+    const found = membersOf(surface("export type A = { b: { c: string } };\n"));
     expect(found.map((m) => m.path)).toContain("A.b.c");
   });
 
   // The digest is what promote compares. The text it covers is what tsc EMITS,
   // so its formatting is already canonical; indentation and line endings are
   // all a surface can differ by, and those are normalised away.
-  test("indentation does not move the digest and a narrowing does", async () => {
-    const one = await membersOf(surface("export type S = {\n    f(a: string): void;\n};\n"));
-    const indented = await membersOf(surface("export type S = {\n\t\tf(a: string): void;   \n};\n"));
-    const narrowed = await membersOf(surface('export type S = {\n    f(a: "x"): void;\n};\n'));
+  test("indentation does not move the digest and a narrowing does", () => {
+    const one = membersOf(surface("export type S = {\n    f(a: string): void;\n};\n"));
+    const indented = membersOf(surface("export type S = {\n\t\tf(a: string): void;   \n};\n"));
+    const narrowed = membersOf(surface('export type S = {\n    f(a: "x"): void;\n};\n'));
     const digestOf = (ms: typeof one, path: string) => ms.find((m) => m.path === path)!.digest;
     expect(digestOf(indented, "S.f")).toBe(digestOf(one, "S.f"));
     expect(digestOf(narrowed, "S.f")).not.toBe(digestOf(one, "S.f"));

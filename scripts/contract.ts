@@ -464,9 +464,9 @@ export async function compileAgainst(
       // The point of the whole exercise: the unit is compiled against the
       // contract's declarations rather than against the sources at HEAD.
       //
-      // No baseUrl. TypeScript 7 removed the option (TS5102) and refuses a
-      // config that sets it. Every mapping below is already an absolute path,
-      // so the option was naming a root that nothing resolved against.
+      // No baseUrl. Every mapping below is already an absolute path, so the
+      // option named a root that nothing resolved against - and TypeScript 7
+      // removes it outright (TS5102), so it cannot come back.
       paths: {
         "@pointer/shell": [join(sdir, "shell.d.ts")],
         "@pointer/subapp": [join(sdir, "subapp.d.ts")],
