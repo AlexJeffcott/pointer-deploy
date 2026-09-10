@@ -998,6 +998,8 @@ bun run pr --dry-run          # the body on stdout, and nothing changed
 
 **A branch that changes no bundle gets no preview, and says so.** A unit id is a hash of that unit's output and nothing else, so a documentation change builds the ids `qa` already serves. Publishing that would add nothing to the store, and the query string would compose the channel. The body then says the two pages are the same, which is a reading and not an omission.
 
+**Which units changed is read from an unmarked build.** `BUILD_MARKER` is compiled in - `build.ts` defines `__BUILD_MARKER__` and `__UNIT_MARKER__` from it - so a marked build's bytes differ from an unmarked one's and its ids differ with them. Comparing a marked build against the channel would report every branch as changing every unit, including one that edited nothing but a script. So the reading is taken first and the marked build is made only when there is something to preview. The shell draws its marker in the nav foot, so a preview picture is labelled `pr-<n>` and the production picture is not: that difference is in every preview and is not a change the branch made.
+
 **`previews/` is not `deploys/`.** A preview was published and never promoted, and no channel ever pointed at it. Two directories, because they are two claims.
 
 ## One record of every published unit

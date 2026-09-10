@@ -140,36 +140,68 @@ if (describe(prod.units) !== describe(live)) {
 // -- what this branch serves ---------------------------------------------------
 
 const marker = `pr-${number}`;
-console.log(`building with BUILD_MARKER=${marker}`);
-await sh(["bun", "run", "build.ts"], { NODE_ENV: "production", BUILD_MARKER: marker });
 
-const built = (await Bun.file("dist/build.json").json()) as {
-  units: Record<string, { id: string }>;
+const idsInDist = async (): Promise<Record<string, string>> => {
+  const built = (await Bun.file("dist/build.json").json()) as {
+    units: Record<string, { id: string }>;
+  };
+  return Object.fromEntries(Object.entries(built.units).map(([n, u]) => [n, u.id]));
 };
-const branchIds = Object.fromEntries(
-  Object.entries(built.units).map(([name, u]) => [name, u.id]),
-);
+
+/**
+ * Which units this branch changes - read from an UNMARKED build, on purpose.
+ *
+ * `BUILD_MARKER` is compiled into the bundle: build.ts defines __BUILD_MARKER__
+ * and __UNIT_MARKER__ from it, so a marked build's bytes differ from an
+ * unmarked one's and its ids differ with them. Comparing a marked build against
+ * the channel would therefore report every branch as changing every unit,
+ * including one that edited nothing but this file.
+ *
+ * So the reading is taken first, and the marked build is made only when there
+ * is something to preview.
+ */
+console.log("building to read what this branch changes");
+await sh(["bun", "run", "build.ts"], { NODE_ENV: "production" });
+const plainIds = await idsInDist();
 
 // A unit id is a hash of that unit's output and nothing else, so a branch that
 // changed no bundle builds the ids qa already serves. Publishing that would add
-// nothing to the store and the query string would compose the channel.
-const moved = UNITS.filter((u: Unit) => branchIds[u] && branchIds[u] !== live[u]);
+// nothing to the store, and the query string would compose the channel.
+const moved = UNITS.filter((u: Unit) => plainIds[u] && plainIds[u] !== live[u]);
 
 let previewUrl = "";
 let previewDir = "";
+let previewIds: Record<string, string> = {};
+
 if (moved.length === 0) {
-  console.log(`no unit changed: this branch builds ${describe(branchIds)}, which is what ${CHANNEL} serves.`);
+  console.log(`no unit changed: this branch builds ${describe(plainIds)}, which is what ${CHANNEL} serves.`);
 } else {
-  console.log(`changed: ${moved.map((u) => `${u} ${live[u]} -> ${branchIds[u]}`).join(", ")}`);
+  console.log(`changed: ${moved.map((u) => `${u} ${live[u]} -> ${plainIds[u]}`).join(", ")}`);
+  console.log(`building with BUILD_MARKER=${marker}`);
+  await sh(["bun", "run", "build.ts"], { NODE_ENV: "production", BUILD_MARKER: marker });
+  const markedIds = await idsInDist();
+
   // The marker is baked into dist/build.json at build time; publish reads it
   // from there rather than from its own environment.
   await sh(["bun", "run", "scripts/publish.ts"]);
 
-  const override = moved.map((u) => `${u}=${branchIds[u]}`).join(",");
-  previewUrl = `${ORIGIN}/?${moved.map((u) => `${u}=${branchIds[u]}`).join("&")}`;
+  // The marked ids, not the unmarked ones: those are the units in the store.
+  // The shell draws its own marker in the nav foot, so the preview picture is
+  // labelled `pr-<n>` and the production picture is not. That difference is in
+  // every preview and is not a change this branch made.
+  previewIds = Object.fromEntries(moved.map((u) => [u, markedIds[u]!]));
+  previewUrl = `${ORIGIN}/?${Object.entries(previewIds).map(([n, id]) => `${n}=${id}`).join("&")}`;
   previewDir = `previews/${marker}`;
   console.log(`shooting ${previewUrl}`);
-  await sh(["bun", "run", "scripts/shoot.ts", "--override", override, "--out", previewDir]);
+  await sh([
+    "bun",
+    "run",
+    "scripts/shoot.ts",
+    "--override",
+    Object.entries(previewIds).map(([n, id]) => `${n}=${id}`).join(","),
+    "--out",
+    previewDir,
+  ]);
 }
 
 // -- the body ------------------------------------------------------------------
@@ -218,7 +250,7 @@ const composition = [
   `| --- | --- | --- |`,
   `| ${CHANNEL} | \`${describe(live)}\` | [\`${prodDir}\`](https://github.com/${REPO}/tree/${sha}/${prodDir}) |`,
   preview
-    ? `| this branch | \`${describe({ ...live, ...Object.fromEntries(moved.map((u) => [u, branchIds[u]!])) })}\` | [\`${previewDir}\`](https://github.com/${REPO}/tree/${sha}/${previewDir}) |`
+    ? `| this branch | \`${describe({ ...live, ...previewIds })}\` | [\`${previewDir}\`](https://github.com/${REPO}/tree/${sha}/${previewDir}) |`
     : `| this branch | \`${describe(live)}\` - no bundle changed | none |`,
   ``,
   `The preview is published with marker \`${marker}\`, which \`qa\` composes on request and`,
