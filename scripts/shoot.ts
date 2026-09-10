@@ -3,14 +3,12 @@
 //
 //   bun run shoot                      # qa, every view, into a new record
 //   bun run shoot --note "step 0: the frame, five routes, three empty"
-//   bun run shoot --out deploys/2026-09-14T10-22-00Z-qa   # fill a record promote made
 //   bun run shoot --override hello=3bba892b               # a build nobody promoted
 //
 // A screenshot is the only record of what a deploy LOOKED like, and it is the
 // one record that can be wrong without anything saying so. The store's pointer
-// is overwritten by the next promote, its history is 20 deep, and dist/ is
-// gitignored - so git holds nothing about what has been served, and the store
-// was already rewritten once, on 2026-09-10.
+// is overwritten by the next promote, its history is 20 deep, dist/ is
+// gitignored, and the object store was rewritten whole on 2026-09-10.
 //
 // THE TRAP THIS EXISTS TO CLOSE. MANIFEST_TTL_MS is 10 s and TODO §6 captured
 // an x-manifest-age of 27464 ms, so a shot taken straight after a promote shows
@@ -25,22 +23,38 @@
 // with each other as well, so a promote mid-run cannot leave one record holding
 // two compositions.
 //
-// Nothing is written until every shot has passed. A partial record would be a
-// record that has to be read carefully, and this is the one file a reader is
-// entitled to trust without reading anything else.
+// WHAT THE GATE DOES NOT COVER, and the record says so rather than implying
+// otherwise. The gate proves the COMPOSITION the page was built from. It does
+// not prove the pixels: the panels draw what the service answered, /service
+// draws a wall clock, and the renderer is whatever Chrome this machine had. So
+// apiBase, the renderer and that sentence are written into shots.json beside
+// the ids. A reader comparing two records can then see which of those moved,
+// rather than take a difference for a change in the code.
 //
 // NOT REGENERABLE, on purpose. A picture of what was served on a date is
-// falsified by re-shooting it. There is no --update, and there should not be.
+// falsified by re-shooting it, so a run REFUSES a directory that already holds
+// a record. There is no --update, and --out is not one either.
 //
 // --override shoots §30's query string: a composition that was published and
 // never promoted, which is what a pull request has. It lands in previews/ and
-// not deploys/, because deploys/ is the archive of what was SERVED and a
-// preview never was. The gate does not weaken - the expectation becomes the
-// pointer with the override laid over it, exactly as the origin composes it.
+// never in deploys/, and that is a refusal in scripts/record.ts rather than a
+// convention. The gate does not weaken - the expectation becomes the pointer
+// with the override laid over it, exactly as the origin composes it.
+//
+// Everything here that can be decided without a browser is in scripts/record.ts
+// and is covered by scripts/record.test.ts.
 
 import { chromium, type Browser, type Page } from "playwright-core";
-import { VIEWS } from "../src/web/shell/views.ts";
 import { REGIONS, type Region } from "./regions.ts";
+import {
+  describeIds,
+  idsOf,
+  outRefusal,
+  overrideRefusal,
+  pointerIds,
+  sameIds,
+  type BuildBlock,
+} from "./record.ts";
 
 /** The channels a browser can reach. */
 const ORIGINS: Record<string, string> = {
@@ -69,22 +83,18 @@ const VIEWPORT = { width: 1280, height: 800 };
 type Shot = {
   route: string;
   file: string;
+  /** The heading the page drew, read from the page and not from this tree. */
+  title: string;
   /** Unit name to unit id, read from the page this shot was taken of. */
   units: Record<string, string>;
   /** Panels that rendered their error state. A true reading, not a failure. */
   panelErrors: string[];
-  /** How long the gate waited for this view to serve the pointer's composition. */
+  /** Where the page was told to find the service. The highest-variance input. */
+  apiBase: string;
+  contract: string | null;
+  composedAt: string | null;
   waitedMs: number;
   bytes: Uint8Array;
-};
-
-type BuildBlock = {
-  channel: string;
-  region: string;
-  contract?: string;
-  publishedAt?: string;
-  apiBase?: string;
-  units?: Record<string, { unitId: string; commit: string; marker: string }>;
 };
 
 // -- what was asked for -------------------------------------------------------
@@ -111,10 +121,10 @@ const waitMs = Number(flag("--wait") ?? PROPAGATION_MS);
  *
  * §30's query string, and it is what makes a pull request's build shootable: it
  * was published and nothing promoted it, so no pointer names it and the gate
- * has nothing to compare against. The override IS the expectation here - a
- * shot has to show the ids that were asked for - and a unit left out keeps
- * following the channel, so a preview of one sub-app is that sub-app against
- * what qa serves today.
+ * has nothing to compare against. The override IS the expectation here - a shot
+ * has to show the ids that were asked for - and a unit left out keeps following
+ * the channel, so a preview of one sub-app is that sub-app against what qa
+ * serves today.
  */
 const override: Record<string, string> = {};
 for (const pair of (flag("--override") ?? "").split(",").filter(Boolean)) {
@@ -149,6 +159,21 @@ if (!origin) {
   process.exit(1);
 }
 
+const kind = Object.keys(override).length ? ("preview" as const) : ("deploy" as const);
+
+/**
+ * The query string every view is opened with.
+ *
+ * On every route, not only the first. The shell's router pushes state without
+ * it - `history.pushState(null, "", path)` in router.ts drops a query - so a
+ * shot taken after navigating in the page would be of the channel's own
+ * composition, correctly, and filed under the override's ids.
+ */
+const QUERY =
+  kind === "preview"
+    ? `?${Object.entries(override).map(([n, id]) => `${n}=${id}`).join("&")}`
+    : "";
+
 // -- reading the page ---------------------------------------------------------
 
 /**
@@ -170,35 +195,11 @@ async function buildBlock(page: Page): Promise<BuildBlock | null> {
   }
 }
 
-const idsOf = (block: BuildBlock): Record<string, string> =>
-  Object.fromEntries(Object.entries(block.units ?? {}).map(([n, u]) => [n, u.unitId]));
-
-const sameIds = (a: Record<string, string>, b: Record<string, string>): boolean => {
-  const names = new Set([...Object.keys(a), ...Object.keys(b)]);
-  return [...names].every((n) => a[n] === b[n]);
-};
-
-const describeIds = (ids: Record<string, string>): string =>
-  Object.entries(ids)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([n, id]) => `${n}=${id}`)
-    .join(" ");
-
-/** What the pointer for one region names. Null when there is no pointer there. */
-async function pointerIds(region: Region): Promise<Record<string, string> | null> {
+/** What one region's pointer names. */
+async function pointerFor(region: Region): Promise<Record<string, string> | null> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${channel}.json`;
   const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
-  if (!res.ok) return null;
-  const doc = (await res.json()) as {
-    shell?: { unitId?: string };
-    apps?: Record<string, { unitId?: string }>;
-  };
-  const ids: Record<string, string> = {};
-  if (doc.shell?.unitId) ids.shell = doc.shell.unitId;
-  for (const [name, unit] of Object.entries(doc.apps ?? {})) {
-    if (unit.unitId) ids[name] = unit.unitId;
-  }
-  return ids;
+  return res.ok ? pointerIds(await res.json()) : null;
 }
 
 /** The bytes of one region's pointer, exactly as the store holds them. */
@@ -209,23 +210,52 @@ async function pointerBytes(region: Region): Promise<string | null> {
 }
 
 /**
- * Wait until this view has finished drawing itself.
+ * The routes the DEPLOYED shell has, read from the nav it drew.
+ *
+ * Not from VIEWS in this working tree. The shell owns placement and the shell
+ * being shot is the deployed one, so a branch that adds a route would otherwise
+ * ask the origin for a path its shell has never heard of - and Shell.tsx:103
+ * falls back to DEFAULT_ROUTE without a word, so the run died on a bare
+ * selector timeout twenty seconds later. Every step in PLAN.md that adds a view
+ * is that case.
+ */
+async function routesOnPage(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll("nav a[href]")]
+      .map((a) => a.getAttribute("href") ?? "")
+      .filter((href) => href.startsWith("/")),
+  );
+}
+
+/**
+ * Wait until this view has finished drawing itself, and say what it drew.
  *
  * Three conditions, and the third is the one a screenshot needs most: the
  * panels are on screen before the service has answered, by design, so a shot
  * taken at the second condition is a picture of the page's DEFAULTS.
  * `data-api` is set once that fill has settled, either way.
+ *
+ * The second condition is read from the page as well: every panel the DEPLOYED
+ * shell placed is either mounted or in its error state. A panel still loading
+ * after the timeout is named, rather than arriving as a selector that never
+ * matched anything.
  */
-async function settle(page: Page, apps: readonly string[]): Promise<string[]> {
+async function settle(page: Page): Promise<{ title: string; panelErrors: string[] }> {
   await page.waitForSelector("div[data-unit-marker]", { timeout: 20_000 });
 
-  const errors: string[] = [];
-  for (const app of apps) {
-    await page.waitForSelector(`[data-app="${app}"] section, [data-app-error="${app}"]`, {
-      timeout: 20_000,
-    });
-    const failed = await page.$(`[data-app-error="${app}"]`);
-    if (failed) errors.push(app);
+  try {
+    await page.waitForFunction(
+      () => document.querySelectorAll("[data-app-loading]").length === 0,
+      undefined,
+      { timeout: 20_000 },
+    );
+  } catch {
+    const stuck = await page.evaluate(() =>
+      [...document.querySelectorAll("[data-app-loading]")].map(
+        (el) => el.getAttribute("data-app-loading") ?? "?",
+      ),
+    );
+    throw new Error(`panels never finished loading: ${stuck.join(", ")}`);
   }
 
   await page.waitForFunction(
@@ -240,11 +270,16 @@ async function settle(page: Page, apps: readonly string[]): Promise<string[]> {
     { timeout: 20_000 },
   );
 
-  return errors;
+  return page.evaluate(() => ({
+    title: document.querySelector("main h2")?.textContent ?? "",
+    panelErrors: [...document.querySelectorAll("[data-app-error]")].map(
+      (el) => el.getAttribute("data-app-error") ?? "?",
+    ),
+  }));
 }
 
 /**
- * One view, shot only once the page serving it names the pointer's composition.
+ * One view, shot only once the page serving it names the wanted composition.
  *
  * The order inside the loop is the whole gate: navigate, read the ids off THAT
  * page, and only then settle and shoot it. Reading the ids after the shot would
@@ -262,13 +297,20 @@ async function shootView(page: Page, route: string, want: Record<string, string>
       const ids = idsOf(block);
       seen = describeIds(ids);
       if (sameIds(ids, want)) {
-        const panelErrors = await settle(page, VIEWS[route]!.apps);
+        const { title, panelErrors } = await settle(page);
         const bytes = await page.screenshot({ fullPage: true, type: "png" });
         return {
           route,
           file: `${fileFor(route)}.png`,
+          title,
           units: ids,
           panelErrors,
+          // Read off the same block as the ids. Taking these from the first
+          // page load instead put the PREVIOUS deploy's contract and date
+          // beside the new deploy's ids whenever a promote landed mid-run.
+          apiBase: block.apiBase ?? "",
+          contract: block.contract ?? null,
+          composedAt: block.publishedAt ?? null,
           waitedMs: Date.now() - started,
           bytes: new Uint8Array(bytes),
         };
@@ -278,7 +320,8 @@ async function shootView(page: Page, route: string, want: Record<string, string>
     if (Date.now() - started > waitMs) {
       // A refused composition renders no __BUILD__ at all - the origin answers
       // 400 with the refusal as text - so the body is the reading, not "nothing".
-      const body = seen === "nothing" ? (await page.evaluate(() => document.body.innerText)).slice(0, 200) : "";
+      const body =
+        seen === "nothing" ? (await page.evaluate(() => document.body.innerText)).slice(0, 200) : "";
       throw new Error(
         `${route} still served ${seen}${body ? ` (${body})` : ""} after ${waitMs} ms; ` +
           `this run asked for ${describeIds(want)}. Nothing was written: a shot of one ` +
@@ -289,20 +332,7 @@ async function shootView(page: Page, route: string, want: Record<string, string>
   }
 }
 
-const fileFor = (route: string): string =>
-  route.replace(/^\//, "").replace(/\//g, "-") || "root";
-
-/**
- * The query string every view is opened with.
- *
- * On every route, not only the first. The shell's router pushes state without
- * it - `history.pushState(null, "", path)` in router.ts drops a query - so a
- * shot taken after navigating in the page would be of the channel's own
- * composition, correctly, and filed under the override's ids.
- */
-const QUERY = Object.keys(override).length
-  ? `?${Object.entries(override).map(([n, id]) => `${n}=${id}`).join("&")}`
-  : "";
+const fileFor = (route: string): string => route.replace(/^\//, "").replace(/\//g, "-") || "root";
 
 const stamp = (d: Date): string => d.toISOString().replace(/[:.]/g, "-").replace(/-\d{3}Z$/, "Z");
 
@@ -311,10 +341,29 @@ const stamp = (d: Date): string => d.toISOString().replace(/[:.]/g, "-").replace
 let browser: Browser | null = null;
 
 try {
+  const takenAt = new Date();
+  const out =
+    flag("--out") ?? `${kind === "preview" ? "previews" : "deploys"}/${stamp(takenAt)}-${channel}`;
+
+  const misplaced = outRefusal(out, kind);
+  if (misplaced) throw new Error(misplaced);
+
+  // Nothing regenerates a shot. A record already in that directory is a record
+  // of what was served on the day it was taken, and re-shooting it would keep
+  // the date and replace the evidence.
+  if (await Bun.file(`${out}/shots.json`).exists()) {
+    throw new Error(
+      `${out}/shots.json already exists. A picture of what was served on a date is ` +
+        `falsified by re-shooting it, so this refuses rather than replacing it. Shoot ` +
+        `into a new directory, or delete that one deliberately.`,
+    );
+  }
+
   // Which region answers is Fly's choice - iad is stopped under
   // auto_stop_machines - so the region is read off the page rather than
   // assumed, and the pointer compared is the one that machine reads.
   browser = await chromium.launch({ channel: "chrome", headless: true });
+  const renderer = `chrome ${browser.version()}`;
   const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
 
   await page.goto(`${origin}/`, { waitUntil: "domcontentloaded" });
@@ -323,34 +372,37 @@ try {
 
   const region = first.region as Region;
   if (!(REGIONS as readonly string[]).includes(region)) {
-    throw new Error(`the page reports region ${JSON.stringify(region)}, which is not one of ${REGIONS.join(", ")}.`);
+    throw new Error(
+      `the page reports region ${JSON.stringify(region)}, which is not one of ${REGIONS.join(", ")}.`,
+    );
   }
   if (first.channel !== channel) {
     throw new Error(`${origin} serves channel ${first.channel}, and this run asked for ${channel}.`);
   }
 
-  const pointer = await pointerIds(region);
-  if (!pointer) throw new Error(`no pointer at ${MANIFEST_BASE}/${region}/${channel}.json, so no shot can be checked.`);
+  const pointer = await pointerFor(region);
+  if (!pointer) {
+    throw new Error(`no pointer at ${MANIFEST_BASE}/${region}/${channel}.json, so no shot can be checked.`);
+  }
+
+  const refused = overrideRefusal(override, pointer, channel);
+  if (refused) throw new Error(refused);
 
   // A unit the override does not name keeps following the channel, which is the
   // server's rule and not a convenience here: currentIds is the base and only a
-  // named unit is replaced. So the expectation is the pointer with the override
-  // laid over it, and a run with no override is the pointer itself.
-  const unknown = Object.keys(override).filter((n) => !(n in pointer));
-  if (unknown.length) {
-    throw new Error(
-      `--override names ${unknown.join(", ")}, and ${channel} composes ` +
-        `${Object.keys(pointer).join(", ")}. The origin ignores a name it does not compose, ` +
-        `so this would have shot the channel and filed it as a preview.`,
-    );
-  }
+  // named unit is replaced.
   const want = { ...pointer, ...override };
 
-  console.log(`${origin} -> ${channel} in ${region}`);
+  const routes = await routesOnPage(page);
+  if (routes.length === 0) {
+    throw new Error(`${origin}/ drew no navigation, so nothing here can say which views it has.`);
+  }
+
+  console.log(`${origin} -> ${channel} in ${region}, ${renderer}`);
   console.log(`pointer names ${describeIds(pointer)}`);
   if (QUERY) console.log(`asking for  ${describeIds(want)}`);
+  console.log(`views       ${routes.join(" ")}`);
 
-  const routes = Object.keys(VIEWS);
   const shots: Shot[] = [];
   for (const route of routes) {
     const shot = await shootView(page, route, want);
@@ -370,7 +422,7 @@ try {
         `A promote landed mid-run. Nothing was written; shoot again.`,
     );
   }
-  const after = await pointerIds(region);
+  const after = await pointerFor(region);
   if (!after || !sameIds(after, pointer)) {
     throw new Error(
       `the pointer moved during this run: ${describeIds(pointer)} -> ` +
@@ -379,12 +431,6 @@ try {
   }
 
   // -- the record, written only now -------------------------------------------
-
-  const takenAt = new Date();
-  // A preview was never promoted, so it is not a deploy record and does not go
-  // in the archive of what was served. Separate directory, separate meaning.
-  const kind = QUERY ? "previews" : "deploys";
-  const out = flag("--out") ?? `${kind}/${stamp(takenAt)}-${channel}`;
 
   for (const shot of shots) {
     await Bun.write(`${out}/shots/${shot.file}`, shot.bytes);
@@ -400,25 +446,33 @@ try {
     if (text !== null) await Bun.write(`${out}/manifest.${r}.json`, text);
   }
 
+  const last = shots[shots.length - 1]!;
   const record = {
-    schema: 1,
+    schema: 2,
     takenAt: takenAt.toISOString(),
+    kind,
     channel,
     region,
     origin,
-    contract: first.contract ?? null,
-    composedAt: first.publishedAt ?? null,
+    override: kind === "preview" ? override : null,
+    contract: last.contract,
+    composedAt: last.composedAt,
     units: shots[0]!.units,
-    kind: QUERY ? ("preview" as const) : ("deploy" as const),
-    override: QUERY ? override : null,
     gate: "pointer" as const,
+    // What the gate does NOT cover, named rather than left for a reader to find
+    // by diffing two images. Each is an input to the pixels that no unit id
+    // decides.
+    unchecked: {
+      apiBase: last.apiBase,
+      renderer,
+      note: "the panels draw what the service answered, and /service draws the time it read. Neither is a function of the unit ids.",
+    },
     viewport: VIEWPORT,
     manifests: pointers,
-    shots: shots.map(({ route, file, units, panelErrors, waitedMs }) => ({
+    shots: shots.map(({ route, file, title, units, panelErrors, waitedMs }) => ({
       route,
       file: `shots/${file}`,
-      title: VIEWS[route]!.title,
-      apps: VIEWS[route]!.apps,
+      title,
       units,
       panelErrors,
       waitedMs,
@@ -428,10 +482,9 @@ try {
 
   // A preview's line is the pull request body, so it gets no notes.md: two
   // places to write one line is one place that goes stale.
-  const notes = `${out}/notes.md`;
-  if (!QUERY && !(await Bun.file(notes).exists())) {
+  if (kind === "deploy") {
     await Bun.write(
-      notes,
+      `${out}/notes.md`,
       `${note || "TODO: one line saying what this deploy demonstrates."}\n\n` +
         `Written by hand. The first line is the entry in the changelog, so it says what\n` +
         `this promote demonstrates rather than what it changed - the ids beside it already\n` +
@@ -440,8 +493,8 @@ try {
   }
 
   console.log(`\n${out}`);
-  console.log(`  ${shots.length} shots, ${describeIds(shots[0]!.units)}, contract ${first.contract ?? "?"}`);
-  if (!note && !QUERY) console.log(`  notes.md needs its first line.`);
+  console.log(`  ${shots.length} shots, ${describeIds(shots[0]!.units)}, contract ${last.contract ?? "?"}`);
+  if (!note && kind === "deploy") console.log(`  notes.md needs its first line.`);
 } catch (err) {
   console.error(`\nFAILED ${err instanceof Error ? err.message : String(err)}`);
   process.exitCode = 1;

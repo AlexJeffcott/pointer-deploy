@@ -50,15 +50,19 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 ### 34. The deploy record is half written
 
-`bun run shoot` files the images, the pointer bytes for every region and one hand-written line, gated so that no shot can be filed under a composition it is not a picture of. Three parts are not built, and each has a consequence rather than a gap.
+`bun run shoot` files the images, the pointer bytes for every region and one hand-written line, gated so that no shot can be filed under a composition it is not a picture of. `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
 
 | Missing | What it costs |
 | --- | --- |
-| `promote` writes no record of its own | Nothing says which command was run, what it refused, or which units it carried rather than moved. `shoot` reads the result and cannot read the act |
-| No `CHANGELOG.md` | The records are a directory listing, and the one line in each `notes.md` is gathered nowhere. Generate the index from `deploys/*/shots.json`, so the hand-written half is written once and the machine half cannot drift |
-| Nothing checks a record | A test over every `deploys/*/shots.json`: the unit ids are in the catalogue, every named shot exists, and the region manifests agree apart from `composedAt`. One `falsify` mutation removes the pointer gate and a named check must go red |
+| `promote` writes no record of its own | Nothing says which command was run, what it refused, or which units it carried rather than moved. `shoot` reads the result and cannot read the act. **This is also the cheapest way to make the durability claim true**: the manifest bytes appended at promote time are a complete record of what was served, in about 200 bytes, and they do not depend on a service, a clock or a browser |
+| No `CHANGELOG.md` | The records are a directory listing, and the line in each `notes.md` is gathered nowhere |
+| `scripts/` is outside the mutate scope | `scripts/record.test.ts` holds 32 tests over every decision `shoot` and `pr` make without a browser, and `stryker.config.json` mutates `src/server` and `api` only. Adding `scripts/record.ts` to that scope is the check on the tests; the score is unmeasured, and `thresholds.break` is 96 for the whole tree |
+| A publish from `pr` uses the asset bucket's key | §4 refuses CI that key because it is a production-origin execution key, and `bun run pr` now uses it on a laptop on every pull request. The second Tigris key §4 wants closes both |
+| The picture is not a function of the composition | The gate proves the pointer. `unchecked.apiBase` and `unchecked.renderer` name two of the inputs it does not reach, and the third - `/service` drawing a wall clock - is named in prose and measured by nobody. §29 is the case that bites: the live browser suite writes the greeting audience to the deployed service |
 
 `prod` is not shot at all, and that is §2 rather than this.
+
+**Read cold on 2026-09-10 by `devils-advocate-agent`,** which found 14 defects in the first version. Eight were fixed the same day: the route table iterated production's routes, nothing checked that a linked record was in git, `--out` was an undocumented `--update` that also crossed `deploys/`/`previews/`, the routes came from this tree rather than the deployed nav, `pr` published before checking it could write the body, `git commit` took no pathspec, the newest record was not filtered by channel, and `contract`/`composedAt` came from a different page load than the ids. The rest are the rows above.
 
 ### 31. Claims that need a second unit
 

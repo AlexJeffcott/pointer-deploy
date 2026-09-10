@@ -20,7 +20,7 @@ It refuses to run when the newest `deploys/` record disagrees with what `qa` ser
 
 ## What the harness may do here
 
-`.claude/settings.json` allows `gh pr view|list|diff|checks|create|edit|review|merge` and `gh api repos/*` without a prompt. Without those rules the auto-mode classifier refuses them, including the read-only ones.
+`.claude/settings.json` allows `gh pr view|list|diff|checks|create|edit|review|merge` without a prompt. Without those rules the auto-mode classifier refuses every one of them, the read-only ones included. It does **not** allow `gh api`: `Bash(gh api repos/*)` is prefix-matched, so it would have covered `gh api repos/OWNER/REPO -X DELETE` and every other write to the repository object.
 
 `gh pr merge` is in that list, so a session can merge to `main` with no prompt - including a session that wrote the code it is merging. The pull request is still the unit of change; it is not, by itself, a second pair of eyes. Where that matters, send the branch to `devils-advocate-agent` or run `/code-review` first: both read the change in their own context rather than sharing the reasoning that produced it.
 
