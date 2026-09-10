@@ -463,7 +463,10 @@ export async function compileAgainst(
       noEmit: true,
       // The point of the whole exercise: the unit is compiled against the
       // contract's declarations rather than against the sources at HEAD.
-      baseUrl: resolve("."),
+      //
+      // No baseUrl. TypeScript 7 removed the option (TS5102) and refuses a
+      // config that sets it. Every mapping below is already an absolute path,
+      // so the option was naming a root that nothing resolved against.
       paths: {
         "@pointer/shell": [join(sdir, "shell.d.ts")],
         "@pointer/subapp": [join(sdir, "subapp.d.ts")],
@@ -660,7 +663,8 @@ export async function directionFrom(older: Surface, newer: Surface): Promise<Dir
           // It needs no ambient package, and with skipLibCheck off, loading
           // one means checking it.
           types: [],
-          baseUrl: resolve("."),
+          // Removed in TypeScript 7, and unused here - see the note in
+          // `compileAgainst` above.
           paths: {
             "@pointer/shell": [resolve(dir, "new", "shell.d.ts")],
             "@pointer/subapp": [resolve(dir, "new", "subapp.d.ts")],
