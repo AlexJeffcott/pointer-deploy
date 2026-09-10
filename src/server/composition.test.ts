@@ -411,6 +411,57 @@ describe("parseHistory carries the member reading", () => {
   });
 });
 
+/**
+ * Both fields are load-bearing outside this file, and neither had a test.
+ *
+ *   supersededAt  `scripts/retention.ts:125` floors a delete on it, so an entry
+ *                 that loses it is floored on the history's `updatedAt` instead
+ *                 and can be swept early.
+ *   recordedAt    `scripts/catalogue.ts:148` compares it against the object's
+ *                 `lastModified` to decide what it may reuse, so an entry that
+ *                 loses it makes every publish re-read every unit.
+ *
+ * `in` rather than `toBeUndefined`, because a spread of `{ x: undefined }` puts
+ * the key there with no value, which is a different fact from having no key and
+ * is exactly what one of the mutants produces.
+ */
+describe("parseHistory carries the two timestamps other scripts read", () => {
+  const entry = (extra: Record<string, unknown>) =>
+    parseHistory({
+      schema: 1,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      units: { shell: [{ unit: { unitId: "s1" }, contracts: ["c1"], ...extra }] },
+    }).units.shell![0]!;
+
+  test("keeps supersededAt when the entry has one", () => {
+    expect(entry({ supersededAt: "2026-08-01T00:00:00.000Z" }).supersededAt).toBe(
+      "2026-08-01T00:00:00.000Z",
+    );
+  });
+
+  test("leaves supersededAt off when the entry has none", () => {
+    expect("supersededAt" in entry({})).toBe(false);
+  });
+
+  test("a supersededAt that is not a string is dropped", () => {
+    expect("supersededAt" in entry({ supersededAt: 17 })).toBe(false);
+  });
+
+  test("keeps recordedAt when the entry has one", () => {
+    expect(entry({ recordedAt: "2026-08-02T00:00:00.000Z" }).recordedAt).toBe(
+      "2026-08-02T00:00:00.000Z",
+    );
+  });
+
+  test("leaves recordedAt off when the entry has none", () => {
+    expect("recordedAt" in entry({})).toBe(false);
+  });
+
+  test("a recordedAt that is not a string is dropped", () => {
+    expect("recordedAt" in entry({ recordedAt: 17 })).toBe(false);
+  });
+});
+
 describe("refuseComposition", () => {
   test("allows what the channel serves", () => {
     expect(refuseComposition(history, served)).toBeNull();
@@ -764,6 +815,30 @@ describe("mergeKnown", () => {
       "a0",
       "a9",
     ]);
+  });
+
+  test("an entry written before markers existed is offered as unmarked", () => {
+    // parseHistory does not default `marker`, so an entry the store wrote
+    // before the field existed reaches mergeKnown with the key missing. The
+    // predicate must be given "" rather than undefined, or the default policy
+    // drops a build that nothing ever marked.
+    const { marker: _unset, ...bare } = unit("hello", "a9");
+    const old: ChannelHistory = {
+      schema: 1,
+      updatedAt: "t",
+      units: { hello: [{ unit: bare as ComposedUnit, contracts: ["c2"] }] },
+    };
+    const offered: string[] = [];
+    const admits = (m: string) => {
+      offered.push(m);
+      return m === "";
+    };
+    expect(mergeKnown(history, old, admits).units.hello?.map((e) => e.unit.unitId)).toEqual([
+      "a1",
+      "a0",
+      "a9",
+    ]);
+    expect(offered).toEqual([""]);
   });
 
   test("a marked build the channel already served stays, whatever the channel is", () => {

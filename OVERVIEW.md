@@ -257,12 +257,12 @@ Green checks are a necessary condition for shipping and never a sufficient one, 
 
 | Layer | What it covers | Size |
 | --- | --- | --- |
-| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **417 tests**, ~21 s |
+| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **424 tests**, ~22 s |
 | `bun run verify` | Scenarios needing an injected failure — unreachable store, corrupt manifest, a retired field | **54** `@local` scenarios, ~8 s |
 | `bun run verify:live` | Everything that publishes or promotes, against the **real** store and deployed machines | **45** `@live` scenarios |
-| `bun run verify:browser` | What only a browser sees: two bundles agreeing on one store, a blocked module script, a panel that throws | **12** `@browser` scenarios |
-| `bun run falsify` | 91 deliberate breakages. **Each must turn a named check red** | 91 mutations, 65 run locally, 0 uncaught |
-| `bun run mutate` | Operator and literal mutation over the server's pure logic | 750 mutants, 750 killed, 0 survivors |
+| `bun run verify:browser` | What only a browser sees: two bundles agreeing on one store, a blocked module script, a panel that throws | **13** `@browser` scenarios |
+| `bun run falsify` | 92 deliberate breakages. **Each must turn a named check red** | 92 mutations, 65 run locally, 0 uncaught |
+| `bun run mutate` | Operator and literal mutation over the server's pure logic and the service | 1205 mutants. `src/server` **895 of 895**; `api/service.ts` 268 of 310 |
 | `bun run e2e` | Deploy the panel, deploy the frame, roll the panel back, read off the **rendered page** | the question the project exists to answer |
 | `bun run e2e:schema` | Retire a field on the service, write another, read what the page paints — no unit rebuilt, no id moved | in a real Chrome |
 

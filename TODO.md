@@ -1,13 +1,17 @@
 # TODO
 
 Open items and what is done. Read this first after a context clear.
-The README carries the design, the traps and the conventions.
 
-**The slate was cleared on 2026-09-10.** The five demo sub-apps, the counters
-they shared and the service's thirteen routes are gone; two units remain, and
-the object store was emptied and rewritten from one build. Everything under
-**Done** below describes the work as it was done, on the composition that
-existed then. Read a unit name there as a name that was true at the time.
+| File | What it carries |
+| --- | --- |
+| `PLAN.md` | What is being built on the slate, and in what order |
+| `README.md` | The design, the traps and the conventions |
+| `first-steps.md` | What happens on a first visit, step by step |
+| this file | What is open, and a one-line index of what is closed |
+
+**Cut back on 2026-09-10.** Every closed item's full text — its measurements, its refuted leads and its reasoning — is in git history, and `TODO.md` at `f7d2318` is the last version that carries it. The index at the bottom keeps every `§N` resolvable, because 119 references to those numbers live in `scripts/`, `src/`, `api/`, `README.md` and `PLAN.md`.
+
+**The slate was cleared on 2026-09-10.** Two units remain and the object store was rewritten from one build. A unit name in the index below is a name that was true at the time.
 
 ## Where things are
 
@@ -34,21 +38,15 @@ bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
 ```
 
-`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean
-immediately before any real promote. A promote to `qa` or `prod` now refuses a
-build this tree did not make — a harness build, another commit, or an
-uncommitted tree — and `--no-source-check` overrides the last two.
+`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two.
 
 ## Open
 
-Numbers are stable identifiers - other sections point at them - so a gap means
-that item moved to Done, not that anything was renumbered.
+Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
 ### 31. Claims that need a second unit
 
-Clearing the slate to one sub-app took the subject away from four readings. None
-of them is wrong; each has nothing to measure. They come back with the second
-unit, and this is the list so nobody has to rediscover it:
+Clearing the slate to one sub-app took the subject away from four readings. None is wrong; each has nothing to measure. `PLAN.md` steps 1, 4 and 5 restore the first three, and step 9 restores the fourth.
 
 | Claim | Where it was | What holds it now |
 | --- | --- | --- |
@@ -57,374 +55,94 @@ unit, and this is the list so nobody has to rediscover it:
 | Two independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | The frame and the panel share it, held by the same feature and by the `peek` mutation in `falsify` |
 | A published pair reads as not additive | `scripts/contract.test.ts` | Nothing. The registry holds one contract, and the reading needs two |
 
-The first three are one unit away. The fourth arrives the first time the surface
-changes.
+### 33. 42 mutants survive in `api/service.ts`
+
+`bun run mutate` on 2026-09-10: `src/server` is 895 of 895 across all seven files, and `api/service.ts` is 268 of 310 — 86.45%. The 42 are 17 `StringLiteral`, 16 `ConditionalExpression`, 4 `Regex`, 3 `MethodExpression` and 2 others, spread over `parseDeprecations`, `discovery` and `handle`.
+
+The file has been inside the mutate scope since `7a0ae6f` and was never held to the standard the server files are. Nothing reported it, because `stryker.config.json` set no `thresholds.break` and the run exits 0 at any score. `thresholds.break` is now 96, which holds the line and does not close this.
+
+**Not obviously worth taking to 100.** OVERVIEW already argues that the API service surface is checked coarsely on purpose: it has no compiler behind it, and a version set compared at serve time is coarser than a type. Several of the 17 string mutants are the second kind README names — wording in an error a test would then pin. The 16 `ConditionalExpression` ones are worth reading first, because that is where the real gaps were in `composition.ts`.
+
+`PLAN.md` step 6 rewrites this file: `greeting` goes and snapshots arrive. Triage after that lands, not before, or the reading is taken against code that is about to be deleted.
 
 ### 32. Two member readings at once corrupt each other
 
-`scripts/members.ts` puts its scratch directories under `.contract-members`, a
-fixed path, and clears the whole tree at the start of a run. Two readings at
-once therefore delete each other's cut surfaces mid-compile, and the output is
-not an error — it is a DIFFERENT reading, with members marked used or unused at
-random.
+`scripts/members.ts` puts its scratch directories under `.contract-members`, a fixed path, and clears the whole tree at the start of a run. Two readings at once therefore delete each other's cut surfaces mid-compile, and the output is not an error — it is a DIFFERENT reading, with members marked used or unused at random.
 
-Seen on 2026-09-10 by running `bun test` while `verify:live` was building in
-another process: `members.test.ts` failed claiming `hello` used
-`ServiceReport.serves`, which it does not reference anywhere, and two runs of
-`bun run contract:members` minutes apart disagreed about six members.
+Seen on 2026-09-10 by running `bun test` while `verify:live` was building in another process: `members.test.ts` claimed `hello` used `ServiceReport.serves`, which it does not reference anywhere, and two runs of `bun run contract:members` minutes apart disagreed about six members.
 
-That reading is what `promote` refuses on, so a wrong one either refuses a
-composition that works or admits one that does not. Nothing in the repository
-runs two readings concurrently — `build.ts` starts the contract's and the
-blocks' together, and those are two different `spec.name`s under two different
-directories — so this bites a person, not the pipeline.
+That reading is what `promote` refuses on, so a wrong one either refuses a composition that works or admits one that does not. Nothing in the repository runs two readings concurrently, so this bites a person and not the pipeline.
 
-The fix is one line of naming: put the run's own pid or a random suffix in
-`ROOT`, or take a lock. Until then, do not run a build and a test run at the
-same time.
+**The fix is one line of naming:** put the run's own pid or a random suffix in `ROOT`, or take a lock. Until then, do not run a build and a test run at the same time.
 
 ### 2. A browser-reachable `prod`
 
-Needs a domain and a certificate. The domain substitutes in three places:
-`src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
+Needs a domain and a certificate. The domain substitutes in three places: `src/server/origins.ts`, `fly certs add`, `features/support/world.ts`.
 
 ### 4. CI
 
-`verify:live` needs live credentials, and a bucket write key is the
-production-origin execution key. Needs a second Tigris key scoped to non-prod
-paths first.
+`verify:live` needs live credentials, and the asset bucket's write key is a production-origin execution key. Needs a second Tigris key scoped to non-prod paths first.
+
+`PLAN.md` step 6 adds a second requirement to the same item: the snapshot bucket needs its own key, held by the service and by nothing else. Whether `fly storage create` issues an independent key pair per bucket is **unverified**.
 
 ### 6. `verify:live` fails intermittently in a full run
 
-Both leads are refuted by measurement, and the lagging hop is named. The
-experiment the item ended on has been run, and it found a mechanism that
-produces exactly the reading the last occurrence gave. The item stays open
-because the next live occurrence, not this fix, is what closes it.
+**The symptom.** A full run fails one scenario: the origin serves the composition from before a promote for 25–30 s after the pointer moved, with no failed refresh in the machine's log. It stays open because the next live occurrence, not any fix, is what closes it.
 
-**The store is not the lagging hop.** Overwriting a key and reading it back:
-the new bytes reached a signed GET in 151 ms, a public GET in 305 ms and a
-`no-cache` GET in 465 ms, under `immutable` and under `max-age=5` alike. No
-response carried an `age` header. Read from inside the ams machine rather than
-from here, 1.46 s. So "an immutable claim that is rewritten" is not a caching
-fault.
+**Refuted by measurement. Do not re-run these.**
 
-**Propagation does not accumulate over repeated promotes.** Eight consecutive
-rewrites of `test-qa`'s pointer reached the origin in 1047, 10360, 10716,
-10286, 10704, 10423, 10325 and 10438 ms. The 10 s is the server's own
-`MANIFEST_TTL_MS`, and it does not grow with the number of promotes. The
-image's server, run locally against the real store with the machine's
-settings, followed 20 rewrites in a row: median 10536 ms, max 10660 ms, no
-failed refresh.
-
-**The failure is the origin, and it is not slowness.** A full run on
-2026-08-27 reproduced it:
-
-```
-the prod origin did not serve the whole composition after 30520 ms.
-Still wrong: shell: 5329b397 != e4599956, ...
-the store's pointer names ... shell=e4599956, composed 31 s ago
-```
-
-The pointer moved at once. The origin served the composition before it for
-three TTLs, with not one failed refresh in the machine's log.
-
-**One mechanism found and fixed.** `now() - checkedAt < ttlMs` reads a clock
-that has moved BACKWARDS as freshness: the difference is negative, which is
-smaller than any TTL, so the entry never expires and the origin serves a
-composition nobody promoted for as long as the skew lasts - silently, because
-no request is ever made to fail. `fly.toml` sets `auto_stop_machines =
-"suspend"`, and a guest resumed from a snapshot can come back with its clock
-behind. Two unit tests and a falsify mutation hold it.
-
-**Run, and it does not explain the failure.** `scripts/probe-resume-skew.ts`
-suspended the machine for 120 s, moved the pointer while it slept, and resumed
-it with a request. The first answer after the resume was the OLD marker, so the
-process survived the suspension with its cache intact - and the origin caught up
-in 2220 ms, far inside the 10 s TTL. The guest's clock read 0 ms outside the
-3299 ms round trip that measured it. A clock 120 s behind would have made
-`now() - checkedAt` about zero and frozen the entry; instead it expired at once.
-Fly corrects the guest clock on resume.
-
-So rule 9 closes a real hole and is NOT the diagnosis. One sample, and
-`fly machine suspend` may not be what `auto_stop_machines = "suspend"` does on
-its own.
-
-**The machine does not stop on its own, and the restarts in the logs are the
-suite's.** Corrected on 2026-08-28: the restarts through a run were read as
-Fly's automatic cycle, and they are not. `features/steps/shell.steps.ts:46` runs
-`fly machine stop` for "A visitor arriving at a suspended server receives the
-current build" - one per run, which is exactly the five seen across the batch of
-five. Left alone for 30 minutes the machine restarted ZERO times and its
-`updated_at` did not move: `min_machines_running = 1` holds it up.
-
-So a resumed process is not a routine state here at all.
-`auto_stop_machines = "suspend"` is configured and was never observed to fire.
-Rule 9 stays correct - a negative age reads as fresher than any TTL - but the
-condition it was written for is rarer than the guard's own comment claims.
-
-**What is left**, with the store, the load, the repeated promotes and the resume
-all measured out: a Tigris overwrite the MACHINE's read path sees late, for tens
-of seconds, rarely. That read was sampled once, at a quiet moment, and it was
-1.46 s. Nothing here can force it. The deployed headers settle it on the next
-occurrence - an age under the TTL with the wrong composition is the store's
-answer, an age far above it is the origin.
-
-**A ninth run, on 2026-08-30 after §3: 41 of 41 green**, 10.8 min, 0 curl
-retries. Its whole output was kept. The run before it that day is NOT evidence
-and must not be counted: it failed one scenario with `ReferenceError: region is
-not defined`, which was an edit to `promote.ts` landing while the run was
-executing it.
-
-**Runs since the fixes: 7 of 7 green** - 196 scenarios, 0 curl retries fired,
-0 failed refreshes logged. Five of them ran back to back on 2026-08-27 between
-21:20 and 21:49 UTC, 4m35s to 6m33s each, with the propagation budgets used
-running 4304 to 9741 ms of 15000. The machine restarted five times inside that
-window - once per run, from the scenario that stops it - and no run noticed.
-
-An eighth run followed 30 minutes of idle: green, 28 scenarios, 0 retries,
-propagation 8976 and 6703 ms. It did NOT reach the condition it was built for -
-the machine never stopped - so it measured a machine that had been up and quiet,
-not one resumed from sleep.
-
-Before the fixes, four runs the same day each failed one or two scenarios. The
-comparison is observational, not controlled: the code changed, the image was
-redeployed, and the machine was exercised constantly instead of being left idle
-between runs. One of the two known failure modes was fixed - the dropped
-connection - and the other was not: 30520 ms of a superseded composition, cause
-unknown. So the reading is that the observed rate has moved, and not that the
-second fault is closed.
-
-**One more occurrence, on 2026-08-28, and its diagnostic was lost.** The run
-straight after the store sweep failed one scenario: the shell served `52ebe495`
-where the scenario had just published `e34bccf3`. Both `test-qa` and `test-prod`
-served `e34bccf3` minutes later with an age of 107 ms and 382 ms, so it arrived
-late rather than never. The `x-manifest-age` at the MOMENT of the failure - the
-one reading the table below exists to give - was not captured, because the run
-was put in the background and only its tail was kept. Run `verify:live` with the
-whole output kept, or the next occurrence costs another run.
-
-Run times around it, with the sweep in the middle: 5m46s before, 13m46s for the
-failing run, 9m05s for a green re-run of 33 of 33 with propagation at 8585 and
-5674 ms of 15000. The failing run was 2.4x the one before it and came
-immediately after 2849 deletes. Whether the deletes slowed the store is
-UNMEASURED - one green re-run does not settle it either way.
-
-**The reading was captured on 2026-08-28, and it is row 2.** A full
-`verify:live` failed one scenario - "Visitors return to the previous build when
-it is promoted back", 33 scenarios, 1 failed, 7m37s - with the whole output
-kept this time:
-
-```
-the qa origin still served "27a65b5c" after 25255 ms; expected "b36d61ba".
-the store's pointer names ... shell=b36d61ba, composed 26 s ago.
-the origin rendered from a manifest 27464 ms old, last refresh ok
-```
-
-An age of 27464 ms against `MANIFEST_TTL_MS = 10000`, with `lastError` null. So
-this is NOT the store answering with the old document, which is what had been
-assumed: `x-manifest-age` is measured from `fetchedAt`, which only a SUCCESSFUL
-refresh advances, so a store that kept serving the superseded pointer would
-have shown a small age and a fresh `fetchedAt`. And it is not a failing refresh,
-because a failure sets `lastError` and that is what the header would say.
-
-What is left is the row the table names: for 27 s, no refresh COMPLETED at all -
-neither succeeding nor failing - on an entry whose TTL is 10 s.
-
-That is a mechanism this code can be read against rather than guessed at.
-`refresh` fetches under `AbortSignal.timeout(timeoutMs)`, and
-`MANIFEST_TIMEOUT_MS` is NOT set in `fly.toml`, so the deployed timeout is the
-3000 ms default. A refresh should therefore settle within about 3 s, one way or
-the other, and `beginRefresh`'s `finally` should clear `e.inflight`. An entry
-that goes 27 s without a completed refresh means that promise did not settle,
-so `e.inflight` stayed non-null and every later request took the
-stale-while-revalidate path and returned at once - silently, and with `ok`
-beside it, because nothing failed.
-
-**The experiment was run on 2026-08-29, and the mechanism is real.** Three unit
-tests in `src/server/manifest.test.ts`, driving a `fetchImpl` that answers
-neither the request nor its own abort. All three failed against the code as it
-stood:
-
-| What was asserted | What happened |
+| Lead | Reading that refuted it |
 | --- | --- |
-| a later read starts a new refresh | it made no request at all, and served the old document |
-| the state names the stuck refresh | `lastError` stayed null |
-| a cold read gives up | it never returned. The test needs a race to fail rather than hang |
+| The store answers late | Overwrite and read back: 151 ms signed, 305 ms public, 465 ms `no-cache`, under `immutable` and `max-age=5` alike. 1.46 s from inside the ams machine |
+| Propagation accumulates over repeated promotes | Eight consecutive pointer rewrites reached the origin in 1047–10716 ms. The 10 s is `MANIFEST_TTL_MS` and does not grow |
+| A resumed machine's clock is behind | `scripts/probe-resume-skew.ts`: suspended 120 s, moved the pointer, resumed. Caught up in 2220 ms, guest clock 0 ms out. Fly corrects it on resume |
+| The machine stops on its own through a run | Zero restarts across 30 minutes idle. The restarts in the log are the suite's own `fly machine stop`, `features/steps/shell.steps.ts:46`, one per run |
 
-So `e.inflight` does survive a fetch that never settles, and one hung request
-freezes an entry for the life of the process with nothing to show for it.
+**One real hole found on the way, and fixed.** `now() - checkedAt < ttlMs` reads a backwards clock as freshness: the difference is negative, so the entry never expires. Two unit tests and a `falsify` mutation hold it. It is **not** the diagnosis.
 
-**The fix is a deadline the fetch cannot decline.** `bounded` in `manifest.ts`
-races the whole attempt - the body read and the parse included - against a timer
-at twice `timeoutMs`, which is 6000 ms deployed. The loser is abandoned, never
-cancelled: a late answer is dropped rather than written, because a newer attempt
-owns the entry by then. `AbortSignal.timeout` keeps its job, and at twice the
-budget a fetch that honours it always reports its own error rather than this
-one. Rule 11 in the header, three unit tests and a falsify mutation hold it.
+**The reading that matters, captured 2026-08-28.** `x-manifest-age` of 27464 ms against a 10 s TTL, `lastError` null. A store serving a superseded pointer would show a small age, because the age is measured from `fetchedAt` and only a successful refresh advances it. A failing refresh would set `lastError`. So for 27 s **no refresh completed at all** — neither succeeded nor failed — which means `beginRefresh`'s promise did not settle and `e.inflight` stayed non-null. `MANIFEST_TIMEOUT_MS` is not set in `fly.toml`, so the deployed timeout is the 3000 ms default and a refresh should settle within about 3 s either way.
 
-**What this does NOT prove.** Nothing recorded whether a refresh was in flight
-during the 2026-08-28 occurrence. So this is a mechanism that existed and
-produced exactly that reading, and not a diagnosis of that failure. The item
-stays open, and it closes on the next occurrence rather than on this change.
-
-**Deployed, and the run after it is green.** Image version 12 on 2026-08-29 at
-10:59Z, then `verify:live` 36 of 36 in 10.3 min, propagation 8634 and 7808 ms of
-15000. The machine logged no failed refresh.
-
-The attempt before that one is NOT evidence, and it must not be read as this
-item's intermittent. Five scenarios failed on THIS machine's resolver:
-`curl: (28) Resolving timed out`, with name lookup here measuring 169 ms a
-minute later and every origin answering `refresh: ok` at an age of 129 ms and
-346 ms. That run was also killed at 12 minutes, before Playwright printed its
-failure detail, so no other cause was ever named.
-
-The in-flight reading the item asked for is NOT being built. With the deadline
-in place no entry can stay in flight past 2 x `timeoutMs`, so a "refresh in
-flight since" header could only ever report a number under 6 s, and the age
-beside `lastError` already separates the three causes.
-
-The next failure says which hop it is without another investigation. Every
-shell now carries `x-manifest-age` and `x-manifest-refresh`, and the suite
-quotes both beside what the store holds:
-
-| The origin says | What it means |
-| --- | --- |
-| age under the TTL, wrong composition | the store answered with the old document |
-| age far above the TTL, refresh `ok` | the origin stopped refreshing. Rule 9 |
-| a named error | the refresh is failing and the last good build is being kept |
-
-Row 2 is narrower than it was. A refresh that never settles now names itself at
-6 s, so an age far above the TTL with `ok` beside it means the clock and
-nothing else.
-
-Row 3 of the old table - `Republishing reported 0 of 5 units unchanged` - did
-not reproduce and is not explained. Its assertion now carries publish's whole
-output, which names which of contracts, digests or provenance moved.
-
-**A near miss that is NOT this item, on 2026-09-10.** A `verify:live` run
-straight after a `fly deploy` failed one scenario, and it was
-`channel-selection.feature`'s *The prod origin serves a different build from the
-same server* - the same scenario this item's first reading came from. It is a
-different fault and must not be counted as an occurrence, because counting it
-would read as the item recurring when it has not.
-
-| | This item | The near miss |
-| --- | --- | --- |
-| Step that failed | `Then the shell identifies build "beta"` | `And both origins are served by one machine` |
-| Assertion | the composition served is the one promoted | `expect(running).toHaveLength(1)`, `features/steps/shell.steps.ts:192` |
-| What was wrong | a superseded composition, for tens of seconds | the composition was right. Two machines were `started` |
-| Cause | open | the deploy woke the suspended `iad` machine |
-
-**The build-identification step passed**, which is the discriminator: this item
-is by definition a wrong composition, so a run where the composition is correct
-is not it whatever else went red.
-
-The machine event log the failure printed carries the cause. `iad` went `flyd
-stopped` at `1789024074136`, the deploy's own update, then `proxy starting` at
-`1789024110236` and `flyd started` at `1789024113712` - 36 s later. Its health
-check first read at `07:08:36.125Z` against `ams`'s `07:07:58.358Z`. The
-scenario asserts 6.3 s into a run started after the deploy, so both were up.
-Both carried the same image and both were healthy, so the claim the scenario
-exists to make - one image serves every channel - held; the assertion it uses to
-make that claim did not. `auto_stop_machines = "suspend"` suspended `iad` on its
-own afterwards, and the scenario alone passed in 1.5 min against the same image.
-
-So: do not run `verify:live` in the minutes after a `fly deploy` and expect this
-scenario to be meaningful, and if it does go red there, read WHICH step failed
-before reaching for this item.
+**What closes it.** The next occurrence, with the whole run output kept to a file. Runs since the fixes: 7 of 7 green, then 41 of 41 green on 2026-08-30.
 
 ### 29. The live suite writes to the deployed service
 
-`verify:browser` writes to the live page, and a write is a `POST` to
-`pointer-deploy-api`. On the previous slate, measured on 2026-08-31, a counter
-moved 12 to 22 across one run. On this slate one scenario sets the greeting's
-audience, and `restoreAudience` in the `After` hook puts it back — so the window
-is one scenario long rather than permanent, and the suite still writes to
-production.
+`verify:browser` writes to the live page, and a write is a `POST` to `pointer-deploy-api`. On this slate one scenario sets the greeting's audience and `restoreAudience` in the `After` hook puts it back, so the window is one scenario long. The suite still writes to production.
 
-The channels are already handled - the suite owns `test-qa` and `test-prod`, and
-a tripwire fails a run that moved a real one. The service has no equivalent, so
-the one production thing the suite still mutates is the state a visitor sees.
+The channels are already handled — the suite owns `test-qa` and `test-prod`, and a tripwire fails a run that moved a real one. The service has no equivalent.
 
-The scenarios no longer DEPEND on that state, §28's sibling fix: they assert
-that every panel holds the same number and that it moved by what was clicked.
-So this is no longer a failing suite. It is still the suite writing to
-production.
-
-Two ways out, and neither is chosen yet:
-
-| | |
-| --- | --- |
-| A second service | `pointer-deploy-api-test`, and the local server the `@test-channel` scenarios already spawn is pointed at it. The `@browser` scenarios against the deployed origin cannot be, because that origin's `API_BASE` is its own |
-| A scope on the state | The service keys its state by a header or a query the suite sets, so a suite run writes a different greeting from the one a visitor sees. One deploy, and the isolation reaches the live origin too |
+**`PLAN.md` step 6 chooses the way out.** The service stops holding a greeting and starts holding snapshots and slots in a bucket, and the suite's snapshots and slots go under a `test-` key prefix that the existing tripwire pattern covers. The item closes when that lands, not before.
 
 ### 21. Pin the vendor types the contract references, or stop claiming to
 
 Was §9's second half. NOT built, and the decision is open.
 
-`subapp.ts` says `import type { ComponentType } from "preact"`, and the emitted
-`subapp.d.ts` carries that line rather than inlining the type - measured on
-2026-08-28. So a matrix cell resolves `preact` from `node_modules` at HEAD, and
-a retained contract's hash covers a type whose meaning can change under it.
+`subapp.ts` says `import type { ComponentType } from "preact"`, and the emitted `subapp.d.ts` carries that line rather than inlining the type. So a matrix cell resolves `preact` from `node_modules` at HEAD, and a retained contract's hash covers a type whose meaning can change under it.
 
-The fix §9 named was to copy Preact's own `.d.ts` into each contract directory
-and point the cell's `paths` at the copy. Three readings taken on 2026-08-28 and
-2026-08-29 bear on whether to:
-
-| Reading | Value |
+| Reading, 2026-08-28/29 | Value |
 | --- | --- |
 | The matrix under preact 10.29.8 | 5 cells pass against `e0160a6` |
 | The matrix under preact 11.0.0-rc.1 | 5 cells pass against `e0160a6` |
-| Vendor types a pin must copy | 255 kB (preact src, hooks, jsx-runtime, signals) |
+| Vendor types a pin must copy | 255 kB |
 | A contract directory today | 12 kB |
 
-So the pin would have caught nothing across the one major step available, and
-any HASHED pin mints a contract on every Preact patch, because the identity
-moves with the copied bytes. The three ways:
+The pin would have caught nothing across the one major step available, and any **hashed** pin mints a contract on every Preact patch. Three ways:
 
-- record the resolved vendor versions on `ContractRecord`, unhashed, and warn
-  when `node_modules` differs from what a retained contract was minted at. No
-  growth, no churn, and the gap becomes visible rather than invisible. It does
-  NOT restore `tsc` as the oracle;
-- copy the types into each contract directory and hash them, as §9 said. The
-  oracle is restored. 255 kB a contract, a mint per patch, and old contracts
-  cannot be retrofitted because their hash would move;
-- copy once into `contracts/vendor/preact@<version>/` and have each contract
-  hash a reference to it. Same oracle, no duplication, one more concept.
+- record the resolved vendor versions on `ContractRecord`, unhashed, and warn when `node_modules` differs. No growth, no churn, and it does NOT restore `tsc` as the oracle;
+- copy the types into each contract directory and hash them. The oracle is restored, at 255 kB a contract and a mint per patch, and old contracts cannot be retrofitted;
+- copy once into `contracts/vendor/preact@<version>/` and hash a reference to it. Same oracle, no duplication, one more concept.
 
-§9's member gate narrows the question: a member's digest covers the text of its
-declaration, so the vendor gap is now scoped to the members that name a vendor
-type, which is `SubApp` alone.
+§9's member gate narrows it: a member's digest covers the text of its declaration, so the gap is scoped to the members that name a vendor type, which is `SubApp` alone.
 
 ### 23. Compatibility rather than equality on the member gate
 
-From `amboss-mededu/ui-amboss#12771`, read on 2026-08-30. That PR loads
-self-contained React units, and its host-to-unit boundary declares what the UNIT
-NEEDS rather than what the host has: the host passes `Card: typeof Card`, the
-real design-system component, and the unit declares
-`Card: ComponentType<{ title?: string; children?: ReactNode }>`. The relation
-between the two is structural assignability.
-
-**It is stated and never computed.** The two declarations sit in workspaces that
-cannot import each other, and both files say so - "deliberately looser, so the
-two are not checked against each other anywhere" and "change one and change the
-other". That is §11's fault written down rather than reached by accident, so the
-PR is a source for the IDEA and not for a mechanism.
-
-**The idea lands on a real defect here.** `uses` records a member path to the
-digest of its declaration, and `memberRefusal` refuses when the digest moved. A
-digest cannot tell a widening from a narrowing:
+`uses` records a member path against the digest of its declaration, and `memberRefusal` refuses when the digest moved. A digest cannot tell a widening from a narrowing:
 
 | Change to a member an app calls | Every caller still compiles | The gate today |
 | --- | --- | --- |
 | `increment(ns, by?)` becomes `increment(ns, by?, label?)` | yes | refused |
 | `increment(ns, by?)` becomes `increment(ns, by: number)` | no | refused |
 
-The first row is the whole item. A change every consumer survives is refused
-exactly as hard as one that breaks them, and the operator is told the same
-sentence for both.
-
-**What the fix costs**, and it is the same trade as §21 one layer down:
+The first row is the whole item: a change every consumer survives is refused exactly as hard as one that breaks them, and the operator reads the same sentence for both.
 
 | | Digest, today | Assignability |
 | --- | --- | --- |
@@ -433,1115 +151,51 @@ sentence for both.
 | a widening change | refused | allowed |
 | a narrowing change | refused | refused |
 
-NOT obviously worth building. A widening change is rare here, and the cost is
-`promote` gaining a compiler it does not have - which is exactly the property
-that let §11 move the same kind of check into a RUNNING server, where no
-compiler exists at all. Decide before writing any of it.
+NOT obviously worth building. Widening is rare here, and the cost is `promote` gaining a compiler — the exact property that let §11 move this check into a running server, where no compiler exists. Decide before writing any of it.
+
+Source: `amboss-mededu/ui-amboss#12771`, read 2026-08-30, which states the relation and never computes it. A source for the idea, not for a mechanism.
 
 ### 24. A runtime identity check on the shared runtime
 
-Also from `#12771`: `assertSingleReact(runtime)` throws when the unit's React is
-not the host's object, and names the import map entry to go and look at.
+Also from `#12771`: `assertSingleReact(runtime)` throws when the unit's React is not the host's object, and names the import map entry to look at.
 
-`build.ts` already refuses a sub-app bundle that carries its own Preact, by
-reading the specifiers in the emitted bytes. What that cannot cover is the
-browser: an import map that resolves wrongly at serve time gives a second copy
-from a bundle which was clean when it was built. Measured on 2026-08-28, by
-removing the build guard: the panel reads
-`Cannot read properties of undefined (reading '__H')` with a Mount again
-button, and nothing names the cause.
+`build.ts` already refuses a sub-app bundle carrying its own Preact, by reading the specifiers in the emitted bytes. What that cannot cover is the browser: an import map resolving wrongly at serve time gives a second copy from a bundle that was clean when built. Measured 2026-08-28 by removing the build guard — the panel reads `Cannot read properties of undefined (reading '__H')` with a Mount again button, and nothing names the cause.
 
-The store is handed to a sub-app as a prop, so its identity is already
-guaranteed. Preact's is not.
+**Why it is not free.** A sub-app can only compare against something the shell hands it, so the shell would pass its own Preact — a vendor VALUE in a surface that deliberately holds types only. That is the cost §9 spent effort avoiding, for a named error.
 
-**Why it is not free.** The only way a sub-app can compare is against something
-the shell hands it, so the shell would pass its own Preact - a VENDOR VALUE in
-a surface that deliberately holds types only. `api.ts` says why: a signal in
-the surface would put `@preact/signals` into the contract hash, and
-`ComponentType` in `subapp.ts` is already the one vendor type that costs §21.
-So this buys a named error for a cost §9 spent effort avoiding.
+`PLAN.md` raises the stakes: three sub-apps share one runtime instead of one.
 
 ## Open questions
 
-One left. What was scoped became §7 to §19 above; §8, §10, §12, §13, §14, §15,
-§17 and §19 are now under Done, §14 and §15 having been answered by reading what
-the code already does, and §16 was a defect that reading found.
-
-### Do apps need migrations?
-
-**Out of scope for now, on 2026-08-28. To be revisited.** Not closed: deferred,
-with the reading below so it can be picked up without repeating it.
-
-Nothing persists. There is no `localStorage`, `sessionStorage`, `indexedDB` or
-cookie anywhere in `src/`, `features/`, `scripts/` or `build.ts`. The greeting
-lives in memory and dies with the tab, so the question has no instance in the
-code and there is no answer already true to write down.
-
-It belongs to a family the project now has three of - a surface the contract
-hash does not cover:
-
-| Surface | What is on the other side | Item |
-| --- | --- | --- |
-| server to shell, through the DOM blocks | a deployed image | §11 |
-| a sub-app to a service it calls | a separate deploy schedule | §13 |
-| a unit to its own persisted state | the past | this |
-
-The third is the only one where a rollback is asymmetric. Code rolls back by
-moving a pointer. Data written by the newer version is still there and nothing
-can redeploy it away. That is a limit the project has not shown.
-
-What makes it expensive, and why it waits: `~/projects/CLAUDE.md` requires every
-scenario to start from the cold state a fresh visitor sees - empty
-`localStorage`, empty IndexedDB. Adding persistence puts a clear step in all 196
-scenarios, and any scenario that misses it becomes order-dependent.
-
-The demonstration when it is picked up: persist something the shell owns,
-publish a shell that stores one shape and a shell that stores another, roll back
-with the newer data present, and watch it break. Then decide the fix - a version stamp on the stored
-document and a migration owned by the shell, which §15 says is where shared
-state lives.
+None. The last one — do apps need migrations — was scoped on 2026-09-10 into `PLAN.md` steps 2, 3, 14, 15 and 16. The persistence is IndexedDB, and the answer to "what does a shell do when it meets data from a newer shell" is the requirement step 16 writes.
 
 ## Done
 
-- **A pull request gets a URL.** Was §30, done on 2026-09-10. `mergeKnown`'s
-  third argument goes from `allowMarked: boolean` to a predicate on the marker,
-  and `admitsMarker` in `origins.ts` is the whole policy: `test-*` takes every
-  marker, `qa` takes `pr-<digits>` as well as none, `prod` is the strict
-  fallthrough so a channel added later has to be named to get anything looser.
-  Nothing else moved - `promote` already refused every marker on a real channel,
-  the catalogue already listed every published unit, the floor already held a
-  unit no channel served, and `overridden` already separated an operator from a
-  visitor.
-
-  | Check | Result |
-  | --- | --- |
-  | `bun test` | 447 pass |
-  | `bun run verify` | 55 @local, up from 44 |
-  | `bun run falsify` | 65 of 93 run, each caught, 28 skipped |
-  | `bun run e2e:preview` | SUCCESS against the real store |
-
-  **The script earned its place on its first run.** Everything above was green
-  and the artefact was red, which is the whole argument for writing one: a
-  preview naming only a sub-app is composed against the CHANNEL's shell, and
-  while that shell reads a block this server no longer writes, §11 refuses it.
-  The entry above had the price of that removal written as *a rollback reaches
-  only shells built after it* - true, and not the whole reading. It is corrected
-  there. The script now reads the two asks apart: a preview naming its own shell
-  must be served, and one naming a sub-app alone is reported UNDECIDED while the
-  channel's shell predates the removal.
-
-  Not built, and named rather than left to be discovered: the server image is
-  not previewable this way - the query string swaps units, so a pull request
-  against `src/server` needs its own machine - and nothing on the page says it
-  is a preview, because saying so means shipping a shell to say it and the shell
-  is the unit most often being previewed.
-
-  **Not a feature flag.** A flag picks a branch for a visitor who did not choose
-  it; this picks a bundle for a visitor who typed the URL. No cohort, no
-  percentage, and adding either would put product state in the thing that serves
-  the pointer. The flag channel here is the SERVICE - `store.flags()` reads
-  `showShares`, `showTotals` and `compact` from `GET /settings`, changed with no
-  unit rebuilt and no image deployed. What the per-unit deploy replaces is the
-  other kind of flag, the one that exists only because a release is
-  all-or-nothing.
-
-- **The version switcher is removed.** Done on 2026-09-10. The `select` per unit
-  was a front end for the query string, and the query string is the part that
-  matters, so the control and everything built only to feed it went: 798 lines
-  deleted across 28 files, 159 added.
-
-  | Gone | Kept |
-  | --- | --- |
-  | `Versions`, `UnitVersions`, `optionLabel` in `Shell.tsx`, and 48 lines of CSS | the `?<unit>=<id>` override, `compose`, `refuseComposition` |
-  | `src/web/shell/versions.ts` and its test - `readVersions`, `servedFor`, `chooseVersion` | `mergeKnown`, the catalogue, and the boot prime that makes both readable on the first request |
-  | `optionsFor` in `composition.ts`, and `VersionOption` / `VersionsBlock` in `blocks.ts` | `overridden` in the served log, so an operator is still not counted as a visitor |
-  | the `__VERSIONS__` block in `html.ts` and its `versions` parameter | every refusal: an unknown id, no shared contract, a member the shell lacks, a block field this server does not write, an API version the service does not answer |
-  | `scripts/e2e-version-switcher.ts`, and the three switcher checks in `e2e-api-gate.ts` | `bun run e2e:api`, which now proves the same gate through an override that is allowed and one that is refused |
-
-  `features/choosing-a-version.feature` keeps 7 scenarios, all of them about
-  asking an origin for a build it does not serve. The 5 that asserted options,
-  greying and durations went with the control. Three `falsify` mutations that
-  aimed at `optionsFor` are deleted and six had their scenario names moved;
-  `a block field is renamed` now renames `BuildInfo.channel`, because the field
-  it used to rename no longer exists.
-
-  | Check | Result |
-  | --- | --- |
-  | `bun run typecheck` | clean |
-  | `bun test` | 440 pass |
-  | `bun run verify` | 44 @local pass |
-  | `bun run falsify` | 59 of 87 run, each caught, 28 skipped |
-
-  **It breaks the append-only rule of §11, deliberately.** `VersionOption` and
-  its seven fields are gone from `blocks.provides.json`, and every shell already
-  in a channel's history reads them. `bun run blocks:record` prints the warning
-  and writes anyway. The reading moved with it: 19 members written by the server
-  and 10 read by this shell, to 13 and 6.
-
-  | On a channel whose shell reads those fields | What happens |
-  | --- | --- |
-  | a visitor asking for nothing | served. `blockRefusal` refuses an override and never a pointer, and `x-shell-blocks` names the fields |
-  | an override naming only a sub-app | **400.** The composition's shell is the CHANNEL's shell unless the query string names another, so the gate refuses a request that never mentioned the shell |
-  | an override naming a shell built after the removal | served |
-
-  The middle row was corrected on 2026-09-10 by `bun run e2e:preview`, which
-  measured it against the real store. It was written here first as *a rollback
-  reaches only shells built after the removal* - true, and not the whole
-  reading. The window closes at the next shell promote to a channel. `prod` is
-  not in it: its shell records no block surface, so the gate returns `unread`.
-
-  That is the price and not a surprise: it is the same reading §11 was built to
-  take, taken against a change made on purpose.
-- **A `falsify` mutation that proved nothing.** §28, done on 2026-08-31.
-  `a cold unit catalogue makes the visitor wait for the store` replaces
-  `catalogues.peek` with `await catalogues.get` on the request path, and the
-  scenario it named stayed green. Two faults, and either alone was enough to
-  hide it:
-
-  | | |
-  | --- | --- |
-  | The stub applied its delay AFTER matching the route | It answers one shape of key, so a request for anything else - the catalogue among them - got an instant 404 however slow the store was. A slow object store is slow for every key, and the stub now sleeps before the match |
-  | No local channel had a history | The merge that reads the catalogue runs only when `histories.peek` returned one, so the mutated line was never reached in any `@local` scenario. The stub now serves a history, opt-in through `pointHistory`, because a history turns the version switcher on and most scenarios are asserting a page without it |
-
-  A new scenario reaches it: "A visitor whose channel has a history is not made
-  to wait for the catalogue". Measured with the mutation applied - 1502 ms
-  against a 400 ms bound - and green without it.
-
-  What this cost to find is worth recording. The mutation had been uncatchable
-  since the catalogue landed, and `falsify` reported it as a failure every run,
-  so the signal was there and was read as noise.
-
-- **What the service offers, and who reads which field.** §27, done on
-  2026-08-31. §26 gave the service a way to say what it holds, and what it held
-  was three fields. All five sub-apps read two of them, so every retirement hit
-  every panel and nothing could show a change reaching one unit and not another.
-
-  **20 fields over 13 routes**, in seven resources: `user` (now with `initials`
-  and a `theme`), `counters`, `limits`, `labels`, `flags`, `stats` and `motd`.
-  Five are writable, so `POST /v1/flags` changes what a panel draws with no
-  build, no publish and no promote. `stats` is read-only because it is derived
-  from the counters, and a write there would be an answer the next read throws
-  away.
-
-  **Ownership comes out at the FIELD, and nobody declared it.** `Limits` is a
-  type with three named members, so the removal prober cuts
-  `Limits.allowNegative` on its own. The table `bun run contract:members` prints
-  is the answer: step to alpha, allowNegative to bravo, showTotals to charlie,
-  showShares and emoji to delta, updatedAt to echo, initials to charlie. 59
-  members in 33.7 s. `members.test.ts` asserts 11 of those claims.
-
-  **Three rules at the boundary.** Strict about what the page cannot draw
-  without and tolerant about what the service grew later - `user.initials`
-  absent is an older deploy, `user.initials` present and wrong is refused, by
-  field. Five routes and five separate failures, so `readSettings` uses
-  `allSettled` and a service without `/v1/flags` yet costs the page its flags
-  and nothing else. And every default is a value a panel can draw, so a service
-  that never answers costs a different page rather than a blank one.
-
-  **Contract `ac87a8c`**, `service-offering-2026-08`, additive over both
-  retained contracts. `63bcf32` is NOT deprecated: additive means a unit built
-  against it still composes, so there is no move to force and marking one would
-  be a warning about something nobody has to do.
-
-  **Proved by `bun run e2e:schema`**, now 44 checks in five steps. Step 4 makes
-  four writes against the running service and reads all three views again:
-  seven panel readings change, `limits.max` does not because no write named it,
-  and not one unit id moves. Held underneath by 12 `@local` scenarios, 5
-  `falsify` mutations across §26 and §27, and unit tests on all seven parsers.
-
-- **What is inside the service, and what is going away.** §26, done on
-  2026-08-31. §13 gave the service a version set and nothing else: `serves` says
-  which versions it answers and no member of it says what a version HOLDS. So
-  the one surface with no compiler behind it was also the one nothing could
-  read, and a field being retired had nowhere to be said.
-
-  **The service says it, and an operator decides it.** `GET /versions` keeps
-  `serves` exactly as it was — a shell published before this reads that member
-  and no other — and grows `versions.<v>.routes` and `.fields` beside it,
-  declared in `api/service.ts` next to the handlers. A retirement is
-  `API_DEPRECATED` in the environment, like `API_SERVES`: one JSON array, no
-  code change, no rebuild. Every response carrying a retired field also says so
-  in RFC 9745 `Deprecation` and RFC 8594 `Sunset`, and
-  `access-control-expose-headers` names both, without which a cross-origin page
-  gets the body and not the warning attached to it.
-
-  **It refuses rather than ignores.** A malformed value, a missing `instead`, a
-  sunset before the deprecation, or a path this deploy does not answer all stop
-  the service starting. A service that swallowed the error would publish
-  "nothing is going away", which is a false reading rather than silence, and the
-  operator who set the variable could not tell it from one that read it.
-  `user.color` for `user.colour` is the case that decided it.
-
-  **A sixth unit, and five panels that each say something different.** The store
-  gained `service()`, `setService()` and `goingAway()`; the shell reads the
-  document once and hands the reading down, so no sub-app fetches anything.
-  `echo` is the new unit, on a new `/api` view, and reports the document itself.
-  alpha names the retired field, bravo counts the days left, charlie says which
-  version the counts were read over, delta greys its bars while the reading is
-  not good. `echo` registers no counter, so the totals views still count four
-  namespaces — and the member gate reads that: it records no use of `increment`,
-  `register`, `countOf` or `snapshot`.
-
-  **Contract `63bcf32`**, `service-report-2026-08`, additive — so nothing
-  published against `e0160a6` breaks — and `e0160a6` is now marked going away
-  with `63bcf32` named to move to.
-
-  **Proved by `bun run e2e:schema`**: six units built, published and promoted to
-  `test-qa`, all three views read, `user.colour` retired on the service alone,
-  all three views read again. 21 checks in a real Chrome, and the two that
-  matter are that every panel changed and that not one unit id moved. Held
-  underneath by 8 `@local` scenarios in
-  `features/reading-what-the-service-holds.feature`, 3 `falsify` mutations, and
-  unit tests on both boundary parsers.
-
-  **Not done, and named as such:** the deployed `pointer-deploy-api` has not
-  been given this build. Until `fly deploy -c api/fly.toml` runs, the live page
-  reads a service that answers `{"serves":["v1"]}` and no schema — which is the
-  case the parse was written for, and `echo` draws it as "this deploy publishes
-  no schema" rather than as a fault.
-
-- **One record of every published unit.** §25, done on 2026-08-31. Every publish
-  has always written `units/<name>/<id>/unit.json`, so the store held the whole
-  list and nothing could read it: a browser cannot LIST a bucket, and a script
-  that can answers one key at a time. `publish` now also writes
-  `units/catalogue.json`, `bun run units` prints it, and `GET /units` serves it
-  to an operator. The page fetches nothing: it is served the switcher's options
-  already merged.
-
-  **It is derived, not authored.** Rebuilt from the store's own LIST rather than
-  appended to, so a write lost to a crash or to two publishers at once heals on
-  the next publish. Only what moved is re-read: the LIST reports when each
-  `unit.json` was last written, and `publish` rewrites one in place whenever the
-  claims beside a bundle change, which is exactly what the compatibility gate
-  reads. Measured against the live store: 129 units read in 3.8 s, and a rebuild
-  that finds nothing changed takes 1.4 s and reads none of them.
-
-  **It is a `ChannelHistory`.** The same shape a channel's version history has,
-  because a catalogue is a history whose scope is the store rather than one
-  channel. `refuseComposition`, `compose` and `optionsFor` read it unchanged, so
-  the switcher gained every published build without one new rule about how a
-  composition is judged. `mergeKnown` merges the two and is where a marked build
-  is kept off a real channel — the rule `promote` applies at deploy time,
-  applied again where a visitor chooses.
-
-  **What it changed for an operator.** The switcher's options came from the
-  channel's history alone, 20 promotes deep, holding nothing that was never
-  promoted — so the one thing it was for, looking at a build before deploying
-  it, was the one thing it could not do. Measured on 2026-08-31: qa's history
-  offered 2 shell builds and the catalogue took that to 7, two of them shown
-  disabled by the member gate. The refusal an operator reads changed with it,
-  from "is not one this channel has served" to "is not one this channel can
-  serve", because the first stopped being the rule.
-
-  **Seen red.** Four scenarios in `finding-a-build-to-promote.feature` and one
-  in `choosing-a-version.feature`, and three mutations in `falsify.ts` that each
-  turn one of them red. Two of the five were green under their own mutation
-  first: they used the suite's fixed-marker unit, whose id is the same every run
-  and was therefore already in the catalogue and already in a channel's history.
-  A per-run marker fixed both. That is the trap `CLAUDE.md` names, caught here
-  by running the mutation rather than by reading the scenario.
-
-  **Repaired while in there.** One mutation in `falsify.ts` had a `find` string
-  that no longer matched `optionsFor` — it could not apply, so the scenario it
-  claimed to falsify had nothing behind it. Repaired and seen red.
-
-- **A second region, and each machine reads its own.** Was §3, done on
-  2026-08-30. `fly scale count 1 --region iad` created machine
-  `8654506f5e9018`; `8325d5c7727318` in `ams` is unchanged. Both run image
-  version 14 and both pass their health check.
-
-  **Measured against the machines, not the code.** Forced onto the iad machine,
-  `/compositions` reports rows with `region: "us"` and a process that started at
-  14:41:41Z; the ams machine reports `eu`. Both serve `ff144709` with apps
-  `e34063ba 38a212eb 47c478c4 a8a66562` at contract `e0160a6`, which is what
-  `manifests/us/qa.json` and `manifests/eu/qa.json` hold.
-
-  **The control was run, so the scenario is not decoration.**
-  `Fly-Prefer-Region: syd` names a region with no machine, and Fly answered from
-  `ams`, which reported `eu`. So a missing machine in a region makes the
-  scenario fail rather than pass quietly - which is the reading that was
-  missing while §12's deployed-origin scenario was the only one of this kind.
-
-  **What changed in the code.** A promote writes every region and `--region <r>`
-  writes one; two regions that already serve different compositions refuse a
-  promote that would flatten the difference; the sweep reads every region
-  through `manifestKeys`, because a sweep that read one would delete the units a
-  machine in the other is serving. `REGIONS` lives in `origins.ts` beside the
-  `FLY_REGION` mapping, so a region this server resolves to and a region no
-  promote writes cannot drift apart.
-
-  **`falsify` caught a scenario that proved nothing.** "Every region names build
-  alpha" stayed green against a promote that wrote one region: the other was
-  already at alpha from an earlier run, because a build marker produces the same
-  unit ids every time. It compares the whole pointer document now, `composedAt`
-  included.
-
-  **Checked by** four `@live` scenarios in
-  `features/serving-from-two-regions.feature`, three `falsify` mutations bound
-  to them, and 12 unit tests. The fourth scenario reaches the deployed machines
-  and no source mutation can reach it, which is why the `syd` control exists.
-
-  **What is still not measured.** Whether `min_machines_running = 1` holds a
-  machine up in every region or only the primary. A US machine that suspends is
-  the resumed-process state §6 looked for and never reached, so the next
-  occurrence of §6 has a second place to come from.
-
-- **A superseded build is kept 90 days, and the sweep will not take it early.**
-  Was §5, done on 2026-08-30. The policy is `scripts/retention.ts`, decided
-  against a clock the caller passes in; `sweep-superseded.ts` reads the store,
-  prints the plan and carries it out.
-
-  **Two clocks, and both have to allow a delete.** The object's own age catches
-  a unit published yesterday and superseded today. When a channel STOPPED
-  serving it catches a unit published a year ago and served until yesterday -
-  which is the one an age-since-publish rule gets wrong, and the state where it
-  bites is ordinary: un-retaining a contract drops every history entry that
-  named it, and the units behind them become deletable in the same sweep.
-
-  **The second clock had to be recorded before it could be read.** Only the
-  promote that displaces a build knows when it stopped being served, so
-  `promote` now stamps `supersededAt` on the entry it moves off the head, keeps
-  a stamp an entry already carries, and leaves the head unstamped. Measured on
-  `test-qa`: rolling `alpha` back stamped `e34063ba` at 12:54:12Z, and rolling
-  forward again cleared it and stamped `d6c9f501`. An entry written before the
-  stamp existed counts as the last time its history was written - the latest
-  moment it could have stopped being served - and the first promote after this
-  change freezes that inference onto the entry instead of re-making it forever.
-
-  **A history entry is now dropped only for a unit actually being deleted.** The
-  drop exists so the switcher cannot offer a build whose files are gone;
-  dropping one whose files stay would retire a build the floor is keeping. That
-  reordering is why the plan is computed before anything is written.
-
-  **Measured against the real store on 2026-08-30**, minutes after an e2e run
-  published and superseded five units. At 90 days: 0 objects to remove, 0
-  history entries dropped. At `--floor-days 0`, which is the rule without the
-  floor: 459 objects and 3 entries - every one of them serving traffic within
-  the hour. That is the before-and-after, on the same store, one minute apart.
-
-  **Checked by** 14 unit tests in `scripts/retention.test.ts` and four `falsify`
-  mutations. The promote-side stamp is read live rather than mutated, because it
-  fails SAFE: with no stamp the floor falls back to the last promote on that
-  channel, which keeps a unit longer rather than shorter.
-
-  **What it is still not.** Nothing runs it on a timer, and the day something
-  does, it needs a key that can delete - the production-origin key §4 already
-  refuses to give CI. `legacy/` stays exempt and the sweep still refuses if
-  anything under it reaches the delete set.
-
-- **A contract can be marked as going away, and nothing is refused for it.**
-  Was §10, done on 2026-08-30. `deprecated` on the registry record - a reason,
-  the date it was recorded, and the contract to move to. `contract:deprecate`
-  writes it, `contract:matrix` prints it under the table, and `promote` warns
-  when the composition it is about to write resolved at it.
-
-  **Not in the hash, and it must not be.** A deprecation is decided long after
-  the mint, so folding it into the identity would move the hash under every unit
-  that already claimed it - the one thing a content hash exists to prevent. It
-  sits on the record beside the hash, and `verifyRegistry` checks its shape
-  rather than its bytes, so a hand edit is caught where every other registry
-  fault is.
-
-  **A warning and never a refusal**, for the reason the vendor-version mismatch
-  is one: a deprecated contract is still what published units were built
-  against, and refusing it would make rolling back onto them impossible.
-  Deprecating does not un-retain either.
-
-  **Three states ARE refused**, because each names a move nobody can make:
-  deprecating the contract at HEAD, which everything built from now on is built
-  against; `--instead` naming a contract that is not retained, which nothing can
-  be promoted against; and `--instead` naming a contract that is itself
-  deprecated. The first is checked twice - by the command before it writes, and
-  by `contract:matrix` against the registry however it got that way.
-
-  **The FIELD half is still not built, and the item was right about why.** One
-  hash over the whole surface has no room for "this member is going away", and
-  `@deprecated` in a docstring is invisible to it by design - `emitSurface`
-  strips comments so a docstring edit does not mint a contract. Deciding what
-  carries it is most of the work and none of it was done here. What §9 changed
-  is the other half: `uses` records which sub-app names which member, so the
-  consumers of a deprecated member can be LISTED rather than guessed at once a
-  carrier exists.
-
-  **Checked by** 16 unit tests in `scripts/deprecation.test.ts`, four `falsify`
-  mutations on the readings, and `bun run e2e:deprecation` against the real
-  store. Nothing smaller can reach the state: a deprecation on HEAD's contract
-  is refused, so showing one needs a successor minted first, and the promote
-  warning needs published units whose contract set names the old one. Measured
-  on 2026-08-30 - the matrix printed `e0160a6 (injected-store-2026-08) is
-  deprecated as of 2026-08-30`, and the promote printed `WARNING contract
-  e0160a6 ... Move to b09aa39 ... Every contract this composition shares is
-  deprecated, so a promote has no other option`, then wrote the composition
-  unchanged.
-
-  **What it is still not.** `promote` reads the registry from the WORKING TREE,
-  so the warning is exactly as current as the tree the operator promotes from -
-  the same assumption `--from-build` already makes about the source. And a
-  deprecation still cannot be closed by a reading: §12 says what this origin has
-  handed out, and what is still RUNNING in a tab opened before a promote waits
-  on §4.
-
-- **A reading of which compositions are being handed out.** Was §12, done on
-  2026-08-30. `GET /compositions`, in memory, on the origin that already decides
-  the composition. No new route accepts a write and the server still refuses
-  every method that is not GET or HEAD.
-
-  **The free half, and it says which half it is.** The item said two readings
-  and only one is free, and that is what shipped. Every response names its
-  composition and the shell is `no-store`, so what is handed OUT costs one map
-  write on a path that already exists. What is still RUNNING - a tab opened
-  before a promote, which never asks again - is the population a sunset has to
-  worry about, and this origin never hears from it. The reading carries that in
-  its own `blindTo`, beside the machine it is lost with and the rows the cap
-  dropped. A partial reading that says so is worth having; the same numbers with
-  nothing beside them are how a unit gets removed out from under the tabs still
-  using it.
-
-  **An operator is not a visitor.** The switcher composes a page from the query
-  string, and those responses are counted apart in `overrides`. Without it one
-  operator working through the switcher reads as visitors still on an old unit,
-  which is the exact finding that would stop it being removed. Measured live:
-  the composition an override asked for showed 3 responses and 1 override,
-  because the promote in the same scenario polled this origin while the channel
-  was still serving it.
-
-  **The cap is a bound and not tidiness.** `refuseComposition` refuses an id the
-  channel has never served, so the reachable set is `HISTORY_DEPTH` to the power
-  of the unit count - walkable by anyone holding a link. 200 rows, re-inserted
-  on every hit, so what is dropped is always the least recently served and the
-  composition a promote just started handing out can never be it.
-
-  **Checked by** 5 `@local` scenarios in `features/counting-what-is-served.feature`,
-  6 `falsify` mutations on the wiring, and 100% of stryker's 41 mutants on
-  `src/server/served.ts`. The override split has no `@local` form - the stub
-  store holds no history, so the switcher is off and nothing there can make an
-  override happen - so it is one `@live @test-channel` scenario in
-  `choosing-a-version.feature`, against the real store and a real history, with
-  a seventh mutation aimed at it.
-
-  **And once against the deployed image.** The scenarios above run the entry
-  point here, which proves the code and not the deploy. One more `@live` one
-  loads `pointer-deploy.fly.dev` and reads what it says it handed out. It was
-  red before `fly deploy` on 2026-08-30, and the message names the reason: an
-  image that does not know a path renders the SHELL for it, so `/compositions`
-  answered `200 text/html` and not 404.
-
-  **What it is still not.** A durable reading waits on §4: an in-memory count is
-  lost whenever the machine is replaced, and `min_machines_running = 1` holds
-  one machine up rather than guaranteeing the same one. A beacon from the page
-  would answer the running half and needs a route that accepts a write plus a
-  bucket write key on the production origin - the key §4 already refuses to give
-  CI.
-
-- **The argument survives losing the compiler, and the fourth schedule is
-  real.** Was §13, done on 2026-08-30. `pointer-deploy-api` is a second Fly app
-  with its own image, its own `fly deploy` and its own version number. Nothing
-  in `api/` imports anything from `src/`, and neither image carries the other.
-
-  **What replaces `tsc`.** Every other surface here has both halves built from
-  one commit, so a mismatch is a build failure and the matrix enumerates every
-  pair. This one has none.
-
-  | | |
-  | --- | --- |
-  | the response shape | checked at the boundary by `src/web/shell/service.ts`, which DECLARES the types and never imports them from `api/`. Importing them would put the compiler back in the loop and prove nothing |
-  | the version set | the shell records `api: ["v1"]`, the service publishes `GET /versions`, and the two are intersected |
-  | a slow or absent service | the page renders from the store's defaults and hydrates afterwards. A different page, never a blank one |
-
-  **The item said "intersect at promote", and that is wrong** for §11's reason
-  one step further out: a promote runs in a working tree and cannot see which
-  service is deployed. The RUNNING server compares, reading the discovery
-  document through `createDocumentStore` - the same cache, the same peek-never-
-  wait rule, the same "nothing read yet is undecidable" answer. `x-shell-api`
-  reports `ok`, the version named, or `unread`.
-
-  **A version set is coarse and there is nothing better available.** The member
-  gate takes a digest of a declaration; a service has no declaration to take
-  one of. Saying that beats pretending otherwise.
-
-  **Which versions a deploy answers is `API_SERVES` in its environment**, and
-  the routes are gated on the same list - so the document cannot claim one thing
-  while the service answers another. Dropping v1 is a thing an operator does on
-  a Tuesday, to shells published long before that Tuesday.
-
-  **`bun run e2e:api` moves the fourth schedule and reads what this origin
-  says.** Two shells promoted to `test-qa`, then `API_SERVES=v2` on the other
-  app, with no unit rebuilt and no image deployed. 12 of 12:
-
-  ```
-  the origin names the version the service no longer answers
-  a visitor still receives the page
-  the switcher no longer lets either shell be chosen
-  choosing one of them is refused, naming the version
-  ```
-
-  Two shells, because only an OVERRIDE is refused. A channel's own pointer never
-  is: taking the site down over a fourth deploy is worse than the fault it would
-  be reporting. Both halves are asserted.
-
-  That output is 2026-08-29's. The switcher line went on 2026-09-10 with the
-  control it reads; the script now asserts an override that is allowed before
-  the service moves and one that is refused after it, which is the same gate
-  read through the only surface left.
-
-  **Two faults the running found.** `fetch` with a `Host` header fails TLS
-  verification in Bun before the request leaves - "unknown certificate
-  verification error" - so every live check carrying one uses `curl`, which is
-  what the rest of the harness already did. And the first run left the deployed
-  service answering only v2 for 35 minutes: `fly secrets set` returned
-  `unauthorized` on a machine update and the restore in the `finally` hit the
-  same. The restore now retries, reads the live document before deciding, and
-  prints the command a person runs if it still fails.
-
-  Also found: the service was running two machines, which is wrong for state
-  held in memory - two machines hold two states. One now.
-
-  What this does NOT do: persistence (the deferred question below), a member-
-  level reading of the service's surface, and any check at promote time.
-
-- **The 28 surviving mutants are gone, and 23 of them were real.** Was §22,
-  opened and closed on 2026-08-29. `bun run mutate` now reports 750 of 750
-  killed across all five files: `composition.ts` 267, `manifest.ts` 264,
-  `html.ts` 174, `origins.ts` 42, `provides.ts` 3.
-
-  The reading that opened it was 757 mutants with 28 survivors, all in what the
-  member gate and the blocks reading had just added. The README claimed 0
-  survivors, which had been true at 417 mutants and before that work.
-
-  | Where | Survivors | What they were |
-  | --- | --- | --- |
-  | `provides.ts` | 3 of 3 | no test at all. Two tests |
-  | `composition.ts` | 23 | 18 real gaps, 5 unreachable and excluded in place |
-  | `html.ts` | 2 | the preload block. One test |
-
-  **`provides.ts` was the sharp one.** It is what the RUNNING server judges
-  every shell against, and all three mutants - a wrong file name, an emptied
-  body, `??` turned into `&&` - made it read `{}`. An empty reading refuses
-  nothing, so the blocks gate would have allowed exactly the shell it exists to
-  refuse, and the page would still have rendered. `blocksWritten` now takes the
-  file as an argument so the missing-file reading can be tested at all.
-
-  **What the other gaps were, and they are the transferable part:**
-
-  | The gap | What no test asserted |
-  | --- | --- |
-  | a guard nothing exercised | An app entry with no reading is skipped. Remove the guard and the gate THROWS rather than falling back, which is the rollback path |
-  | which half refused | Both halves of the member gate name the member, so `toContain` on the name passed when the wrong branch fired |
-  | the separator | `join("; ")` between two problems. A `toContain` of one problem cannot see it |
-  | `some` against `every` | No fixture carried a sub-app with two SubApp halves, so needing ALL of them looked the same as needing one |
-  | the preload block | Six tests read one tag each. None could see an extra entry in the list or the string joining them |
-
-  Five were unreachable and are excluded in place with the reason: two guards
-  whose next line does the same skipping, and two `?? []` fallbacks whose key
-  came from `Object.keys` of the same record.
-
-- **The server-to-shell surface has one declaration and a reading, not a
-  hash.** Was §11. A hash over the blocks was the item's idea and is not what
-  this needed: the two parties are a PUBLISHED unit and a DEPLOYED image, so an
-  identity they must share would refuse every rollback the moment either moved.
-  §9's rule fits instead - the shell reads PART of what the server writes, so
-  the gate is per field.
-
-  **The cause, counted:** each block's shape was declared twice, once on each
-  side, and nothing compared them. `AppAssets` in `html.ts` and `loader.ts`,
-  `VersionOption` in `composition.ts` and `versions.ts`, `BuildInfo` in
-  `html.ts` and `ShellBuildInfo` in `world.ts`. Three blocks, six declarations,
-  no two checked against each other - which is exactly how renaming `deployed`
-  to `live` reached a channel.
-
-  **Part one: one declaration.** `src/server/blocks.ts`, reached by
-  `@pointer/blocks`, imported by both sides and by the harness. A renamed field
-  is now a compile error on whichever side did not move. It sits under
-  `src/server` because the image copies that and nothing else, and every import
-  of it is type-only so nothing resolves the specifier at runtime.
-
-  **Part two: the reading, because part one holds only while both sides compile
-  together.** The same removal prober, on this surface:
-
-  | | |
-  | --- | --- |
-  | written by the server | 19 members |
-  | read by this shell | 10 |
-  | read by no current shell | `BuildInfo` and its seven fields, and `VersionOption.deployed` |
-
-  `VersionOption.deployed` is the retained field from 2026-08-28. It is now
-  measured rather than asserted in a comment.
-
-  That reading is 2026-08-29's. The switcher went on 2026-09-10 and took
-  `VersionOption` with it, against this rule and knowing the price; the entry
-  at the top of Done carries the current reading and what it costs.
-
-  **How it travels, and who compares it.** The server cannot derive its own
-  reading - the image has a Bun and no tsc - so `bun run blocks:record` commits
-  `src/server/blocks.provides.json` and `build.ts` refuses a stale one. The
-  shell records what it reads in `unit.json`. The comparison is made by the
-  RUNNING server, not by `promote`: a promote executes in a working tree and
-  cannot see which image is answering requests. That is the piece the item
-  called unresolved, and this is the answer - it was never `promote`'s question.
-
-  | Situation | What happens |
-  | --- | --- |
-  | a chosen shell reads a field this server does not write | 400, and the option was already disabled in the `select` |
-  | the channel's own pointer names such a shell | served, with `x-shell-blocks` naming the field |
-  | a shell that records nothing | judged by nothing. The append-only rule is all that protects it |
-
-  The middle row is a decision. Refusing a channel's own pointer would take the
-  site down over a control that misbehaves.
-
-  **Two @live scenarios and four mutations, and writing them found three more
-  fixture faults.** *Choosing a shell this server cannot feed is refused* passed
-  with the gate disabled, for two different wrong reasons: its fixture shared no
-  contract, so the older rule refused it; and it asked before the origin's
-  history had caught up, so the refusal was *not one this channel has served*.
-  The fixture now inherits the served shell's contracts and members and the step
-  waits for the id to be known. Two more were mine from earlier in the session:
-  an id built from the pid AND the clock stopped matching the one
-  `versions.steps.ts` derives from the pid alone, so the published fixture and
-  the recorded one became two different things while the scenario went on
-  passing; and making `recordInHistory` inherit the served entry's surface gave
-  the CONTRACT-fallback fixture a member reading, which let the member gate
-  allow it - the one failure in an otherwise green live run, and the only one
-  of the four that a check caught rather than a mutation.
-
-  36 @live green in 8.9 min, 31 of 52 mutations caught with none surviving,
-  `bun test` 235. The two
-  readings cost about 10.5 s of tsc in every build.
-
-- **Compatibility is read from what a sub-app USES, not from one hash over the
-  surface.** Was §9, and the second half went a different way than the item
-  said - the vendor pin is now §21, unbuilt.
-
-  **First half: measured on 2026-08-28, against `test-qa`. The page holds, and
-  the warning at `scripts/promote.ts:332` is noise.** Preact 11.0.0-rc.1
-  installed, everything rebuilt, the shell promoted beside four sub-apps
-  recorded at 10.29.8.
-
-  | What was run | Reading |
-  | --- | --- |
-  | build at preact 11 | shell `ff144709` → `b5a80c68`. **All four sub-app unit ids unchanged** |
-  | `publish` | shell uploaded, four apps `unchanged` |
-  | `promote test-qa --from-build` | the WARNING, four times |
-  | the page, in Chrome, through `src/server/index.ts` | four panels render, alpha 6 + bravo 1 = charlie's total 7, delta's shares agree, 0 page errors |
-
-  A sub-app cannot be built against a second major in any way the store can
-  see: every Preact specifier is external, so its bundle carries no Preact bytes
-  and its id does not move. Only the SHELL's version can differ, and the warning
-  then fires for every app at once. The item's picture had it the other way
-  round.
-
-  The state that does break was reached by removing the guard in `build.ts`, not
-  by changing a version. bravo bundled its own Preact (2.2 kB → 13.8 kB) and its
-  panel came back as `Cannot read properties of undefined (reading '__H')` with
-  a Mount again button, caught by the shell's boundary, the other three
-  untouched. It THROWS on first render rather than quietly failing to
-  re-render, which is what that guard's comment used to claim; the comment now
-  says what was measured.
-
-  **Second half: the question changed.** The hash asks whether two units were
-  built against the SAME surface. What an operator needs is whether a sub-app
-  needs anything this shell does not have. Two of `ShellStore`'s eight members
-  are called by no sub-app, so the set intersection refused a removal that cost
-  nothing - and it refused it because a PUBLISHED app's contract set is fixed at
-  its build time and cannot name a contract minted after it.
-
-  **Use is measured by removal, never parsed.** Cut one declaration out of the
-  surface and recompile the consumers against the rest; still compiling means
-  not used. Two `tsc` runs per member - one for the cut surface, one for all
-  four apps at once - 11 members in about 4.3 s, in `build.ts` beside the
-  matrix. `unit.json` carries `provides` on the shell and `uses` on each app,
-  member path to the digest of its declaration, and `promote` needs no compiler.
-
-  | Change to the shell | Set intersection | Member gate |
-  | --- | --- | --- |
-  | a member added | allowed | allowed |
-  | a member removed that no app uses | refused | allowed |
-  | `reset` removed | refused | refused, naming bravo and `ShellStore.reset` |
-  | a parameter narrowed | refused for all four | refused for the apps that use it |
-
-  The digest is what keeps a same-name signature change covered. The half `uses`
-  cannot see - `subapp.d.ts`, which the shell requires whole - keeps its own
-  identity: each unit records `subapps`, the sub-app halves of its contracts,
-  and those must intersect. The contract sets remain as the FALLBACK for any
-  pair where either side carries no reading, which is what keeps a rollback onto
-  an old unit working. `promote` and the switcher call one function.
-
-  **Proved end to end**, `bun run e2e:members`, 16 checks green against the real
-  store: `reset` removed, the shell published alone, the four apps untouched.
-
-  ```
-  bravo uses ShellStore.reset, which this shell does not have. Nothing was changed.
-    shell   0523e568  10 members provided
-    alpha   e34063ba  6 members used
-  ```
-
-  The contract sets in that run were `4cdfc87` and `e0160a6` - disjoint - so the
-  old rule refused alpha, charlie and delta too, none of which called `reset`.
-
-  **Five falsify mutations cover the new rule, and writing them found two
-  faults in the checks themselves.** Both were mutations that SURVIVED and were
-  then fixed:
-
-  | Fault | What it was |
-  | --- | --- |
-  | the scenario's assertion was too loose | It read the member's name, and both halves of the gate - `held === undefined` and `held !== digest` - name the member. Disabling one branch left the other producing a message the assertion accepted. It now reads the exact half |
-  | a `find` string matched two places | `"if (refusal !== null) {"` also matches `sourceRefusal`'s branch, so the mutation patched the wrong `if` and the scenario went red for a reason nobody aimed at. `falsify` now REFUSES a `find` that matches more than once, which is the general form of the fault |
-
-  34 @live green in 6.9 min when this landed, `bun test` 227. Both counts moved
-  again under §11; the current ones are in that entry.
-  `bun test` now names `scripts` for `falsify` too.
-
-- **The live switcher check reports what it cannot decide.** Was §20. The
-  script this describes, `scripts/e2e-version-switcher.ts`, was deleted with the
-  switcher on 2026-09-10. The reading below is 2026-08-28's and the lesson in it
-  outlived the script: a check that is usually red is a check people stop
-  reading. Option
-  three, as the item recommended: the render comparison now has three states
-  rather than two. It reports UNDECIDED — the way `falsify` reports a mutation
-  nobody ran rather than counting it as passing — and it stays a FAILURE when
-  the check above it did not pass. That check, the page fetching the chosen
-  unit's own file, is what establishes which unit ran; without it an identical
-  page is a switcher that ignored the choice. Bytes were not compared, because
-  comparing them stops proving that the running code differs and only proves
-  the file did.
-
-  | Run on 2026-08-28 against `qa` | Result |
-  | --- | --- |
-  | alpha, bravo, charlie, delta | SUCCESS, 1 undecided each, exit 0 |
-  | the fetch check forced red, same identical render | FAILED, exit 1 |
-
-  **A second non-fault was found while verifying the first, and it blocked the
-  check entirely.** The first run reported *no switcher at all* and told the
-  operator to publish a change and promote it. The history is read with `peek`
-  and never `get`, so the first request after a server starts has no switcher
-  and the next one does — by design, and the README already said so. The page
-  carried two generations of all five units at that moment. The script now
-  reloads once before calling an absent switcher a fault, and names which of
-  the two causes it saw when the switcher is still absent after that.
-
-- **The direction of a surface change is read at mint.** Was §8. The hash says
-  a surface changed and says nothing about which way, so `tsc` is asked, out of
-  the machinery the matrix already had: two generated probes, compiled the way
-  `cell()` compiles a matrix cell, between the new surface and each retained
-  contract. The direction REVERSES between the halves, because a sub-app
-  consumes the shell API and produces a `SubApp`. Both compile: additive.
-  Either fails, and `contract:mint` names the half, says whom it breaks, and
-  prints what `tsc` said. A warning and never a refusal — `promote` refusing an
-  empty intersection is what stops a breaking change reaching a channel.
-
-  Measured on 2026-08-28, against generated pairs of surfaces and against the
-  two contracts this repository has actually published:
-
-  | Change | shell half | sub-app half |
-  | --- | --- | --- |
-  | nothing | pass | pass |
-  | an export added | pass | pass |
-  | a second prop on `SubAppProps` | pass | pass |
-  | an export removed | `TS2741` | pass |
-  | a parameter narrowed | `TS2322` | pass |
-  | a required member added to `SubApp` | pass | `TS2322` |
-  | a type export renamed | pass | `TS2305` |
-  | `9e79879` → `e0160a6` | `TS2740` | `TS2322` |
-
-  **Both traps the item named reproduced, and a third one was found.** A
-  module-level probe reads the sub-app half as additive whatever happens,
-  because `subapp.d.ts` exports a type and no value and its module shape is
-  empty; the sub-app half names the type. A script had no test home, and `bun
-  test` now names `scripts` beside `src/web`.
-
-  The third was invisible from the item: **`skipLibCheck` hid the type-only
-  half of the surface.** A module shape carries values, so a removed or renamed
-  TYPE export read as additive — the `TS2305` lands inside a `.d.ts` and is
-  skipped, and both `SubApp`s then degrade to something permissive. The probes
-  turn it off, which is the `TS2305` row above; on this project it raises no
-  error from `node_modules`.
-
-  Cost: about 1.2 s a comparison, against 0.3 s with `skipLibCheck` on. One
-  comparison at a mint. Eight in `scripts/contract.test.ts`, which is about
-  15 s of a 19 s `bun test` — the probes load no ambient package (`types: []`),
-  which took that from 26 s.
-
-- **The suite runs on Playwright, through `playwright-bdd`.** Was §1. Not one
-  `.feature` file changed: `playwright-bdd` supports a cucumber-style world, so
-  `this` is still the `PointerWorld` and the Gherkin parameters are still the
-  arguments. One runner, not two - the @local and @live scenarios moved with the
-  browser ones, which was the trap the item named.
-
-  **It still runs on Bun, and how the runner is STARTED decides that.** Measured
-  in a scratch project before any of this was written, because the difference is
-  invisible until the harness fails to import itself:
-
-  | Command | The workers run under |
-  | --- | --- |
-  | `bun x playwright test` | Node. No `Bun` global, no `bun:test` |
-  | `bun node_modules/@playwright/test/cli.js test` | Bun, `process.versions.bun` set |
-
-  The second is what the scripts use, the same long form `verify` already used
-  for cucumber's own bin. Had it been the first, the port would not have been
-  ~400 lines of bindings: it would have meant taking `world.ts`, `http.ts`,
-  `stub-store.ts`, `scripts/store.ts` and `scripts/contract.ts` off Bun, and
-  those last two are the files `build`, `publish` and `promote` run.
-
-  **Of the three things this was expected to buy, two arrived.** Traces and
-  screenshots are retained on failure. PARALLELISM is not available and that is
-  not a configuration away: the live scenarios promote to two channels the suite
-  shares and `world.ts` keeps one module-level map of build name to unit ids, so
-  two at once would race on the pointer and the failure would read as
-  propagation. `workers: 1`, with the reason written at the setting. Making
-  @local parallel is possible - each starts its own stub store and server on
-  port 0 - and it is its own piece of work.
-
-  **It found a defect in the deploy tripwire.** Playwright reports a failed
-  `beforeAll` against the first test of its FILE and carries on with the other
-  files. A dropped connection while reading the baseline therefore left the
-  guard with nothing recorded, 15 scenarios ran unguarded, and `AfterAll`
-  compared `undefined` against what the channels served and printed *the live
-  suite moved 2 real channels. That is a deploy* - the most alarming sentence
-  this suite can produce, about a run that deployed nothing. Three changes: a
-  missing baseline is its own message and is not called a move; the baseline is
-  taken by every live scenario's own `Before` rather than once; and
-  `pointerBuildId` retries a request that gets no answer, the way the suite's
-  other live requests already do.
-
-  **It found a second thing, and this one had been true all along.** Playwright
-  sets `FORCE_COLOR` for its workers, Bun colours `console.error` when it sees
-  it, and `run` in `features/support/http.ts` passed `process.env` to every
-  child process the suite spawns - then parsed what came back. So
-  `"  alpha  f4ba63c3  uploaded 3 files"` arrived as
-  `"\u001b[0m\u001b[31m  alpha ..."`, which trims to an escape sequence rather
-  than to a unit name. ONE assertion broke, the one reading the first word by
-  position; every other reader used `includes` and went on passing against
-  output it could no longer parse, which is the worse half of the same fault.
-  A child process whose output the suite reads now gets `FORCE_COLOR=0` and
-  `NO_COLOR=1`, in `run` and in `spawnServer`.
-
-  `falsify` drives the new runner too, and its check got stricter on the way: it
-  used to accept any output carrying a scenario count, and it now refuses a
-  title that matches NO scenario - which would have reported a mutation as
-  caught by a scenario nobody ran. A Scenario Outline matching several examples
-  is legitimate and the count is printed.
-
-  21 @local in 7.9 s, 18 @browser in 1.1 min, 33 @live in 6.3 min, 26 of 44
-  falsify mutations - all green on the new runner. The browser suite is about
-  half what it was: the browser launches once per worker and each scenario gets
-  a page, where the harness used to launch a Chrome per scenario.
-
-- **The shared store is proved from this tree, not only from the deploy.** Was
-  §19. `features/shared-state.feature` is three Rules now, and which composition
-  a scenario reads is the difference between them: the first reads the DEPLOYED
-  bundles at the live address, the second builds and promotes from the working
-  tree and reads those. Two scenarios copied, never moved - trading a deploy
-  check for a code check would have lost what the first Rule is good at.
-  Two falsify mutations, and the second measurement is the one that matters.
-  `snapshot` returning zero for every namespace, and `user()` reading `peek()`
-  instead of `.value` so nothing subscribes, each redden their @test-channel
-  scenario. Run against the DEPLOYED copies of the same two scenarios, the
-  `peek` mutation left both GREEN - which is section 19's claim, measured
-  rather than argued.
-- **One `VIEWS`, exported, and checked against the units at build time.** Was
-  §14. `src/web/shell/views.ts` holds the table; `Shell.tsx` draws its tabs and
-  its panels from it, and `features/steps/shared-state.steps.ts` imports it
-  instead of keeping a second copy of the paths and the app lists.
-  `placementProblems` runs in `build.ts`, on the bytes being published, and
-  refuses a build where a unit is emitted that no view places, or a view places
-  an app nothing builds. Seen refusing: dropping charlie from `/totals` stops
-  the build and names charlie. Six unit tests, one falsify mutation, and a test
-  home - `bun test` now names `src/web`, which is what §8 needs too.
-  NOT covered, and asserted so it is not mistaken for coverage: the ROUTE. The
-  two sets are equal whichever route each app sits on, so a move from `/totals`
-  to `/` is invisible to this and only a scenario catches it.
-- **Shared state stays in `api.ts`, and the rule is written where it applies.**
-  Was §15. The rule is in `api.ts` itself: shared state is declared there, a
-  sub-app publishes none, and an addition is additive and cheap. The two
-  overstatements are corrected in `versions.ts` and in the switcher entry
-  below, and the same sentence was carried by the README, which is corrected
-  too. `versions.ts` was deleted with the switcher on 2026-09-10; the README
-  carries the correction. What is NOT covered is written beside the rule: nothing stops two
-  sub-apps agreeing through `window`, `localStorage`, an event or a `data-`
-  attribute, `specifiersIn` reads imports and nothing else, and a scan for
-  those could warn and could never prove.
-- **A sub-app's files are warmed before its view is opened.** Was §17.
-  `renderShell` emits `<link rel="modulepreload">` per app script and
-  `<link rel="preload" as="style">` per stylesheet, from `appUrls(served)` and
-  `moduleIntegrity(served)` - the SERVED composition, so an overridden unit
-  warms the file that page will really fetch. Never a background `import()`:
-  that would EVALUATE a sub-app the visitor never opened, and when a module's
-  top-level code runs is a behaviour a sub-app can notice.
-  All four checks measured, none assumed, by `bun run measure:preload` - which
-  runs the server from this tree against the real store, drives a real Chrome,
-  and repeats itself with the tags removed as a control:
-
-  | Check | Reading |
-  | --- | --- |
-  | The policy | No refusal. `script-src` and `style-src` are already derived from the same origins, so a modulepreload and a style preload need no change |
-  | The digest | Each off-screen bundle and stylesheet fetched exactly ONCE across the navigation. The import reuses the preloaded response |
-  | The composition | From `served`, held by a unit test that overrides a unit and asserts the preload follows it |
-  | The cost | 4 modulepreload and 4 style preload tags per load. The extra over doing nothing is the other view's two bundles and two stylesheets |
-
-  One scenario was written, measured, and DELETED before it was trusted:
-  "opening a view costs no further request for its bundles" is green with the
-  preload tags and green without them, because the control shows the count after
-  the navigation is 1 either way. It discriminated nothing. The question it was
-  asking needs a control, so it lives in the script and not in the suite.
-  What survives in the suite is the reading the control does move: the bundles
-  for a view nobody has opened have been fetched, and no sub-app on that view
-  has run. One falsify mutation drops the tags and reddens it.
-- **Sub-apps are components, and the store is injected.** Was §18. A sub-app
-  default-exports a Preact component taking one prop and no longer exports
-  `mount(el)` or imports the store. Three measurements drove it, none argued:
-  the shell could not catch a sub-app's later render throw - it reached
-  `window.onerror`, and the same boundary caught it once the sub-app was a child
-  of the shell's tree; a Provider in the shell reached nothing inside a separate
-  root, because Preact context travels down the vnode tree; and a module-level
-  store cannot be substituted.
-  No backwards compatibility, by decision. Contract `9e79879` is unretained and
-  every unit is republished at `e0160a6`; the old contract's directory is kept
-  as the record of what was.
-  The surface carries no signal types: every `ShellStore` accessor reads a
-  signal's `.value` inside itself, which subscribes the rendering component, so
-  `@preact/signals` never enters the hash. `ComponentType` is the one vendor
-  type left and it is REFERENCED, not inlined - §9 is where that gets pinned.
-  `SHARED` drops `@pointer/shell`, because a runtime import of it could only be
-  a call to `createStore()` and a sub-app rendering against a store nobody else
-  can see is the bug this design removes. `build.ts` requires
-  `preact/jsx-runtime` instead of `preact`.
-  One thing the refactor changed and the suite caught: `mount(el)` called
-  `register(NS)` synchronously before the first render and a component cannot,
-  so a panel listing every namespace drew one short for a frame.
-  `useLayoutEffect` lands it before paint and the assertion waits for the set to
-  converge. Found by a real scenario against a promoted composition, not by
-  reading.
-  21 local, 33 live, 16 browser scenarios and 184 unit tests green; `e2e` green;
-  25 of 38 falsify mutations run and caught, 13 skipped without `FALSIFY_LIVE`.
-  `src/server` is untouched, so its 100% mutation score stands.
-  The store sweep is done: `bun run sweep --delete` removed 2849 objects no
-  channel could serve, on 2026-08-28. It still has no 90-day floor, which is
-  what section 5 is waiting for before it runs on a schedule.
-- **A `throw` control and a boundary that catches it.** Was §7. One per sub-app
-  and one on the frame, each throwing during render - a throw from a click
-  handler reaches no boundary at all and a control that proved the wrong thing
-  would be worse than none. A sub-app's throw costs one panel and offers "mount
-  again", which resets the boundary and remounts; it does NOT re-fetch, because
-  a browser will not evaluate a module URL twice, and the control says so. The
-  frame's boundary offers a page reload, because the code that would draw
-  anything smaller is the code that threw.
-  Three `@browser @test-channel` scenarios, and the tag matters: their
-  Background builds and promotes from this tree, because the boundary lives in a
-  CLIENT bundle and a browser reading a composition this run did not build would
-  load the unmutated file and stay green for the wrong reason. Two falsify
-  mutations, each verified to turn its scenario red.
-- **The shell is compiled against the sub-app half.** Was §16. `loader.ts` took
-  `SubApp` from a relative path, so no file in `src/web/shell` resolved
-  `@pointer/subapp` and the matrix re-pointed a specifier the shell never used -
-  a required prop could be added, used by the shell, and every published sub-app
-  stayed promotable. Measured: adding `name: string` to `SubApp` and reading it
-  in the shell left both cells passing. `loader.ts` and `shell/contract.ts` now
-  import the specifier, and `contract.ts` asserts the props the shell passes.
-
-- **A version switcher on the page.** Removed on 2026-09-10 - see the entry at
-  the top of Done. Everything below about the query string, the history and the
-  refusals still stands; the `select` and the options block do not. An operator
-  runs an older unit on a channel without promoting it: `?alpha=36226fb9`, a
-  `select` per unit in the shell, and choosing what the channel already serves removes the parameter so a
-  shared link keeps following the channel. `promote` writes
-  `manifests/<region>/<channel>.history.json` beside the pointer it already
-  owns, so the record has one writer and cannot race a `publish`; the served id
-  goes to the head, so the depth cap of 20 prunes from the tail and never takes
-  what is live. It is written BEFORE the pointer and never allowed to fail a
-  promote. The whole composed unit travels in it with its contract set, so the
-  server needs no second fetch and can say which options are impossible. Two
-  refusals: an id the channel never served, which is what stops the query string
-  serving any object in the store, and a composition with no shared contract -
-  the same rule `promote` applies, now in `src/server/composition.ts` because
-  the runtime image copies `src/server` and nothing else. An impossible option
-  is DISABLED and not hidden. There is no flag: the project exists to show the
-  approach, and nothing about the switcher is a way in - an id the channel never
-  served is refused, and the shell is `no-store`. The history is read with
-  `peek` and never `get`, so a cold one costs the control and never a wait; a
-  cold manifest is worth waiting for and a cold history is not. The policy and
-  the digests came free. Six scenarios, four falsify mutations, 608 mutants and
-  0 survivors.
-  `scripts/e2e-version-switcher.ts` drives it on the LIVE site in a real
-  browser, which the @browser scenario cannot: that one runs the entry point
-  from this tree and proves the CODE, and this proves the DEPLOY. It reads and
-  never writes, so it is safe against a real channel at any time.
-  One dead end, inherent: the control lives in the shell, so choosing a shell
-  published before the switcher serves a page with no control. The options block
-  is still in the HTML; the older bundle does not read it. The way back is to
-  remove the query parameter, and nothing on the server can fix it - the code
-  that draws the control is in the unit being rolled back.
-  Not built, on purpose: a `select` INSIDE each sub-app. That needs an export on
-  `api.ts` or `subapp.ts`, and the contract hash is taken over exactly those two
-  files - so it mints a new contract, and every unit has to be rebuilt before it
-  can claim the new one. Corrected on 2026-08-28 by section 15's measurement:
-  an ADDITIVE export does not force a republish and does not make any id already
-  in a history unselectable. A removal or a narrowing does. A change to make
-  deliberately, not a side effect of adding a control.
-- A shell unit with no stylesheet now links no stylesheet. `assetUrls` joined
-  the shell's base against `css ?? ""`, which is the unit's own DIRECTORY, so
-  the page linked a directory listing as its stylesheet and the browser would
-  parse it as CSS. `ComposedUnit.css` is `string | null` and nothing `build.ts`
-  emits looks like this, so no channel has ever served it - which is why it is a
-  unit test and not a scenario. The tag is dropped instead, the same way the
-  import map and the app list are. Two unit tests and a falsify mutation hold
-  it, and the policy still names the origin the script is fetched from. The
-  `if (!url) continue` guard in `assetOrigins` now takes real input and is still
-  excluded from mutation: `new URL(null)`, `new URL(undefined)` and `new URL("")`
-  all throw into the same catch, which adds no origin either, so removing the
-  guard cannot change the answer.
-- Per-unit deploy and rollback. Five units publish and promote on their own.
-- Manifest schema 3: each unit carries its own `assetBase`.
-- Contract hash sets, generated by a `tsc` matrix. `promote` refuses an empty
-  intersection.
-- `qa` and `prod` both moved onto schema 3.
-- The live suite has its own `test-qa` and `test-prod`, so it no longer deploys
-  to visitors.
-- `promote --from-build` refuses a harness build on a real channel. Three
-  scenarios and three `falsify` mutations hold it. 16/16 mutations caught.
-- Browser steps match assets by file name, so a schema change does not silently
-  match nothing.
-- A kept schema 2 manifest in the store, and two `@browser` scenarios that point
-  `test-qa` at it and read the rendered page. Two falsify mutations hold them.
-  Written by `bun run fixture:schema-2`; nothing rebuilds it per run.
-- A digest per file, and a Content-Security-Policy. `build.ts` takes a sha384 of
-  every file it emits; the digests travel with the unit through `publish` and
-  `promote`, so a rollback keeps its own. Three carriers, because three
-  mechanisms fetch the files: the tag for the shell's two, the import map's
-  `integrity` section for every other script, and the `__APPS__` block for a
-  sub-app's stylesheet. The policy is derived from the manifest, and the import
-  map is allowed by the hash of its own bytes rather than `'unsafe-inline'`.
-  Five scenarios and seven falsify mutations hold it. 25/25 mutations caught.
-  On the deployed image, so the two scenarios that read the served HTML assert
-  against it as `@live` and not only `@local`.
-- `promote --from-build` refuses a build this working tree did not make. Two
-  readings: the build came from another commit, or from an uncommitted tree.
-  Neither carries a marker, so the harness guard could not see either. `build.ts`
-  records the source beside the build and `publish` copies it onto the unit
-  rather than asking git a second time — asking at publish time answers a
-  question about the tree and not about the bytes, so build, commit, publish
-  used to leave a unit claiming a commit that does not hold its own source.
-  `--no-source-check` overrides the refusal and prints what it let through.
-  A tree that is dirty *now* is deliberately not a refusal: a clean build at
-  HEAD is exactly commit HEAD however much has been edited since. Five
-  scenarios and five `falsify` mutations hold it. 30/30 mutations caught.
-  Still not held by anything: `publish` upgrading a dirty record when a clean
-  tree later produces the same bytes. Staging it needs the harness to dirty
-  the tree.
-- The server logic at a 100% mutation score: 417 mutants, 0 survivors, across
-  `manifest.ts` (from 61.86%), `html.ts` (from 87.33%) and `origins.ts` (from
-  68.09%). 44 more unit tests. Nine survivors were excluded rather than chased
-  and each carries its reason. The gaps that were real: attribute escaping was
-  never tested, so a file name carrying a quote could leave its attribute; a
-  digest was matched by `.js` anywhere in a name rather than at its end, so a
-  source map got one; the policy's origins were never compared in order, so the
-  sort could go; six of ten Fly regions had no test, and the six mapping to
-  `eu` cannot be told from the fallback by what they RETURN — only by the
-  warning the fallback prints. See the README for the three kinds of survivor.
-- `manifest.ts` at 100% mutation score, from 61.86%. 33 more unit tests, and a
-  changed assertion shape: a rejected manifest must throw the PARSER's error,
-  anchored, naming the field an operator has to fix. `toThrow("apps.alpha")`
-  passed on any throw carrying that text, including the TypeError one line
-  further in that a deleted guard produces. Six survivors were excluded rather
-  than chased, each with its reason on the line above it. Two tests were green
-  for the wrong reason: the non-2xx case sent a body that was invalid anyway,
-  so the status check could be deleted and nothing noticed; and every timing
-  test named its own TTL and timeout, so neither default was ever run.
+Titles and dates only. The full text of each is in git history; `TODO.md` at `f7d2318` is the last version that carries it. These numbers are kept because 119 references outside this file point at them.
+
+| § | Done | What it was |
+| --- | --- | --- |
+| 1 | | The suite runs on Playwright, through `playwright-bdd` |
+| 3 | 2026-08-30 | A second region, and each machine reads its own |
+| 5 | 2026-08-30 | A superseded build is kept 90 days, and the sweep will not take it early |
+| 7 | | A `throw` control and a boundary that catches it |
+| 8 | | The direction of a surface change is read at mint |
+| 9 | | Compatibility is read from what a sub-app USES, not from one hash over the surface |
+| 10 | 2026-08-30 | A contract can be marked as going away, and nothing is refused for it |
+| 11 | | The server-to-shell surface has one declaration and a reading, not a hash |
+| 12 | 2026-08-30 | A reading of which compositions are being handed out |
+| 13 | 2026-08-30 | The argument survives losing the compiler, and the fourth schedule is real |
+| 14 | | One `VIEWS`, exported, and checked against the units at build time |
+| 15 | | Shared state stays in `api.ts`, and the rule is written where it applies |
+| 16 | | The shell is compiled against the sub-app half |
+| 17 | | A sub-app's files are warmed before its view is opened |
+| 18 | | Sub-apps are components, and the store is injected |
+| 19 | | The shared store is proved from this tree, not only from the deploy |
+| 20 | 2026-09-10 | The live switcher check reports what it cannot decide |
+| 22 | 2026-08-29 | The 28 surviving mutants are gone, and 23 of them were real |
+| 25 | 2026-08-31 | One record of every published unit |
+| 26 | 2026-08-31 | What is inside the service, and what is going away |
+| 27 | 2026-08-31 | What the service offers, and who reads which field |
+| 28 | 2026-08-31 | A `falsify` mutation that proved nothing |
+| 30 | 2026-09-10 | A pull request gets a URL |
+| — | 2026-09-10 | The version switcher is removed, and the page it was on |

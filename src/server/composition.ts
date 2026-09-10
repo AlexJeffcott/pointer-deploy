@@ -68,7 +68,10 @@ export const CATALOGUE_KEY = "units/catalogue.json";
  * first rather than carried as a second setting that can disagree with it.
  */
 export function catalogueUrl(manifestBase: string): string {
-  return new URL(`../${CATALOGUE_KEY}`, `${manifestBase.replace(/\/$/, "")}/`).toString();
+  // On its own line so the exclusion below covers the strip and nothing else.
+  // Stryker disable next-line StringLiteral: `../` discards the segment the replacement lands in, so no input tells the strip from its absence.
+  const base = `${manifestBase.replace(/\/$/, "")}/`;
+  return new URL(`../${CATALOGUE_KEY}`, base).toString();
 }
 
 /**

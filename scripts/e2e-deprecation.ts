@@ -23,7 +23,7 @@ const CHANNEL = "test-qa";
 const API = "src/web/shell/api.ts";
 const REGISTRY = "contracts/registry.json";
 const MINT_NAME = "deprecation-probe";
-const REASON = "the counters surface is superseded, e2e probe";
+const REASON = "the greeting surface is superseded, e2e probe";
 
 const ok = (claim: string) => console.log(`  ok   ${claim}`);
 const failures: string[] = [];
@@ -85,7 +85,17 @@ try {
   const promoted = await run(["bun", "run", "promote", CHANNEL, "--from-build"]);
   if (promoted.code !== 0) throw new Error(`the baseline promote failed:\n${promoted.said}`);
   baseline = idsOf(promoted.out);
-  check("a baseline composition is serving", Object.keys(baseline).length === 5, JSON.stringify(baseline));
+  // Every unit this tree builds, rather than a count. A literal here goes stale
+  // the next time the slate changes, and it did: it read 5 against two units.
+  const wanted = Object.keys(
+    (JSON.parse(await Bun.file("dist/build.json").text()) as { units: Record<string, unknown> })
+      .units,
+  );
+  check(
+    "a baseline composition is serving every unit this tree builds",
+    wanted.length > 0 && wanted.every((u) => u in baseline),
+    `built ${wanted.join(", ")} - promoted ${JSON.stringify(baseline)}`,
+  );
   check(
     "and its promote says nothing about a deprecation",
     !promoted.said.includes("deprecated"),

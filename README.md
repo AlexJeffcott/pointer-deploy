@@ -1453,7 +1453,7 @@ bun run contract:members   # which member of the surface each sub-app uses, ~14 
 bun run blocks:record      # what the server writes into its JSON blocks, ~4.5 s
 bun run verify:live        # 45 @live scenarios against Fly and Tigris
 bun run verify:browser     # 12 @browser scenarios in a real Chrome
-bun run falsify            # 91 architectural mutations, each must turn a check red. 65 run locally, all caught
+bun run falsify            # 92 architectural mutations, each must turn a check red. 65 run locally, all caught
 FALSIFY_LIVE=1 bun run falsify   # including the twenty-six that need the real store
 bun run e2e                # deploy the panel, deploy the frame, roll the panel back
 bun run e2e:members        # drop a member, and refuse only the app that used it
@@ -1592,9 +1592,28 @@ test green. **`falsify.ts`** makes the architectural changes Stryker cannot
 generate — removing single-flight, making the health check read the manifest,
 unsharing the store. Neither replaces the other.
 
-Measured on 2026-08-29, `bun run mutate`: 750 mutants, 750 killed, 0 survivors
-across all five files - `composition.ts` 267, `manifest.ts` 264, `html.ts` 174,
-`origins.ts` 42, `provides.ts` 3.
+Measured on 2026-09-10, `bun run mutate`: 1205 mutants, 96.51%. `src/server` is
+**895 of 895** across all seven files - `composition.ts` 304, `manifest.ts` 271,
+`html.ts` 179, `origins.ts` 69, `served.ts` 38, `apiversions.ts` 28,
+`provides.ts` 3. `api/service.ts` is 268 of 310, and its 42 survivors are §33.
+
+**That reading was taken because the previous one had gone stale without anyone
+noticing.** On 2026-08-29 it was 750 of 750 across five files. The slate rewrite
+then grew `composition.ts` and `html.ts` with lines nothing asserted, and
+`api/service.ts` had been inside the mutate scope since `7a0ae6f` while never
+being held to the standard - 57 survivors in all. Nothing caught it, because
+`stryker.config.json` set no `thresholds.break` and the run exits 0 at any
+score. It now breaks under 96.
+
+What the 15 in `src/server` were, since a survivor is only worth reading as what
+it found:
+
+| The gap | What no test asserted |
+| --- | --- |
+| `supersededAt` and `recordedAt`, 10 mutants | Neither field appeared in one test, and both are load-bearing elsewhere: `retention.ts:125` floors a delete on the first and `catalogue.ts:148` uses the second to decide what a publish may reuse |
+| `marker ?? ""`, 1 mutant | The test helper always set `marker: ""`, so the `??` was never taken. `parseHistory` does not default the field, so an entry the store wrote before it existed reaches `mergeKnown` with the key missing |
+| `catalogueUrl`'s trailing-slash strip | Unreachable. `new URL`'s `../` discards the segment the replacement lands in. Excluded in place |
+| `serviceOrigin`'s guard and catch, 3 mutants | Unreachable, and **not excludable**: a Stryker directive written above `} catch {` is lexically inside the try, so it binds there and the mutant survives it. `URL.parse` replaced both constructs, which removed the mutants rather than hiding them |
 
 It reached that twice on one day. The first reading, taken while the member gate
 and the blocks reading were new, was 757 mutants with 28 survivors: 23 in

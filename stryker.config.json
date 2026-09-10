@@ -3,7 +3,9 @@
   "_comment": "Mutation testing for the server's pure logic. See README: this complements scripts/falsify.ts, it does not replace it.",
   "packageManager": "npm",
   "testRunner": "command",
-  "commandRunner": { "command": "bun test src/server api" },
+  "commandRunner": {
+    "command": "bun test src/server api"
+  },
   "mutate": [
     "src/server/*.ts",
     "!src/server/*.test.ts",
@@ -13,9 +15,18 @@
     "!api/index.ts"
   ],
   "coverageAnalysis": "off",
-  "reporters": ["clear-text", "progress"],
+  "reporters": [
+    "clear-text",
+    "progress"
+  ],
   "concurrency": 4,
   "timeoutMS": 30000,
   "tempDirName": ".stryker-tmp",
-  "cleanTempDir": true
+  "cleanTempDir": true,
+  "_thresholds_comment": "break is a floor, not a target. Measured 2026-09-10: src/server is 100% across all seven files and api/service.ts is 86.45%, so the whole tree is 96.51%. Without break, stryker exits 0 with any number of survivors, and 57 of them went unnoticed from 2026-08-29 until this was set.",
+  "thresholds": {
+    "high": 100,
+    "low": 96,
+    "break": 96
+  }
 }

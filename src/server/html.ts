@@ -147,15 +147,22 @@ function assetOrigins(m: Manifest): string[] {
   return [...origins].sort();
 }
 
+/**
+ * `URL.parse` rather than `new URL` in a try, and no falsy guard in front.
+ *
+ * Both of those were unobservable: `new URL("")` throws into the catch, so the
+ * guard returned what the catch returned, and an empty catch returns undefined
+ * where the only caller writes `service ?? "'none'"`. Neither could be reached
+ * by any input, and neither could be excluded either - a Stryker directive
+ * written above `} catch {` is lexically inside the try, so it binds there and
+ * the mutant survives it. Deleting the two constructs is what removes them.
+ */
 const serviceOrigin = (apiBase: string): string | null => {
-  if (!apiBase) return null;
-  try {
-    return new URL(apiBase).origin;
-  } catch {
-    return null;
-  }
+  const url = URL.parse(apiBase);
+  return url === null ? null : url.origin;
 };
 
+// Stryker disable next-line StringLiteral: the default cannot be observed - every value that is not a parseable URL, "" included, ends at `connect-src 'none'`.
 export function contentSecurityPolicy(m: Manifest, apiBase = ""): string {
   const origins = assetOrigins(m);
   const files = origins.length ? origins.join(" ") : "'none'";

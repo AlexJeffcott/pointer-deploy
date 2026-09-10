@@ -72,7 +72,7 @@ const serviceOnPage = async (world: PointerWorld): Promise<string> => {
 
 Then("the page is allowed to fetch from that service", async function (this: PointerWorld) {
   const base = await serviceOnPage(this);
-  expect(await fetchFromPage(this, `${base}/v1/user`)).toBe("allowed 200");
+  expect(await fetchFromPage(this, `${base}/v1/greeting`)).toBe("allowed 200");
 });
 
 Then("it is not allowed to fetch from the store", async function (this: PointerWorld) {
