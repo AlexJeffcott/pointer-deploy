@@ -383,9 +383,9 @@ this exists to stop counting.
 
 **The fallback stays, and it is why a rollback still works.** A unit published
 before any of this carries no reading. A pair where either side lacks one is
-judged on the contract sets, exactly as before. `promote` and the switcher call
-one function, so an option the `select` greys out is one the promote would have
-refused.
+judged on the contract sets, exactly as before. `promote` and the origin call
+one function, so a composition the origin refuses is one the promote would have
+refused too.
 
 **Proved end to end** on 2026-08-29, `bun run e2e:members`, against the real
 store and the real scripts: `reset` removed from `ShellStore`, the shell
@@ -418,13 +418,14 @@ hidden it.
 ### The other surface: the server and the shell
 
 The contract covers `api.ts` and `subapp.ts` — the shell's surface with its
-**sub-apps**. Its surface with the **server** is three JSON blocks in the
-document, `__BUILD__`, `__APPS__` and `__VERSIONS__`, and nothing covered it:
-the server is not a unit, so `promote` had nowhere to look.
+**sub-apps**. Its surface with the **server** was three JSON blocks in the
+document, `__BUILD__`, `__APPS__` and `__VERSIONS__` — two since the switcher
+went on 2026-09-10 — and nothing covered it: the server is not a unit, so
+`promote` had nowhere to look.
 
 **Demonstrated on 2026-08-28, not hypothetically.** Renaming `deployed` to
 `live` in `__VERSIONS__` broke shell `606c1c3c`, which the switcher itself
-offers. It went on reading `deployed`, got `undefined`, and pinned the query
+offered. It went on reading `deployed`, got `undefined`, and pinned the query
 parameter where it should have cleared it. The page rendered, the composition
 worked, and the control quietly did the wrong thing.
 
@@ -452,8 +453,17 @@ never read: BuildInfo and all seven of its fields, VersionOption.deployed
 ```
 
 `BuildInfo` is read by the harness and by a person, never by the shell bundle.
-And **`VersionOption.deployed` is read by no current shell** — it is retained
-for `606c1c3c`, and the reading now says so where a comment used to.
+And **`VersionOption.deployed` was read by no current shell** — it was retained
+for `606c1c3c`, and the reading said so where a comment used to.
+
+That reading is 2026-08-29's. Removing the switcher on 2026-09-10 took
+`VersionOption` and its seven fields with it, against the append-only rule
+below and knowing the price. The reading now:
+
+```
+13 members written by the server, 6 read by this shell
+never read: BuildInfo and all seven of its fields
+```
 
 The reading travels differently from the contract's, because the party on the
 other side is not a unit:
@@ -466,9 +476,9 @@ other side is not a unit:
 
 | Situation | What happens |
 | --- | --- |
-| a chosen shell reads a field this server does not write | 400, and the option was already `disabled` in the `select` |
+| a shell asked for by query string reads a field this server does not write | 400, naming the field |
 | the channel's own pointer names such a shell | served, with `x-shell-blocks` naming the field |
-| a shell that records nothing | judged by nothing, and offered. The append-only rule is all that protects it |
+| a shell that records nothing | judged by nothing, and served. The append-only rule is all that protects it |
 
 The middle row is a decision: refusing a channel's own pointer would take the
 site down over a control that misbehaves, which is worse than the bug. It is
@@ -488,7 +498,8 @@ a mutation and one by a live run.
 
 **What it costs:** about 10.5 s of `tsc` in every build, for the contract's 11
 members and the blocks' 19 read together. The lane count is not what to tune —
-at 12 cores the CPU sits at 1055% either way — the number of members is.
+at 12 cores the CPU sits at 1055% either way — the number of members is. The
+blocks were 19 when that was measured and are 13 since 2026-09-10.
 
 ### What the contract does not cover
 
@@ -582,7 +593,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `build.ts` | Six `Bun.build`s → `dist/units/<name>/`, plus the contract matrix. Records `dist/build.json` |
 | `scripts/contract.ts` | Surface emit, the hash, the registry, the matrix, and the direction reading |
 | `scripts/members.ts` | The removal prober: what a surface provides, and which member each consumer uses |
-| `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__`, `__APPS__` and `__VERSIONS__`, declared once |
+| `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__` and `__APPS__`, declared once |
 | `src/server/blocks.provides.json` | What this server writes, derived and committed. The image cannot work it out |
 | `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
@@ -652,8 +663,8 @@ visitor was reading the first view. The shell now emits a hint per file:
 `<link rel="modulepreload">` per app script, `<link rel="preload" as="style">`
 per stylesheet, from `appUrls(served)` and `moduleIntegrity(served)`.
 
-**From `served`, and never from the channel's manifest.** A page composed by the
-version switcher is serving an overridden unit, and preloading the channel's
+**From `served`, and never from the channel's manifest.** A page composed from
+the query string is serving an overridden unit, and preloading the channel's
 copy would warm a file that page will not fetch.
 
 **A hint and never a background `import()`.** An import EVALUATES the module, so
@@ -742,7 +753,7 @@ Whether the live occurrence on 2026-08-28 had this cause is NOT established -
 nothing recorded whether a refresh was in flight - so what is fixed is a
 mechanism that produced exactly that reading.
 
-## Choosing which build the page runs
+## Asking an origin for a build it does not serve
 
 An operator can run an older unit on a channel without promoting it, and see
 what a rollback would serve before anybody else does.
@@ -751,15 +762,17 @@ what a rollback would serve before anybody else does.
 https://qa.example.com/?alpha=36226fb9
 ```
 
-The `select` is in the shell, one per unit. Choosing reloads with the id named
-in the query string; choosing what the channel already serves removes the
-parameter, so a link copied from the page keeps following the channel instead
-of freezing at today's build.
+One parameter per unit, named by the unit and carrying the id. A unit the query
+string does not name keeps following the channel, so a link that overrides one
+sub-app still picks up every promote of the other five.
 
-One option is marked **live**, and the word is load-bearing. Every id in the
-list has been deployed to that channel - being deployed is exactly what put it
-there - so "deployed" would be true of all of them and would mark nothing. Only
-one is what the pointer names now.
+**There was a `select` in the shell, one per unit, and it went on 2026-09-10.**
+It drew its options from a `__VERSIONS__` block the server rendered, and the
+block, the options and the `optionsFor` that built them went with it - 798 lines
+across 28 files. The refusals below are what it was a front end for, and they
+were always the part that mattered. What it cost the query string is nothing:
+every scenario that asked an origin for a build it does not serve still asks,
+and still gets the same answer.
 
 **Where the ids come from.** `promote` writes
 `manifests/<region>/<channel>.history.json` beside the pointer, holding every
@@ -767,101 +780,74 @@ unit that channel has served, newest first, capped at 20 per unit. It is the
 pointer's only writer, so the history has one writer too and cannot race a
 `publish`. The id being served goes to the head, so the cap prunes from the tail
 and can never take what is live. It is written BEFORE the pointer and is never
-allowed to fail a promote: the pointer is the deploy, and an index of what a
-switcher may offer must not hold one hostage.
+allowed to fail a promote: the pointer is the deploy, and an index of what an
+override may name must not hold one back.
 
 The whole composed unit travels in it, and its contract set with it. The
-alternative is a fetch per option and a second cache; this way the server needs
-neither, and it can say which options are impossible.
+alternative is a fetch per id and a second cache; this way the server needs
+neither, and it can say which compositions are impossible before it composes
+one.
 
 **Two refusals, and the first is the one that matters.**
 
 | Asked for | Answer |
 | --- | --- |
 | An id this channel has never served | 400. Without this the query string is a way to make the origin serve any object in the store |
-| A sub-app needing a member that shell does not have | 400, and the option was already disabled in the `select` |
+| A sub-app needing a member that shell does not have | 400, naming the member and the sub-app |
 
-An option that cannot be composed is **disabled and not hidden**. "This build
-exists and cannot run beside the others" is the reading an operator came for,
-and hiding it would say the build was never deployed.
-
-**On wherever there is something to choose between.** There is no flag. This
-project exists to show the approach, and what a rollback would serve is a thing
-to look at rather than a thing to be told about. Nothing about it is a way in:
+**Nothing about it is a way in.** There is no flag and no gate in front of it:
 an id the channel has never served is refused, and the shell is `no-store`, so
-one visitor's choice reaches nobody else.
+one visitor's override reaches nobody else's page.
 
 **It never costs a visitor a wait.** The history is read with `peek` and never
 `get`. A cold manifest is worth waiting for, because without one there is no
-page; a cold history is not, because without it the page is exactly the one that
-was served before the switcher existed. The first request after a server starts
-has no switcher and the next one does. `scripts/e2e-version-switcher.ts`
-reloads once rather than reporting that as a fault — reproduced on 2026-08-28:
-no switcher at all on the first request, five selects with two options each on
-the next, against a machine that had been up and idle.
-
-**One of that script's checks has three states, and §20 is why.** Whether the
-chosen unit renders differently from the deployed one is a fact about the
-channel's history and not about the code. On 2026-08-28 `qa` held two
-generations of each sub-app, at `b2c8154` and `2c08a50`, and they differ by six
-bytes — `register(NS)` moving from `useEffect` to `useLayoutEffect`. All four
-sub-apps therefore rendered identically and the check went red for all four,
-honestly and uselessly; a check that is usually red is a check people stop
-reading. It now reports **UNDECIDED**, the way `falsify` reports a mutation
-nobody ran rather than counting it as passing:
-
-```
-  ok   the page fetches alpha from the chosen unit's own directory
-  ----  the chosen unit is a different bundle from the deployed one
-        UNDECIDED: e34063ba and a3bba92a render the same text, so the page cannot say which one ran.
-        The check above says the chosen unit's own file was fetched, so this is two
-        generations that look alike. Publish a visible change and promote it to decide it.
-
-SUCCESS: the switcher serves a chosen unit, and moves no channel doing it, 1 undecided on what this channel has published.
-```
-
-It stays a **FAILURE** when the check above it did not pass. That check — the
-page fetched the chosen unit's own file — is what establishes which unit ran,
-so without it an identical page is a switcher that ignored the choice. Measured
-both ways on 2026-08-28: four sub-apps undecided and exit 0; the fetch check
-forced red, and the same identical render exits 1.
+page; a cold history is not, because without it the page is exactly the one the
+channel points at. Both documents are read once at boot for the same reason: a
+process that has read neither refuses every id it is asked for, and the request
+that woke the machine is the one that would meet that.
 
 **The blocks are a surface the contract does not cover, and renaming a field in
-one proved it.** `__BUILD__`, `__APPS__` and `__VERSIONS__` are written by the
-server and parsed by the shell. The contract hash covers `api.ts` and
-`subapp.ts` - the surface between the shell and its SUB-APPS - and nothing
-covers this one. Renaming `deployed` to `live` in `__VERSIONS__` broke shell
-`606c1c3c`, which the switcher itself offers: it went on reading `deployed`, got
-undefined, and pinned the query parameter where it should have cleared it. The
-page rendered, the composition worked, and the control quietly did the wrong
-thing. `promote` could not have refused it, because the server is not a unit.
+one proved it.** `__BUILD__` and `__APPS__` are written by the server and parsed
+by the shell, and `__VERSIONS__` was the third until the switcher went. The
+contract hash covers `api.ts` and `subapp.ts` - the surface between the shell
+and its SUB-APPS - and nothing covers this one. Renaming `deployed` to `live` in
+`__VERSIONS__` broke shell `606c1c3c`, which the switcher itself offered: it
+went on reading `deployed`, got undefined, and pinned the query parameter where
+it should have cleared it. The page rendered, the composition worked, and the
+control quietly did the wrong thing. `promote` could not have refused it,
+because the server is not a unit.
 
-The rule that follows, and the field is retained under it: **these blocks are
-append-only.** A field may be added, and a field may stop being read. A field
-may never be renamed or removed while a shell that reads it is still in a
-channel's history.
+The rule that follows: **these blocks are append-only.** A field may be added,
+and a field may stop being read. A field may never be renamed or removed while a
+shell that reads it is still in a channel's history.
 
-**One dead end, and it is inherent.** The control lives in the shell, so
-choosing a shell published before the switcher existed serves a page with no
-control. The server still renders the options block - the older bundle simply
-does not read it. The way back is to remove the query parameter. Nothing can fix
-this from the server side: the code that draws the control is in the unit being
-rolled back.
+**The rule was then broken on purpose, on 2026-09-10.** Removing the switcher
+removed `VersionOption` and its seven fields, and every shell already in a
+channel's history reads them. `bun run blocks:record` prints the warning and
+writes anyway. What it costs is what the rule predicts:
+
+| Which shell | What happens now |
+| --- | --- |
+| the one the channel points at, built before the removal | served, with `x-shell-blocks` naming the fields, until a newer shell is promoted |
+| any older shell, asked for by query string | 400. A rollback by query string reaches only shells built after the removal |
+
+That is the price of the removal and not a surprise from it. It is the same
+reading §11 was built to take, taken against a change made deliberately rather
+than by accident.
 
 **What it cost, and what it did not.** The policy and the digests came free:
 both are already derived from the manifest, and each unit carries its own
 `assetBase` and `integrity`, so a composition assembled from a query string
 needs no new code for either. That is schema 3 paying for itself.
 
-What is NOT built is a `select` inside each sub-app. The shell draws all six,
-which makes every unit selectable, but handing the data to a sub-app means
-adding to `api.ts` or `subapp.ts` - and the contract hash is taken over exactly
-those two files. One export there mints a new contract, and every unit has to be
-rebuilt before it can claim the new one.
+**Handing a sub-app anything new means adding to `api.ts` or `subapp.ts`**, and
+the contract hash is taken over exactly those two files. One export there mints
+a new contract, and every unit has to be rebuilt before it can claim the new
+one.
 
 What that does **not** do was measured on 2026-08-28, against the claim this
 paragraph used to make. An additive export does not force a republish and does
-not make any id already in a channel's history unselectable: the shell goes on
+not make any id already in a channel's history unreachable: the shell goes on
 compiling against the retained contract, each published unit keeps the set it
 was built with, and the intersection stays non-empty.
 
@@ -896,13 +882,13 @@ alpha    a3bba92a  2026-08-28  b2c81542        e0160a6
 
 **A rebuild re-reads only what moved.** The LIST reports when each `unit.json` was last written, and an entry is kept from the previous catalogue only while that timestamp is unchanged. It has to be the timestamp and not the id: `publish` rewrites a `unit.json` in place when the claims beside a bundle change - its contracts, its members, its digests - and those are exactly what the compatibility gate reads. Measured against the live store on 2026-08-31: a full read of 129 units takes 3.8 s, and a rebuild that finds nothing changed takes 1.4 s and reads none of them.
 
-**The catalogue is a `ChannelHistory`.** Not a shape of its own - the same shape a channel's version history has, because a catalogue *is* a history whose scope is the store rather than one channel. `refuseComposition`, `compose` and `optionsFor` therefore read it without knowing which of the two they were handed, and the switcher gained every published build without one new rule about how a composition is judged.
+**The catalogue is a `ChannelHistory`.** Not a shape of its own - the same shape a channel's version history has, because a catalogue *is* a history whose scope is the store rather than one channel. `refuseComposition` and `compose` therefore read it without knowing which of the two they were handed, and an override gained every published build without one new rule about how a composition is judged.
 
 **Which of them a channel may serve is a different question.** The catalogue lists every published unit, marker and all: 112 of the 129 units in the live store on 2026-08-31 were the harness's, and a record that leaves out 87% of what was published is not the record of what was published. `mergeKnown` answers the other half, where the channel is known - a marked unit reaches a `test-*` channel and no other, which is the rule `promote` applies at deploy time applied again where a visitor chooses. `bun run units` hides them for the same reason and by a different mechanism.
 
-**What this changed for the switcher.** Its options used to come from the channel's history alone, which is 20 promotes deep and holds nothing that was never promoted. So the one thing an operator wanted of it - look at a build *before* deploying it - was the one thing it could not do. Measured against the live store on 2026-08-31: the qa channel's history offered 2 shell builds, and the catalogue took that to 7, of which 2 are shown disabled because the member gate refuses them.
+**What this changed for an override.** What it could name used to come from the channel's history alone, which is 20 promotes deep and holds nothing that was never promoted. So the one thing an operator wanted of it - look at a build *before* deploying it - was the one thing it could not do. Measured against the live store on 2026-08-31: the qa channel's history held 2 shell builds, and the catalogue took that to 7, of which the member gate refuses 2.
 
-**The page is served the answer, not the source.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history - the reading an operator takes, or a script with no store key. The page takes none: the server merges the catalogue into the channel's history and renders the switcher's options into `__VERSIONS__`, so the policy names no origin for it at all. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
+**The page is served the answer, not the source.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history - the reading an operator takes, or a script with no store key. The page takes none: the server merges the catalogue into the channel's history and judges an override itself, so the policy names no origin for it at all. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
 
 ## Which compositions are being handed out
 
@@ -944,10 +930,10 @@ in `blindTo` rather than leaving a reader to assume them.
 | any other machine, or this one before it was replaced | the count is in memory. `min_machines_running = 1` holds one machine up; a replacement still starts at zero |
 | what the cap dropped | `evicted` says how many, and nothing says which |
 
-**An operator is not a visitor.** The version switcher composes a page from the
-query string, and those responses are marked in `overrides`. Without the split,
-one operator working through the switcher reads as visitors still being served
-an old unit - which is the exact finding that would stop it being removed.
+**An operator is not a visitor.** A query string composes a page of its own,
+and those responses are marked in `overrides`. Without the split, one operator
+working through a handful of ids reads as visitors still being served an old
+unit - which is the exact finding that would stop it being removed.
 Measured live: the composition an override asked for had 3 responses and 1
 override, because the promote in the same scenario had polled this origin while
 the channel was still serving it.
@@ -958,7 +944,7 @@ reads what it says it handed out. It was seen red before the deploy that shipped
 the route, and the failure names why: an image that does not know a path renders
 the SHELL for it, so `/compositions` answered `200 text/html` rather than 404.
 
-**The cap is a bound, not tidiness.** The switcher refuses an id the channel has
+**The cap is a bound, not tidiness.** The origin refuses an id the channel has
 never served, so the reachable set is bounded by the history depth per unit -
 which is 20 to the power of the unit count, and anyone holding a link can walk
 it. `SERVED_CAPACITY` is 200, and the map is re-inserted on every hit, so what
@@ -1252,7 +1238,7 @@ the files copied" - they are not - but "what writes the other pointer".
 | Per region | One copy, everywhere |
 | --- | --- |
 | `manifests/<region>/<channel>.json`, the pointer | every unit's files, reached by an absolute URL |
-| `manifests/<region>/<channel>.history.json`, what the switcher offers | `units/<name>/<id>/unit.json`, the contract registry |
+| `manifests/<region>/<channel>.history.json`, what an override may name | `units/<name>/<id>/unit.json`, the contract registry |
 
 **One promote writes every region.** A promote that wrote one would leave the
 other serving what it served before - correctly, from what that machine can see,
@@ -1341,7 +1327,7 @@ first promote after this change freezes that inference onto the entry rather
 than leaving it to be re-made every sweep.
 
 **A history entry is dropped only for a unit that is actually deleted.** The
-drop exists so the switcher cannot offer a build whose files are gone; dropping
+drop exists so an override cannot reach a build whose files are gone; dropping
 one whose files stay would retire a build the floor is deliberately keeping.
 
 ```sh
@@ -1380,7 +1366,6 @@ bun run e2e:members        # drop a member, and refuse only the app that used it
 bun run e2e:deprecation    # mint a successor, mark the old contract, read what both commands say
 bun run e2e:schema         # retire a field, change four more, and read what the page does with no unit rebuilt
 bun run measure:preload    # what warming a sub-app's files buys, with a control
-bun run scripts/e2e-version-switcher.ts   # drive the switcher on the LIVE site
 bun run mutate             # Stryker over the server logic
 ```
 

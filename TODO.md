@@ -423,6 +423,46 @@ state lives.
 
 ## Done
 
+- **The version switcher is removed.** Done on 2026-09-10. The `select` per unit
+  was a front end for the query string, and the query string is the part that
+  matters, so the control and everything built only to feed it went: 798 lines
+  deleted across 28 files, 159 added.
+
+  | Gone | Kept |
+  | --- | --- |
+  | `Versions`, `UnitVersions`, `optionLabel` in `Shell.tsx`, and 48 lines of CSS | the `?<unit>=<id>` override, `compose`, `refuseComposition` |
+  | `src/web/shell/versions.ts` and its test - `readVersions`, `servedFor`, `chooseVersion` | `mergeKnown`, the catalogue, and the boot prime that makes both readable on the first request |
+  | `optionsFor` in `composition.ts`, and `VersionOption` / `VersionsBlock` in `blocks.ts` | `overridden` in the served log, so an operator is still not counted as a visitor |
+  | the `__VERSIONS__` block in `html.ts` and its `versions` parameter | every refusal: an unknown id, no shared contract, a member the shell lacks, a block field this server does not write, an API version the service does not answer |
+  | `scripts/e2e-version-switcher.ts`, and the three switcher checks in `e2e-api-gate.ts` | `bun run e2e:api`, which now proves the same gate through an override that is allowed and one that is refused |
+
+  `features/choosing-a-version.feature` keeps 7 scenarios, all of them about
+  asking an origin for a build it does not serve. The 5 that asserted options,
+  greying and durations went with the control. Three `falsify` mutations that
+  aimed at `optionsFor` are deleted and six had their scenario names moved;
+  `a block field is renamed` now renames `BuildInfo.channel`, because the field
+  it used to rename no longer exists.
+
+  | Check | Result |
+  | --- | --- |
+  | `bun run typecheck` | clean |
+  | `bun test` | 440 pass |
+  | `bun run verify` | 44 @local pass |
+  | `bun run falsify` | 59 of 87 run, each caught, 28 skipped |
+
+  **It breaks the append-only rule of §11, deliberately.** `VersionOption` and
+  its seven fields are gone from `blocks.provides.json`, and every shell already
+  in a channel's history reads them. `bun run blocks:record` prints the warning
+  and writes anyway. The reading moved with it: 19 members written by the server
+  and 10 read by this shell, to 13 and 6.
+
+  | Which shell | What happens now |
+  | --- | --- |
+  | the one the channel points at, built before the removal | served. `blockRefusal` refuses an override and never a pointer, so `x-shell-blocks` names the fields until a newer shell is promoted |
+  | any older shell, asked for by query string | 400. A rollback by query string reaches only shells built after the removal |
+
+  That is the price and not a surprise: it is the same reading §11 was built to
+  take, taken against a change made on purpose.
 - **A `falsify` mutation that proved nothing.** §28, done on 2026-08-31.
   `a cold unit catalogue makes the visitor wait for the store` replaces
   `catalogues.peek` with `await catalogues.get` on the request path, and the
@@ -810,6 +850,11 @@ state lives.
   is: taking the site down over a fourth deploy is worse than the fault it would
   be reporting. Both halves are asserted.
 
+  That output is 2026-08-29's. The switcher line went on 2026-09-10 with the
+  control it reads; the script now asserts an override that is allowed before
+  the service moves and one that is refused after it, which is the same gate
+  read through the only surface left.
+
   **Two faults the running found.** `fetch` with a `Host` header fails TLS
   verification in Bun before the request leaves - "unknown certificate
   verification error" - so every live check carrying one uses `curl`, which is
@@ -892,6 +937,10 @@ state lives.
 
   `VersionOption.deployed` is the retained field from 2026-08-28. It is now
   measured rather than asserted in a comment.
+
+  That reading is 2026-08-29's. The switcher went on 2026-09-10 and took
+  `VersionOption` with it, against this rule and knowing the price; the entry
+  at the top of Done carries the current reading and what it costs.
 
   **How it travels, and who compares it.** The server cannot derive its own
   reading - the image has a Bun and no tsc - so `bun run blocks:record` commits
@@ -1012,7 +1061,11 @@ state lives.
   again under §11; the current ones are in that entry.
   `bun test` now names `scripts` for `falsify` too.
 
-- **The live switcher check reports what it cannot decide.** Was §20. Option
+- **The live switcher check reports what it cannot decide.** Was §20. The
+  script this describes, `scripts/e2e-version-switcher.ts`, was deleted with the
+  switcher on 2026-09-10. The reading below is 2026-08-28's and the lesson in it
+  outlived the script: a check that is usually red is a check people stop
+  reading. Option
   three, as the item recommended: the render comparison now has three states
   rather than two. It reports UNDECIDED — the way `falsify` reports a mutation
   nobody ran rather than counting it as passing — and it stays a FAILURE when
@@ -1172,7 +1225,8 @@ state lives.
   sub-app publishes none, and an addition is additive and cheap. The two
   overstatements are corrected in `versions.ts` and in the switcher entry
   below, and the same sentence was carried by the README, which is corrected
-  too. What is NOT covered is written beside the rule: nothing stops two
+  too. `versions.ts` was deleted with the switcher on 2026-09-10; the README
+  carries the correction. What is NOT covered is written beside the rule: nothing stops two
   sub-apps agreeing through `window`, `localStorage`, an event or a `data-`
   attribute, `specifiersIn` reads imports and nothing else, and a scan for
   those could warn and could never prove.
@@ -1254,9 +1308,11 @@ state lives.
   in the shell left both cells passing. `loader.ts` and `shell/contract.ts` now
   import the specifier, and `contract.ts` asserts the props the shell passes.
 
-- **A version switcher on the page.** An operator runs an older unit on a
-  channel without promoting it: `?alpha=36226fb9`, a `select` per unit in the
-  shell, and choosing what the channel already serves removes the parameter so a
+- **A version switcher on the page.** Removed on 2026-09-10 - see the entry at
+  the top of Done. Everything below about the query string, the history and the
+  refusals still stands; the `select` and the options block do not. An operator
+  runs an older unit on a channel without promoting it: `?alpha=36226fb9`, a
+  `select` per unit in the shell, and choosing what the channel already serves removes the parameter so a
   shared link keeps following the channel. `promote` writes
   `manifests/<region>/<channel>.history.json` beside the pointer it already
   owns, so the record has one writer and cannot race a `publish`; the served id

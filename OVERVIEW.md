@@ -85,7 +85,7 @@ flowchart LR
     B -- "5 · counters, limits, labels, flags" --> A
 ```
 
-The server reads one small JSON file and nothing else. Every unit directory was written at a different time, and the pointer is the only thing that joins them. `units/catalogue.json` is read from cache only, so a cold or missing catalogue costs the switcher its entries and the visitor no wait.
+The server reads one small JSON file and nothing else. Every unit directory was written at a different time, and the pointer is the only thing that joins them. `units/catalogue.json` is read from cache only, so a cold or missing catalogue costs an override its target and the visitor no wait.
 
 ### The whole deploy
 
@@ -99,7 +99,7 @@ bun run promote qa --shell 43ca0019       # the shell alone
 bun run units                             # which ids there are to name
 ```
 
-Nobody memorises a hash. `publish` prints the new ids on stdout as JSON, so a script pipes them straight into `promote`; an operator promoting the build they just made types no id at all. Every **other** id — every unit ever published, whether or not a channel was ever pointed at it — is in `units/catalogue.json`, which `publish` writes and `bun run units` prints. The page reads the same file through `GET /units`, so the version switcher offers a build before it is deployed rather than only after.
+Nobody memorises a hash. `publish` prints the new ids on stdout as JSON, so a script pipes them straight into `promote`; an operator promoting the build they just made types no id at all. Every **other** id — every unit ever published, whether or not a channel was ever pointed at it — is in `units/catalogue.json`, which `publish` writes and `bun run units` prints. The origin reads the same file through `GET /units`, so a query string can name a build before it is deployed rather than only after.
 
 `fly deploy` is **not** in that list. The server image is rebuilt only when the *server* changes, which is a different and much rarer event.
 
@@ -156,7 +156,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 - **Refusing a composition that cannot work** — each unit records **which members of the shell's surface it uses**, measured by removal: cut the declaration, recompile, see whether it still builds. `promote` refuses a sub-app needing a member this shell lacks, and names both.
 - **An additive change** — contract identity is a content hash. An added export still satisfies every retained contract, so nothing republishes; a breaking change shows at once as a `fail` column in `bun run contract:matrix`.
-- **Seeing a rollback first** — a version switcher in the page: `?alpha=<id>` composes that unit for you alone. An id the channel never served is refused; a composition that cannot work is shown **disabled**, never hidden.
+- **Seeing a rollback first** — `?alpha=<id>` on the origin's own URL composes that unit for you alone, and moves no channel. An id the channel never served is refused, and so is a composition that cannot work.
 - **An older manifest schema** — a schema 2 manifest is kept in the store permanently, with a test channel pointed at it, in a real browser.
 
 > **Why a hash and not a version number:** a number is a claim somebody has to remember to raise, and nothing stops an edit to a published contract from silently breaking every unit that claimed the old one. A hash is derived, so that edit produces a *different* identity, which no unit claims.
@@ -190,7 +190,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 - **A store outage** — a running server survives on its last good pointer, and `/healthz` reads no pointer, so an outage cannot make the platform kill healthy machines.
 - **Another region** — **one promote writes every region.** Two regions that already differ stop a promote rather than being flattened; only `--region us` makes them differ.
-- **Deciding a sunset** — `GET /compositions` reports every composition this origin handed out, split by whether the version switcher composed it — otherwise one operator reads as visitors still on an old unit.
+- **Deciding a sunset** — `GET /compositions` reports every composition this origin handed out, split by whether a query string composed it — otherwise one operator reads as visitors still on an old unit.
 - **Using the service** — the shell records which API versions it accepts, the service publishes what it serves, and the **running server** intersects them into a response header. The page never waits: it renders from defaults and fills in afterwards.
 - **A contract going away** — `contract:deprecate` records a reason, a date and what to move to, beside the hash and never inside it. It **warns and never refuses**, because published units were built against the deprecated contract.
 - **What the service holds** — the service publishes the fields of every version it answers; `API_DEPRECATED` in its environment retires one, with no code change and no rebuild. Responses carrying a retired field say so, in RFC 9745 `Deprecation` and RFC 8594 `Sunset`. A value it cannot act on stops it starting, because a mistaken "nothing is going away" is a false reading rather than silence.
@@ -205,7 +205,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 | Role | What is different |
 | --- | --- |
-| **Designers** | A visual change to one panel ships and rolls back on its own, never queueing behind unrelated work in the same release. The version switcher shows any previously deployed build of any panel from a URL, without deploying it. |
+| **Designers** | A visual change to one panel ships and rolls back on its own, never queueing behind unrelated work in the same release. A URL shows any previously deployed build of any panel, without deploying it. |
 | **Product managers** | The unit of release is a panel. "Ship alpha, hold bravo" is a real operation, never a feature flag. Rollback is the deploy command, and takes seconds rather than a pipeline run. What is still served is a number you read at `/compositions`. |
 | **Engineering managers** | Deploy risk is separate from infrastructure risk: an application change means no image build, no rollout, no machine churn. A machine refuses a composition that cannot work before a visitor sees it. Every requirement is a scenario, seen to fail before it was trusted. |
 | **Developers** | Publish is cheap and idempotent per unit; promote is the only thing anyone sees. A breaking change to the shell↔sub-app surface shows as a failing column in a matrix at build time, never in a browser weeks later. Additive changes force no republish. |
