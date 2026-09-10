@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "takenAt": "2026-09-10T15:18:39.210Z",
+  "channel": "qa",
+  "region": "eu",
+  "origin": "https://pointer-deploy.fly.dev",
+  "contract": "9d1b0a3",
+  "composedAt": "2026-09-10T11:18:12.659Z",
+  "units": {
+    "shell": "c2601912",
+    "hello": "3bba892b"
+  },
+  "gate": "pointer",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "manifests": {
+    "eu": "manifest.eu.json",
+    "us": "manifest.us.json"
+  },
+  "shots": [
+    {
+      "route": "/",
+      "file": "shots/root.png",
+      "title": "Hello",
+      "apps": [
+        "hello"
+      ],
+      "units": {
+        "shell": "c2601912",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 149
+    },
+    {
+      "route": "/service",
+      "file": "shots/service.png",
+      "title": "Service",
+      "apps": [],
+      "units": {
+        "shell": "c2601912",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 134
+    }
+  ]
+}

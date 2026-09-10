@@ -1002,6 +1002,41 @@ hello    3bba892b  2026-09-10  83318092  10 members used
 
 **The page is served the answer, not the source.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history - the reading an operator takes, or a script with no store key. The page takes none: the server merges the catalogue into the channel's history and judges an override itself, so the policy names no origin for it at all. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
 
+## A picture of what was served
+
+`bun run shoot` opens the deployed channel in a browser, shoots every view in `VIEWS`, and files the images in `deploys/<taken>-<channel>/` beside the pointer bytes they are a picture of.
+
+```sh
+bun run shoot                                      # qa, every view, a new record
+bun run shoot --note "step 4: board, preloaded off the landing route"
+bun run shoot --out deploys/2026-09-14T10-22-00Z-qa   # into a record that exists
+```
+
+| File | What it holds |
+| --- | --- |
+| `shots/<view>.png` | one view, at 1280x800, full page |
+| `shots.json` | what each shot is a picture of: the unit ids read off that page, the contract, the region, and any panel that rendered its error state |
+| `manifest.eu.json`, `manifest.us.json` | the pointer for every region, as bytes, not re-rendered |
+| `notes.md` | the only file written by hand. Its first line says what this deploy demonstrates |
+
+**It is in git because nothing else is.** The pointer is overwritten by the next promote, its history is 20 deep, `dist/` is gitignored, and the object store was rewritten whole on 2026-09-10. So no record outside git can say what a channel served on a date, and git held nothing about it until this.
+
+**The trap it exists to close.** `MANIFEST_TTL_MS` is 10 s and §6 captured an `x-manifest-age` of 27464 ms, so a shot taken straight after a promote is a picture of the composition from *before* it - and nothing on the image says so. An archive of confidently wrong pictures is worse than no archive, because it is trusted.
+
+So every shot is gated three ways, and nothing is written until all three pass:
+
+| Gate | What it refuses |
+| --- | --- |
+| the `__BUILD__` block is read from **the page that was shot** | a second load, which a promote landing between the two would make disagree with the picture |
+| those ids must equal the ones the pointer names | a shot of the composition before a promote, filed under the one after it |
+| every view in the run must report the same ids, and the pointer must not have moved by the end | one record holding two compositions, each correct on its own |
+
+Measured against the mutation that makes `pointerIds` name an id nothing serves: the run fails, names both compositions, and writes no directory.
+
+**Nothing regenerates a shot.** A picture of what was served on a date is falsified by re-shooting it, so there is no `--update` and there should not be. Measured on 2026-09-10: two views, 27 kB and 43 kB, 88 kB for the whole record including both pointers.
+
+**What it does not cover yet.** `prod` is not in the origin table, because it is reached by a `Host` header and no browser can be made to send one - the same wall `scripts/e2e-independent-deploy.ts` runs its browser half locally to get around. §2 is what puts it in. And `promote` writes no record of its own yet, so what a record cannot say is which command was run and what it refused.
+
 ## Which compositions are being handed out
 
 `GET /compositions` answers what this origin has served, in memory, since the

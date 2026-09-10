@@ -26,6 +26,7 @@ Open items and what is done. Read this first after a context clear.
 | Contract | `9d1b0a3` (`hello-2026-09`), and it is the only one the registry holds |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
+| Deploy records | `deploys/<taken>-<channel>/`, written by `bun run shoot`. The shots, the pointer bytes for every region, and one hand-written line |
 | Secrets | `.env.local`, gitignored |
 
 `prod` has no hostname. Reach it with `curl -H "Host: prod.pointer-deploy.test"`.
@@ -36,6 +37,7 @@ bun run promote qa --from-build          # everything just built
 bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it back
 bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
+bun run shoot --note "..."               # what the channel serves now, into deploys/
 ```
 
 `e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two.
@@ -43,6 +45,18 @@ bun run e2e                              # the one that proves the feature works
 ## Open
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
+
+### 34. The deploy record is half written
+
+`bun run shoot` files the images, the pointer bytes for every region and one hand-written line, gated so that no shot can be filed under a composition it is not a picture of. Three parts are not built, and each has a consequence rather than a gap.
+
+| Missing | What it costs |
+| --- | --- |
+| `promote` writes no record of its own | Nothing says which command was run, what it refused, or which units it carried rather than moved. `shoot` reads the result and cannot read the act |
+| No `CHANGELOG.md` | The records are a directory listing, and the one line in each `notes.md` is gathered nowhere. Generate the index from `deploys/*/shots.json`, so the hand-written half is written once and the machine half cannot drift |
+| Nothing checks a record | A test over every `deploys/*/shots.json`: the unit ids are in the catalogue, every named shot exists, and the region manifests agree apart from `composedAt`. One `falsify` mutation removes the pointer gate and a named check must go red |
+
+`prod` is not shot at all, and that is §2 rather than this.
 
 ### 31. Claims that need a second unit
 
