@@ -973,6 +973,33 @@ apart and reports the first as UNDECIDED rather than failed, the way `falsify`
 reports a mutation nobody ran: it is a state a promote closes, not a defect
 anybody reading this can fix.
 
+## A pull request gets its URLs and its pictures
+
+`.github/pull_request_template.md` asks four questions: what a person can do after this, what changes on the page, what a reviewer should look at, and what is not covered. It cannot answer the second one. A GitHub template is static markdown and GitHub substitutes nothing into it, so a template can ask for a URL and can never supply one.
+
+`bun run pr` supplies them.
+
+```sh
+git push -u origin <branch> && gh pr create
+bun run pr                    # this branch's open pull request
+bun run pr --dry-run          # the body on stdout, and nothing changed
+```
+
+| Step | What it does |
+| --- | --- |
+| reads the pull request number | `gh pr view`. The number is the marker, so the pull request has to exist first |
+| checks the production column | the newest `deploys/` record must still name what `qa` serves, or it stops |
+| builds and publishes | `BUILD_MARKER=pr-<number>`, the one marker `qa` composes and `promote` refuses |
+| shoots the branch | `bun run shoot --override`, through the deployed origin, into `previews/pr-<n>/` |
+| commits the shots | at a commit, not at the branch: a branch is deleted on merge and its raw URLs go with it |
+| writes the body | two links and one row per view - what `qa` serves now, beside what this branch serves |
+
+**Why the production column is not re-shot.** It would be one line to shoot `qa` in the same run, and it would put a picture taken today under a deploy made a week ago. The archive is a record of what was **served**, so a stale record is corrected by a person who watched a promote, not by this. When it disagrees with the pointer, `bun run pr` names both compositions and stops.
+
+**A branch that changes no bundle gets no preview, and says so.** A unit id is a hash of that unit's output and nothing else, so a documentation change builds the ids `qa` already serves. Publishing that would add nothing to the store, and the query string would compose the channel. The body then says the two pages are the same, which is a reading and not an omission.
+
+**`previews/` is not `deploys/`.** A preview was published and never promoted, and no channel ever pointed at it. Two directories, because they are two claims.
+
 ## One record of every published unit
 
 Every publish writes `units/<name>/<id>/unit.json`, so the store has always held the whole list. Nothing could read it: a browser cannot LIST a bucket, and a script that can would still be answering the question one key at a time. So `publish` also writes `units/catalogue.json` - every published unit, grouped by name, newest publish first.

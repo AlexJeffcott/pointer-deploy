@@ -4,6 +4,7 @@
 //   bun run shoot                      # qa, every view, into a new record
 //   bun run shoot --note "step 0: the frame, five routes, three empty"
 //   bun run shoot --out deploys/2026-09-14T10-22-00Z-qa   # fill a record promote made
+//   bun run shoot --override hello=3bba892b               # a build nobody promoted
 //
 // A screenshot is the only record of what a deploy LOOKED like, and it is the
 // one record that can be wrong without anything saying so. The store's pointer
@@ -30,6 +31,12 @@
 //
 // NOT REGENERABLE, on purpose. A picture of what was served on a date is
 // falsified by re-shooting it. There is no --update, and there should not be.
+//
+// --override shoots §30's query string: a composition that was published and
+// never promoted, which is what a pull request has. It lands in previews/ and
+// not deploys/, because deploys/ is the archive of what was SERVED and a
+// preview never was. The gate does not weaken - the expectation becomes the
+// pointer with the override laid over it, exactly as the origin composes it.
 
 import { chromium, type Browser, type Page } from "playwright-core";
 import { VIEWS } from "../src/web/shell/views.ts";
@@ -91,6 +98,7 @@ const flag = (name: string): string | undefined => {
 
 const usage = () => {
   console.error("usage: bun run shoot [--channel qa] [--note <text>] [--out <dir>] [--wait <ms>]");
+  console.error("       bun run shoot --override <unit>=<id>[,<unit>=<id>...]  # a composition nobody promoted");
   console.error(`       channels a browser can reach: ${Object.keys(ORIGINS).join(", ")}`);
 };
 
@@ -98,9 +106,29 @@ const channel = flag("--channel") ?? "qa";
 const note = flag("--note") ?? "";
 const waitMs = Number(flag("--wait") ?? PROPAGATION_MS);
 
+/**
+ * Units this run asks the origin for by name, instead of taking the pointer's.
+ *
+ * §30's query string, and it is what makes a pull request's build shootable: it
+ * was published and nothing promoted it, so no pointer names it and the gate
+ * has nothing to compare against. The override IS the expectation here - a
+ * shot has to show the ids that were asked for - and a unit left out keeps
+ * following the channel, so a preview of one sub-app is that sub-app against
+ * what qa serves today.
+ */
+const override: Record<string, string> = {};
+for (const pair of (flag("--override") ?? "").split(",").filter(Boolean)) {
+  const [name, id] = pair.split("=");
+  if (!name || !id) {
+    console.error(`--override takes <unit>=<id> pairs, got ${JSON.stringify(pair)}`);
+    process.exit(1);
+  }
+  override[name] = id;
+}
+
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i]!;
-  if (["--channel", "--note", "--out", "--wait"].includes(arg)) {
+  if (["--channel", "--note", "--out", "--wait", "--override"].includes(arg)) {
     i++;
   } else {
     console.error(`unexpected argument ${JSON.stringify(arg)}`);
@@ -227,7 +255,7 @@ async function shootView(page: Page, route: string, want: Record<string, string>
   let seen = "nothing";
 
   for (;;) {
-    await page.goto(`${origin}${route}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${origin}${route}${QUERY}`, { waitUntil: "domcontentloaded" });
     const block = await buildBlock(page);
 
     if (block) {
@@ -248,10 +276,13 @@ async function shootView(page: Page, route: string, want: Record<string, string>
     }
 
     if (Date.now() - started > waitMs) {
+      // A refused composition renders no __BUILD__ at all - the origin answers
+      // 400 with the refusal as text - so the body is the reading, not "nothing".
+      const body = seen === "nothing" ? (await page.evaluate(() => document.body.innerText)).slice(0, 200) : "";
       throw new Error(
-        `${route} still served ${seen} after ${waitMs} ms; the pointer names ` +
-          `${describeIds(want)}. Nothing was written: a shot of the composition ` +
-          `before a promote, filed under the one after it, is the error this refuses.`,
+        `${route} still served ${seen}${body ? ` (${body})` : ""} after ${waitMs} ms; ` +
+          `this run asked for ${describeIds(want)}. Nothing was written: a shot of one ` +
+          `composition filed under another is the error this refuses.`,
       );
     }
     await Bun.sleep(1000);
@@ -260,6 +291,18 @@ async function shootView(page: Page, route: string, want: Record<string, string>
 
 const fileFor = (route: string): string =>
   route.replace(/^\//, "").replace(/\//g, "-") || "root";
+
+/**
+ * The query string every view is opened with.
+ *
+ * On every route, not only the first. The shell's router pushes state without
+ * it - `history.pushState(null, "", path)` in router.ts drops a query - so a
+ * shot taken after navigating in the page would be of the channel's own
+ * composition, correctly, and filed under the override's ids.
+ */
+const QUERY = Object.keys(override).length
+  ? `?${Object.entries(override).map(([n, id]) => `${n}=${id}`).join("&")}`
+  : "";
 
 const stamp = (d: Date): string => d.toISOString().replace(/[:.]/g, "-").replace(/-\d{3}Z$/, "Z");
 
@@ -286,11 +329,26 @@ try {
     throw new Error(`${origin} serves channel ${first.channel}, and this run asked for ${channel}.`);
   }
 
-  const want = await pointerIds(region);
-  if (!want) throw new Error(`no pointer at ${MANIFEST_BASE}/${region}/${channel}.json, so no shot can be checked.`);
+  const pointer = await pointerIds(region);
+  if (!pointer) throw new Error(`no pointer at ${MANIFEST_BASE}/${region}/${channel}.json, so no shot can be checked.`);
+
+  // A unit the override does not name keeps following the channel, which is the
+  // server's rule and not a convenience here: currentIds is the base and only a
+  // named unit is replaced. So the expectation is the pointer with the override
+  // laid over it, and a run with no override is the pointer itself.
+  const unknown = Object.keys(override).filter((n) => !(n in pointer));
+  if (unknown.length) {
+    throw new Error(
+      `--override names ${unknown.join(", ")}, and ${channel} composes ` +
+        `${Object.keys(pointer).join(", ")}. The origin ignores a name it does not compose, ` +
+        `so this would have shot the channel and filed it as a preview.`,
+    );
+  }
+  const want = { ...pointer, ...override };
 
   console.log(`${origin} -> ${channel} in ${region}`);
-  console.log(`pointer names ${describeIds(want)}`);
+  console.log(`pointer names ${describeIds(pointer)}`);
+  if (QUERY) console.log(`asking for  ${describeIds(want)}`);
 
   const routes = Object.keys(VIEWS);
   const shots: Shot[] = [];
@@ -313,9 +371,9 @@ try {
     );
   }
   const after = await pointerIds(region);
-  if (!after || !sameIds(after, want)) {
+  if (!after || !sameIds(after, pointer)) {
     throw new Error(
-      `the pointer moved during this run: ${describeIds(want)} -> ` +
+      `the pointer moved during this run: ${describeIds(pointer)} -> ` +
         `${after ? describeIds(after) : "absent"}. Nothing was written; shoot again.`,
     );
   }
@@ -323,7 +381,10 @@ try {
   // -- the record, written only now -------------------------------------------
 
   const takenAt = new Date();
-  const out = flag("--out") ?? `deploys/${stamp(takenAt)}-${channel}`;
+  // A preview was never promoted, so it is not a deploy record and does not go
+  // in the archive of what was served. Separate directory, separate meaning.
+  const kind = QUERY ? "previews" : "deploys";
+  const out = flag("--out") ?? `${kind}/${stamp(takenAt)}-${channel}`;
 
   for (const shot of shots) {
     await Bun.write(`${out}/shots/${shot.file}`, shot.bytes);
@@ -348,6 +409,8 @@ try {
     contract: first.contract ?? null,
     composedAt: first.publishedAt ?? null,
     units: shots[0]!.units,
+    kind: QUERY ? ("preview" as const) : ("deploy" as const),
+    override: QUERY ? override : null,
     gate: "pointer" as const,
     viewport: VIEWPORT,
     manifests: pointers,
@@ -363,8 +426,10 @@ try {
   };
   await Bun.write(`${out}/shots.json`, `${JSON.stringify(record, null, 2)}\n`);
 
+  // A preview's line is the pull request body, so it gets no notes.md: two
+  // places to write one line is one place that goes stale.
   const notes = `${out}/notes.md`;
-  if (!(await Bun.file(notes).exists())) {
+  if (!QUERY && !(await Bun.file(notes).exists())) {
     await Bun.write(
       notes,
       `${note || "TODO: one line saying what this deploy demonstrates."}\n\n` +
@@ -376,7 +441,7 @@ try {
 
   console.log(`\n${out}`);
   console.log(`  ${shots.length} shots, ${describeIds(shots[0]!.units)}, contract ${first.contract ?? "?"}`);
-  if (!note) console.log(`  notes.md needs its first line.`);
+  if (!note && !QUERY) console.log(`  notes.md needs its first line.`);
 } catch (err) {
   console.error(`\nFAILED ${err instanceof Error ? err.message : String(err)}`);
   process.exitCode = 1;

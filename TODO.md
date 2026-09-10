@@ -27,6 +27,7 @@ Open items and what is done. Read this first after a context clear.
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<taken>-<channel>/`, written by `bun run shoot`. The shots, the pointer bytes for every region, and one hand-written line |
+| Pull requests | Every change goes through one. `CLAUDE.md` is the rule, `.github/pull_request_template.md` the questions, `bun run pr` the URLs and the two sets of shots |
 | Secrets | `.env.local`, gitignored |
 
 `prod` has no hostname. Reach it with `curl -H "Host: prod.pointer-deploy.test"`.
@@ -38,6 +39,7 @@ bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it ba
 bun run units                            # which ids there are to name
 bun run e2e                              # the one that proves the feature works
 bun run shoot --note "..."               # what the channel serves now, into deploys/
+bun run pr                               # the review URLs and both sets of shots
 ```
 
 `e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two.
