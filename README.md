@@ -973,6 +973,46 @@ apart and reports the first as UNDECIDED rather than failed, the way `falsify`
 reports a mutation nobody ran: it is a state a promote closes, not a defect
 anybody reading this can fix.
 
+## A pull request gets its URLs and its pictures
+
+`.github/pull_request_template.md` asks four questions: what a person can do after this, what changes on the page, what a reviewer should look at, and what is not covered. It cannot answer the second one. A GitHub template is static markdown and GitHub substitutes nothing into it, so a template can ask for a URL and can never supply one.
+
+`bun run pr` supplies them.
+
+```sh
+git push -u origin <branch> && gh pr create
+bun run pr                    # this branch's open pull request
+bun run pr --dry-run          # the body on stdout, and nothing changed
+```
+
+| Step | What it does |
+| --- | --- |
+| reads the pull request number | `gh pr view`. The number is the marker, so the pull request has to exist first |
+| checks the body | the `<!--REVIEW` block has to still be there |
+| checks the tree | uncommitted changes stop it |
+| checks the production column | the newest `deploys/` record **for this channel** must still name what `qa` serves |
+| builds and publishes | `BUILD_MARKER=pr-<number>`, the one marker `qa` composes and `promote` refuses |
+| shoots the branch | `bun run shoot --override`, through the deployed origin, into `previews/pr-<n>/` |
+| commits the shots | `git commit -- <path>`, at a commit rather than at the branch |
+| checks the links | both record directories must be in git at that commit, or every image is a 404 |
+| writes the body | two links and one row per view over the union of both records |
+
+**The order is the design.** Everything that can refuse runs before anything that cannot be undone. The first version published to the production store, committed and pushed, and only then discovered the body had no `<!--REVIEW` block left - so a second run on one pull request did all of that and then declined to write anything.
+
+**The table is the union of both records, not production's routes.** Iterating production's meant the pull request whose whole subject is a new view showed no picture of it, and a view the branch REMOVES read as `unchanged`, which was false. A route only the branch has reads as added; a route only production has reads as removed.
+
+**A raw URL to a path git does not hold is a 404 nobody sees.** `newestDeploy` scans the filesystem, so a `bun run shoot` that nobody committed passed every check - the ids matched, because the record was fresh - and produced a body whose entire production column was broken images. `git cat-file -e <sha>:<path>` is the check, and it runs after the push and before the body.
+
+**Why the production column is not re-shot.** It would be one line to shoot `qa` in the same run, and it would put a picture taken today under a deploy made a week ago. The archive is a record of what was **served**, so a stale record is corrected by a person who watched a promote, not by this. When it disagrees with the pointer, `bun run pr` names both compositions and stops.
+
+**A branch that changes no bundle gets no preview, and says so.** A unit id is a hash of that unit's output and nothing else, so a documentation change builds the ids `qa` already serves. Publishing that would add nothing to the store, and the query string would compose the channel. The body then says the two pages are the same, which is a reading and not an omission.
+
+**The baseline is what `qa` serves, and that is not the same as `main`.** It is the right baseline - `qa` is the page the reviewer opens - but a branch built on a `main` that `qa` has not been promoted to would otherwise read as changing everything, silently. The commit `qa`'s shell was built from is checked against this branch's history, and a note in the body says so when it is not there.
+
+**Which units changed is read from an unmarked build.** `BUILD_MARKER` is compiled in - `build.ts` defines `__BUILD_MARKER__` and `__UNIT_MARKER__` from it - so a marked build's bytes differ from an unmarked one's and its ids differ with them. Comparing a marked build against the channel would report every branch as changing every unit, including one that edited nothing but a script. So the reading is taken first and the marked build is made only when there is something to preview. The shell draws `__BUILD_MARKER__` in its nav foot, so a preview whose SHELL changed is labelled `pr-<n>` and the production picture is not - a difference in the picture that the branch did not make. A preview of a sub-app alone carries no label at all, because the shell came from the channel. Measured on 2026-09-10 by composing `hello=8ca0806a`, a `pr-48570` build, against qa's own shell: served, gated and shot, and indistinguishable from production in the image.
+
+**`previews/` is not `deploys/`.** A preview was published and never promoted, and no channel ever pointed at it. Two directories, because they are two claims.
+
 ## One record of every published unit
 
 Every publish writes `units/<name>/<id>/unit.json`, so the store has always held the whole list. Nothing could read it: a browser cannot LIST a bucket, and a script that can would still be answering the question one key at a time. So `publish` also writes `units/catalogue.json` - every published unit, grouped by name, newest publish first.
@@ -1001,6 +1041,45 @@ hello    3bba892b  2026-09-10  83318092  10 members used
 **What this changed for an override.** What it could name used to come from the channel's history alone, which is 20 promotes deep and holds nothing that was never promoted. So the one thing an operator wanted of it - look at a build *before* deploying it - was the one thing it could not do. Measured against the live store on 2026-08-31: the qa channel's history held 2 shell builds, and the catalogue took that to 7, of which the member gate refuses 2.
 
 **The page is served the answer, not the source.** `GET /units` serves the catalogue through the same cache that holds the manifest and the history - the reading an operator takes, or a script with no store key. The page takes none: the server merges the catalogue into the channel's history and judges an override itself, so the policy names no origin for it at all. Reading it straight from the bucket would have meant naming the store host in `connect-src`, which is to say making the place every script comes from a place a compromised unit may send anything to.
+
+## A picture of what was served
+
+`bun run shoot` opens the deployed channel in a browser, shoots every view in `VIEWS`, and files the images in `deploys/<taken>-<channel>/` beside the pointer bytes they are a picture of.
+
+```sh
+bun run shoot                                      # qa, every view, a new record
+bun run shoot --note "step 4: board, preloaded off the landing route"
+bun run shoot --override hello=<id>                # a build nobody promoted
+```
+
+| File | What it holds |
+| --- | --- |
+| `shots/<view>.png` | one view, at 1280x800, full page |
+| `shots.json` | what each shot is a picture of: the unit ids read off that page, the contract, the region, any panel that rendered its error state, and an `unchecked` block naming every input to the pixels that no unit id decides |
+| `manifest.eu.json`, `manifest.us.json` | the pointer for every region, as bytes, not re-rendered |
+| `notes.md` | the only file written by hand. Its first line says what this deploy demonstrates |
+
+**It is in git because nothing else is.** The pointer is overwritten by the next promote, its history is 20 deep, `dist/` is gitignored, and the object store was rewritten whole on 2026-09-10. So no record outside git can say what a channel served on a date, and git held nothing about it until this.
+
+**The trap it exists to close.** `MANIFEST_TTL_MS` is 10 s and §6 captured an `x-manifest-age` of 27464 ms, so a shot taken straight after a promote is a picture of the composition from *before* it - and nothing on the image says so. An archive of confidently wrong pictures is worse than no archive, because it is trusted.
+
+So every shot is gated three ways, and nothing is written until all three pass:
+
+| Gate | What it refuses |
+| --- | --- |
+| the `__BUILD__` block is read from **the page that was shot** | a second load, which a promote landing between the two would make disagree with the picture |
+| those ids must equal the ones the pointer names | a shot of the composition before a promote, filed under the one after it |
+| every view in the run must report the same ids, and the pointer must not have moved by the end | one record holding two compositions, each correct on its own |
+
+**What the gate does NOT cover, said in the record rather than implied.** It proves the composition the page was built from. It proves nothing about the pixels: the panels draw what the service answered, `/service` draws the time it read, and the renderer is whatever Chrome this machine has. `shots.json` therefore carries `unchecked.apiBase`, `unchecked.renderer` and that sentence, so a reader comparing two records can tell which of those moved instead of taking a difference for a change in the code. §29 is the sharp case: the live browser suite writes the greeting audience to the deployed service, so a shoot overlapping a `verify:browser` run files a suite-mutated page - and every gate passes, because every gate is about the pointer.
+
+**The routes come from the deployed nav, not from `VIEWS` in this tree.** The shell owns placement and the shell being shot is the deployed one. Reading this tree's `VIEWS` meant that a branch adding `/board` asked the origin for a path its shell had never heard of - `Shell.tsx:103` falls back to `DEFAULT_ROUTE` in silence - and the run died twenty seconds later on a bare selector timeout. Every `PLAN.md` step that adds a view is that case. The panel wait is read from the page for the same reason: every panel the deployed shell placed is either mounted or in its error state, and one still loading is named.
+
+**Nothing regenerates a shot, and that is a refusal rather than a convention.** A run into a directory that already holds a `shots.json` stops. `--out` was `--update` while nothing checked - it overwrote every image and rewrote the record, and it was the flag this repository's own tooling passed. `outRefusal` in `scripts/record.ts` also refuses a preview into `deploys/` and a channel shot into `previews/`, because the directory was the entire distinction between what was served and what never was. Measured on 2026-09-10: two views, 27 kB and 43 kB, 88 kB for the whole record including both pointers.
+
+**What holds it.** `scripts/record.ts` carries every decision that needs no browser and no store, and `scripts/record.test.ts` puts each one in the state that breaks it - 32 tests. `scripts/` is outside `stryker.config.json`'s mutate scope, so those tests have no mutation score yet; §34 carries that.
+
+**What it does not cover yet.** `prod` is not in the origin table, because it is reached by a `Host` header and no browser can be made to send one - the same wall `scripts/e2e-independent-deploy.ts` runs its browser half locally to get around. §2 is what puts it in. And `promote` writes no record of its own yet, so what a record cannot say is which command was run and what it refused.
 
 ## Which compositions are being handed out
 
