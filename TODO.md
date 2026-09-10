@@ -90,6 +90,8 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **The headline claim does not hold for this change, and that is worth saying plainly.** "A deploy is one JSON write" is true of every change to a unit. This was not a change to a unit: it was a change to what a manifest may say, and it needed a `fly deploy` as well. The project has never had one of those before.
 
+**`bun run verify:live` cannot pass until the image is deployed, and that is measured too.** The `@live` suite promotes to `test-qa` and `test-prod` from this tree, so it writes pointers with `apps: {}` and the deployed image refuses those the same way. Read on 2026-09-10: `test-qa`'s pointer names `shell 5b4b3f51` and no app, and the origin answers it with `x-manifest-refresh: manifest names no apps` over a manifest 15,536 s old. Three scenarios failed in 2 minutes before the run was stopped; the rest would have failed the same way.
+
 **Three ways out, none built.**
 
 - The origin publishes what it accepts, the way the server publishes its blocks: a `schemas` field on `/healthz` or `/compositions`, and `promote` reads it before writing a real channel and refuses. Costs `promote` a network read of the origin it is about to change, which it does not currently make.
