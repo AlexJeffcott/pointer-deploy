@@ -1,6 +1,7 @@
 import { expect, test, describe } from "bun:test";
 import {
   commandOf,
+  composedFrom,
   describeIds,
   filedUnderRefusal,
   fillBody,
@@ -1670,5 +1671,37 @@ describe("noteSentence", () => {
     const line = noteSentence(archived({ notes: `${NOTE_PLACEHOLDER}\n` }));
     expect(line).not.toContain("TODO:");
     expect(line).toContain("--note");
+  });
+});
+
+// The composition a promote writes is the channel's apps and the tree's units,
+// never one of them alone. Pure, because the reading is what broke and the
+// promote around it needs a store.
+describe("composedFrom", () => {
+  test("a unit the tree no longer builds is carried, not dropped", () => {
+    expect(composedFrom(["shell"], { hello: "h1" }, [])).toEqual(["shell", "hello"]);
+  });
+
+  test("a unit the tree builds and the channel has never served", () => {
+    expect(composedFrom(["shell", "list"], {}, [])).toEqual(["shell", "list"]);
+  });
+
+  // Removal is said, never inferred from what a build happens to emit. The
+  // inferred version wrote a pointer with no sub-app, which the running image
+  // refused, and a cold machine answered 503 for a whole region.
+  test("a dropped unit leaves, and only when it is named", () => {
+    expect(composedFrom(["shell"], { hello: "h1" }, ["hello"])).toEqual(["shell"]);
+  });
+
+  test("dropping something the channel does not serve changes nothing", () => {
+    expect(composedFrom(["shell"], { hello: "h1" }, ["nosuch"])).toEqual(["shell", "hello"]);
+  });
+
+  test("no duplicates when the tree and the channel agree", () => {
+    expect(composedFrom(["shell", "hello"], { hello: "h1" }, [])).toEqual(["shell", "hello"]);
+  });
+
+  test("the shell is never dropped, whatever is asked", () => {
+    expect(composedFrom(["shell"], {}, ["shell"])).toEqual(["shell"]);
   });
 });

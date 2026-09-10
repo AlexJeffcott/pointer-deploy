@@ -537,3 +537,53 @@ describe("preloading the apps a navigation would need", () => {
     );
   });
 });
+
+// THE PAGE THE LIVE ORIGIN NOW RENDERS, and nothing here held it.
+//
+// `PLAN.md` step 0 takes the application to one unit and five routes, none of
+// which places a sub-app, so every shell served from now on is rendered from a
+// schema-3 manifest whose `apps` is empty. The only coverage of that shape was
+// through `v1` - schema 1, which returns `{}` from a different branch of
+// `appUrls` - so the path the live page takes was exercised by one `@local`
+// scenario and by none of `bun test`.
+describe("a schema-3 manifest with no sub-app", () => {
+  const empty: ManifestV3 = {
+    schema: 3,
+    composedAt: "2026-09-10T21:00:00.000Z",
+    contract: "9d1b0a3",
+    shell: {
+      unitId: "s1",
+      commit: "c".repeat(40),
+      assetBase: "https://store.test/units/shell/s1/",
+      js: "index-a.js",
+      css: "index-b.css",
+      imports: { preact: "preact-c.js", "@pointer/shell": "api-d.js" },
+      marker: "",
+    },
+    apps: {},
+  };
+
+  test("it renders a page, rather than throwing on an empty apps", () => {
+    const html = renderShell(empty, TARGET);
+    expect(html).toContain("<!doctype html>");
+    expect(html).toContain("index-a.js");
+  });
+
+  test("__BUILD__ names the shell and no app", () => {
+    const html = renderShell(empty, TARGET);
+    const raw = /id="__BUILD__">(.*?)<\/script>/s.exec(html)?.[1] ?? "{}";
+    const info = JSON.parse(raw) as { units: Record<string, unknown> };
+    expect(Object.keys(info.units)).toEqual(["shell"]);
+  });
+
+  test("nothing is preloaded for a view that places no unit", () => {
+    const html = renderShell(empty, TARGET);
+    expect(html).not.toContain('rel="modulepreload"');
+  });
+
+  // The policy still has to name the store the shell itself comes from, or the
+  // page cannot load its own bundle.
+  test("the policy still allows the shell's own origin", () => {
+    expect(policyOf(empty)).toContain("https://store.test");
+  });
+});

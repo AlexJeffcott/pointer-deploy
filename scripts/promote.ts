@@ -40,6 +40,7 @@ import { composedUnit, surfaceOfManifest } from "./catalogue.ts";
 import { regionDrift, regionsFor, type Region } from "./regions.ts";
 import { currentSource, describeSource, readSource, type Source } from "./source.ts";
 import {
+  composedFrom,
   dirtyPaths,
   freeDir,
   idsInPointer,
@@ -126,6 +127,7 @@ const regions: Region[] = chosen.regions;
 const usage = () => {
   console.error("usage: bun run promote <channel> [--shell <id>] [--app <name>=<id>]...");
   console.error("       bun run promote <channel> --from-build [--no-source-check]");
+  console.error("       --drop <app> removes a sub-app the channel serves. Removal is said, never inferred");
   console.error("       --region <r> writes one region instead of all of them");
   console.error(`       channels: ${CHANNELS.join(", ")}`);
   console.error(
@@ -173,6 +175,18 @@ const promotedFrom = (() => {
 // -- what the operator asked for --------------------------------------------
 
 const wanted = new Map<Unit, string>();
+
+/**
+ * Sub-apps this promote REMOVES from the channel.
+ *
+ * Removal is said, never inferred. A promote merges - it reads the channel's
+ * composition, applies what was named, and writes the result - so a unit this
+ * tree no longer builds is CARRIED, not quietly left out. Inferring the removal
+ * from what the tree happens to build is what wrote a pointer with no sub-app
+ * on 2026-09-10, which the running image refused; a cold machine then had
+ * nothing cached to fall back to and answered 503 for a whole region.
+ */
+const dropped = new Set<string>();
 const fromBuild = argv.includes("--from-build");
 
 for (let i = 1; i < argv.length; i++) {
@@ -188,18 +202,25 @@ for (let i = 1; i < argv.length; i++) {
       console.error(`--app takes <name>=<id>, got ${JSON.stringify(pair ?? "")}`);
       process.exit(1);
     }
-    if (!(APPS as readonly string[]).includes(name)) {
-      console.error(
-        APPS.length
-          ? `unknown app ${JSON.stringify(name)}. Expected one of ${APPS.join(", ")}.`
-          : `unknown app ${JSON.stringify(name)}. This slate builds no sub-app, so ` +
-            `--app names nothing. Units published earlier are still in the store and ` +
-            `still promotable, but only once a build here emits one - a channel that ` +
-            `named one would serve a bundle no shell places.`,
-      );
+    // NOT validated against APPS here. A channel can hold a unit this tree no
+    // longer builds - that is what removing a sub-app leaves behind - and
+    // refusing the name at parse time is what made the rollback ACROSS such a
+    // removal impossible with the documented command. On 2026-09-10 the way
+    // back from a bad promote was editing scripts/contract.ts and promoting
+    // from a dirty tree, which is recorded in
+    // deploys/2026-09-10T21-15-37Z-qa/promote.json and is not a runbook this
+    // repository can print on its front page beside "roll back: write the older
+    // JSON back". The name is checked against APPS *and the channel's own
+    // pointer* below, once there is a pointer to check it against.
+    wanted.set(name as Unit, id);
+  } else if (arg === "--drop") {
+    const name = argv[++i];
+    if (!name) { usage(); process.exit(1); }
+    if (name === "shell") {
+      console.error("--drop cannot take the shell: a channel with no shell serves no page.");
       process.exit(1);
     }
-    wanted.set(name as Unit, id);
+    dropped.add(name);
   } else if (arg === "--region") {
     // Read by regionsFor above, and skipped here so its value is not taken for
     // a stray argument. Validated there rather than twice.
@@ -311,7 +332,10 @@ if (fromBuild) {
   }
 }
 
-if (wanted.size === 0) {
+// A run that only REMOVES names no id and is still a promote. Demanding one
+// meant `--drop hello` printed the usage block instead of the refusal that
+// applies to it.
+if (wanted.size === 0 && dropped.size === 0) {
   usage();
   process.exit(1);
 }
@@ -360,6 +384,61 @@ if (drift !== null) {
 const current: Composition | null =
   regions.map((r) => currentByRegion.get(r) ?? null).find((c) => c !== null) ?? null;
 
+/**
+ * Every unit this composition holds: what the tree builds, plus what the
+ * channel already serves, plus what the operator named.
+ *
+ * NOT `UNITS`, which is what this working tree can build. The two differ the
+ * moment a sub-app is removed, and the difference is exactly the state a
+ * rollback has to reach: the pointer still names `hello`, this tree does not.
+ * Composing from `UNITS` alone drops such a unit silently - a unit nobody
+ * builds is a unit nothing iterates - and refusing to NAME it made the way back
+ * from a bad promote an edit to `scripts/contract.ts` plus a promote from a
+ * dirty tree. That is recorded in `deploys/2026-09-10T21-15-37Z-qa/promote.json`
+ * and it is not a runbook to print beside "roll back: write the older JSON back".
+ */
+const servedApps = Object.keys(current?.apps ?? {});
+
+/**
+ * The names a promote may name: what this tree builds, and what the channel
+ * already serves. NOT what the operator asked for - putting `wanted` in here
+ * made the check below vacuous, because every named unit is in `wanted` by
+ * construction, and a typo reached the store before anything refused it.
+ */
+const nameable: string[] = [...new Set([...UNITS, ...servedApps])];
+
+const unnamed = [...wanted.keys()].filter((u) => !nameable.includes(u));
+if (unnamed.length) {
+  console.error(
+    `unknown ${unnamed.length === 1 ? "unit" : "units"} ${unnamed.map((u) => JSON.stringify(u)).join(", ")}. ` +
+      `This tree builds ${UNITS.join(", ")}, and ${channelArg} serves ` +
+      `${servedApps.length ? servedApps.join(", ") : "no sub-app"} beside the shell. Nothing was changed.`,
+  );
+  process.exit(1);
+}
+
+const composedNames: string[] = composedFrom(UNITS, current?.apps ?? {}, []);
+
+/** The sub-app names in that set, less anything this promote removes. */
+const composedApps = composedFrom(UNITS, current?.apps ?? {}, [...dropped]).filter(
+  (u) => u !== "shell",
+);
+
+const notServed = [...dropped].filter((u) => !servedApps.includes(u));
+if (notServed.length) {
+  console.error(
+    `--drop names ${notServed.join(", ")}, which ${channelArg} does not serve. Nothing was changed.`,
+  );
+  process.exit(1);
+}
+const droppedAndNamed = [...dropped].filter((u) => wanted.has(u as Unit));
+if (droppedAndNamed.length) {
+  console.error(
+    `${droppedAndNamed.join(", ")} is named by both --app and --drop. Nothing was changed.`,
+  );
+  process.exit(1);
+}
+
 const missing = UNITS.filter((u) => !wanted.has(u) && !(u === "shell" ? current?.shell : current?.apps[u]));
 if (missing.length) {
   console.error(
@@ -390,8 +469,8 @@ for (const [unit, id] of wanted) {
 
 // Units kept from the current composition need their manifests too, because
 // the contract test is over the whole composition and not only over what moved.
-for (const unit of UNITS) {
-  if (manifests.has(unit)) continue;
+for (const unit of composedNames as Unit[]) {
+  if (manifests.has(unit) || dropped.has(unit)) continue;
   const kept = unit === "shell" ? current!.shell : current!.apps[unit]!;
   const text = await getObjectText(cfg, `units/${unit}/${kept.unitId}/unit.json`);
   if (text === null) {
@@ -421,17 +500,17 @@ for (const unit of UNITS) {
 // through - which the set intersection refused, because a published app's set
 // was fixed at its build time and cannot name a contract minted after it.
 const contractsByUnit: Record<string, string[]> = Object.fromEntries(
-  UNITS.map((u) => [u, manifests.get(u)!.contracts ?? []]),
+  (composedApps.concat("shell") as Unit[]).map((u) => [u, manifests.get(u)!.contracts ?? []]),
 );
 const surfacesByUnit: Record<string, UnitSurface | undefined> = Object.fromEntries(
-  UNITS.map((u) => [u, surfaceOfManifest(manifests.get(u)!)]),
+  (composedApps.concat("shell") as Unit[]).map((u) => [u, surfaceOfManifest(manifests.get(u)!)]),
 );
 
 const refusal = compositionRefusal(contractsByUnit, surfacesByUnit);
 if (refusal !== null) {
   console.error(`${refusal}. Nothing was changed.`);
-  const width = Math.max(...UNITS.map((u) => u.length));
-  for (const unit of UNITS) {
+  const width = Math.max(...composedNames.map((u) => u.length));
+  for (const unit of composedNames as Unit[]) {
     const m = manifests.get(unit)!;
     const gate = decidesMembers(surfacesByUnit.shell, surfacesByUnit[unit])
       ? `${Object.keys(m.uses ?? {}).length} members used`
@@ -469,7 +548,7 @@ for (const unit of UNITS) {
 // checks nothing for its files. Reported, not refused: refusing would make
 // rolling back onto such a unit impossible, which is the operation the whole
 // design exists for.
-const undigested = UNITS.filter(
+const undigested = (composedApps.concat("shell") as Unit[]).filter(
   (u) => Object.keys(manifests.get(u)!.integrity ?? {}).length === 0,
 );
 if (undigested.length) {
@@ -508,7 +587,7 @@ const composition: Composition = {
   composedAt: new Date().toISOString(),
   contract,
   shell: composedUnit(manifests.get("shell")!),
-  apps: Object.fromEntries(APPS.map((a) => [a, composedUnit(manifests.get(a)!)])),
+  apps: Object.fromEntries(composedApps.map((a) => [a, composedUnit(manifests.get(a as Unit)!)])),
 };
 
 // -- warm, then write -------------------------------------------------------
@@ -689,13 +768,31 @@ for (const r of regions) {
 
 const moves = unitMoves(idsOf(current), idsOf(composition)!);
 
-const width = Math.max(...UNITS.map((u) => u.length));
+// composedNames, not UNITS. `moves` already sees a unit this promote DROPPED;
+// iterating what the tree builds meant that reading reached promote.json and
+// never reached the operator's terminal.
+const width = Math.max(...composedNames.map((u) => u.length));
 console.error(`${channelArg} (${regions.join(", ")}) at contract ${contract}:`);
-for (const unit of UNITS) {
-  const move = moves[unit]!;
+for (const unit of composedNames as Unit[]) {
+  const move = moves[unit];
+  // A dropped unit has no id after this promote, so `unitId` is null and the
+  // line has to say what left rather than print an empty column. `moves` has
+  // always seen this; only promote.json read it, and the operator - the person
+  // who can still undo it - was told nothing.
+  if (!move || move.state === "dropped") {
+    console.error(`  ${unit.padEnd(width)} REMOVED   <- ${move?.from ?? "unknown"}`);
+    continue;
+  }
   console.error(
     `  ${unit.padEnd(width)} ${move.unitId}` +
       (move.state === "carried" ? `  unchanged` : `  <- ${move.from ?? "new"}`),
+  );
+}
+if (dropped.size) {
+  console.error(
+    `  ${[...dropped].join(", ")} ${dropped.size === 1 ? "is" : "are"} no longer served by ${channelArg}. ` +
+      `To put ${dropped.size === 1 ? "it" : "them"} back: bun run promote ${channelArg} ` +
+      `${[...dropped].map((u) => `--app ${u}=<id>`).join(" ")}`,
   );
 }
 
@@ -719,7 +816,7 @@ for (const unit of UNITS) {
 // that happened as a deploy that did not.
 writeRecord();
 
-console.log(JSON.stringify(Object.fromEntries(UNITS.map((u) => [
+console.log(JSON.stringify(Object.fromEntries(composedApps.concat("shell").map((u) => [
   u,
   u === "shell" ? composition.shell.unitId : composition.apps[u]!.unitId,
 ])), null, 2));

@@ -578,6 +578,28 @@ export function unshotNote(dirs: readonly PendingDir[], channel: string): string
   );
 }
 
+/**
+ * Every unit a promote's composition holds.
+ *
+ * `built` is what this working tree can emit, `served` is what the channel's
+ * pointer already names, and `drop` is what the operator asked to remove. The
+ * union of the first two is the point: they differ the moment a sub-app is
+ * taken out of the source, and composing from `built` alone removed such a unit
+ * from every channel at the next promote of anything - silently, because a unit
+ * nobody builds is a unit nothing iterates. That is the pointer that took a
+ * region down on 2026-09-10.
+ *
+ * The shell is never removable: a channel with no shell serves no page.
+ */
+export function composedFrom(
+  built: readonly string[],
+  served: Record<string, unknown>,
+  drop: readonly string[],
+): string[] {
+  const remove = new Set(drop.filter((u) => u !== "shell"));
+  return [...new Set([...built, ...Object.keys(served)])].filter((u) => !remove.has(u));
+}
+
 export function staleRefusal(
   record: { channel: string; units: Record<string, string> } | null,
   channel: string,

@@ -44,7 +44,7 @@ bun run changelog                        # the archive as CHANGELOG.md. Run it w
 bun run pr                               # the review URLs and both sets of shots
 ```
 
-`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two.
+`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` **with `--from-build`** refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two. A promote naming ids (`--shell`, `--app`) takes none of those three checks, which is deliberate: naming an id is how a rollback is made, and the tree it is made from is not the tree that built the unit. The sentence used to claim all three commands were covered.
 
 ## Open
 
@@ -80,6 +80,10 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **What it cost, measured on 2026-09-10.** `ams` was already up: it kept the last manifest it could read, went on serving the previous composition, and put the reason in `x-manifest-refresh` — the degradation working exactly as designed. `iad` was suspended. Waking it primed its cache against a pointer it could not parse, and it answered **503** to every request for `us` until the pointer was put back. Three requests with `fly-prefer-region: iad`, all 503. `deploys/2026-09-10T21-07-27Z-qa/notes.md` is the record.
 
+**It was not a property of the suspended machine, and the first account of it said it was.** `prime` puts `checkedAt` back when a read yields nothing (`manifest.ts:318`), so a COLD entry's first `get` awaits, gets null, and `index.ts` answers 503. `ams` survived by having a value cached, not by being in `eu`. Any restart of it — a `fly deploy`, a host migration, an out-of-memory kill — would have taken `eu` down the same way, and `min_machines_running = 1` does not protect against that. So the true reading is that `qa` was one machine restart from 503 in both regions, which is worse than what was first written here.
+
+`src/server/manifest.test.ts` now holds the state: a cold cache, a store answering perfectly well, and a document this image refuses. `features/store-outage.feature` had both halves and never the product — one scenario pairs a server that has read no manifest with a store that is *unreachable*, another pairs a refused document with a *warm* server. The corner that took a region down was neither.
+
 **Why nothing caught it.** The shell-to-server surface has a gate: the server publishes `blocks.provides.json`, the shell records what it reads, and the origin refuses a shell it cannot feed (§11). The **pointer**-to-server surface has neither. `parseManifest` is the only thing that knows which manifests an image accepts, it lives inside the image, and `promote` runs on a laptop.
 
 | | Gated | By what |
@@ -92,7 +96,11 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **`bun run verify:live` cannot pass until the image is deployed, and that is measured too.** The `@live` suite promotes to `test-qa` and `test-prod` from this tree, so it writes pointers with `apps: {}` and the deployed image refuses those the same way. Read on 2026-09-10: `test-qa`'s pointer names `shell 5b4b3f51` and no app, and the origin answers it with `x-manifest-refresh: manifest names no apps` over a manifest 15,536 s old. Three scenarios failed in 2 minutes before the run was stopped; the rest would have failed the same way.
 
-**Three ways out, none built.**
+**What the recovery actually was, which is the part worth being plain about.** The way back from that pointer was not a command. `--app hello=<id>` exited 1, because `--app` validated its name against `APPS` and this tree no longer built `hello`; `--shell <older id>` writes the same `apps: {}` that caused it. The recovery was **an edit to `scripts/contract.ts` and a promote from a dirty tree** — `deploys/2026-09-10T21-15-37Z-qa/promote.json` records `argv: ["qa","--app","hello=3bba892b"]` with `dirty: true`. In the repository whose front page says a rollback is writing the older JSON back, that is not a runbook.
+
+**Fixed.** A promote composes from the channel's own apps as well as this tree's `UNITS`, so a unit the tree no longer builds is carried and can be named; and removal is now said rather than inferred — `--drop <app>` is the only way a unit leaves a channel, it refuses a name the channel does not serve, and the terminal prints what left and the command that puts it back. Composing from `UNITS` alone was also what made the removal silent: `unitMoves` saw `dropped`, `promote.json` recorded it, and the operator's terminal never said a word.
+
+**Three ways out of the parse gap itself, none built.**
 
 - The origin publishes what it accepts, the way the server publishes its blocks: a `schemas` field on `/healthz` or `/compositions`, and `promote` reads it before writing a real channel and refuses. Costs `promote` a network read of the origin it is about to change, which it does not currently make.
 - `promote` re-reads the pointer through the origin after writing it, and rolls back on a refusal. Catches everything, and only after every visitor in one region has seen it.

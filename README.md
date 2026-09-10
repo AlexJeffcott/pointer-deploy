@@ -202,6 +202,16 @@ replaces every unit, and "deploy hello" silently rolls the shell back to
 whatever the operator last had on disk. `falsify.ts` breaks the merge and
 requires a scenario to go red.
 
+**The merge covers a unit this tree no longer builds.** It has to: the composed
+set is the channel's own apps, plus what this tree builds, plus what the
+operator named - not `UNITS`, which is what a build here can emit. Composing
+from `UNITS` alone meant that removing a sub-app from the source silently
+removed it from every channel at the next promote of anything, and that is the
+pointer that took a region down on 2026-09-10. **Removal is now said and never
+inferred:** `--drop <app>` is the only way a unit leaves a channel, it refuses a
+name the channel does not serve, and the terminal prints what left and the
+command that puts it back.
+
 ### A unit id is a hash of that unit's output, and nothing else
 
 The commit is deliberately not in it. It used to be — `<source>-<content>` — and

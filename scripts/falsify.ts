@@ -1130,6 +1130,27 @@ const MUTATIONS: Mutation[] = [
     unitTest: "every unit carried is a no-op",
   },
   {
+    // The composition a promote writes is the channel's apps AND the tree's
+    // units. Reading the tree alone removes a unit it no longer builds from
+    // every channel at the next promote of anything - which is the pointer the
+    // running image refused on 2026-09-10, and a cold machine answered 503 for
+    // a whole region on it.
+    name: "a promote composes from what this tree builds and nothing else",
+    file: "scripts/record.ts",
+    find: "  return [...new Set([...built, ...Object.keys(served)])].filter((u) => !remove.has(u));",
+    replace: "  return [...built].filter((u) => !remove.has(u));",
+    unitTest: "a unit the tree no longer builds is carried, not dropped",
+  },
+  {
+    // And the other way: a --drop that removes nothing. Removal has to be said
+    // AND obeyed, or the flag is a comment and the unit stays on the channel.
+    name: "a promote ignores the removal it was asked for",
+    file: "scripts/record.ts",
+    find: "  const remove = new Set(drop.filter((u) => u !== \"shell\"));",
+    replace: "  const remove = new Set<string>();",
+    unitTest: "a dropped unit leaves, and only when it is named",
+  },
+  {
     // A --region run leaves the other region where it was. Reading the regions
     // a record KEPT bytes for, rather than every region the store has, makes
     // the reading vanish for a record with no shots.json - because
@@ -1214,6 +1235,16 @@ async function runScenario(m: Mutation): Promise<boolean> {
   // scenario nobody ran. More than one is legitimate - a Scenario Outline is
   // one name and several examples - so the count is reported rather than
   // refused, and a mutation is caught only when every match is red.
+  // §35. A red scenario and a Background that never got as far as a scenario
+  // both exit non-zero, and a mutation that does not COMPILE is reported as
+  // caught by a check that never ran. That is the same class of nothing as a
+  // --grep matching no scenario, and it is refused the same way. Found by
+  // writing a mutation into a file that did not compile and watching it pass.
+  if (/\b(build failed|publish failed|Build failed|error: script "build")/.test(out)) {
+    throw new Error(
+      `the build failed under ${tag}, so nothing ran and "${m.name}" proves nothing:\n${out.slice(-1200)}`,
+    );
+  }
   const ran = Number(/Running (\d+) tests? using/.exec(out)?.[1] ?? "0");
   if (ran === 0) {
     throw new Error(
