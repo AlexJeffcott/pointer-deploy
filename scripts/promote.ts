@@ -132,6 +132,19 @@ if (!CHANNELS.includes(channelArg as Channel)) {
   process.exit(1);
 }
 
+/**
+ * The tree this command was run from, read BEFORE anything is written.
+ *
+ * The record's own files land in this tree, so a reading taken at the moment
+ * the record is assembled reports the record as the reason the tree is dirty.
+ * Measured on the first real run: a promote from a committed tree wrote
+ * `"dirty": true` about itself.
+ *
+ * Only where it is kept. A test-* promote writes no record and this is two git
+ * processes it has no use for.
+ */
+const promotedFrom = keepsRecord(channelArg) ? currentSource() : null;
+
 // -- what the operator asked for --------------------------------------------
 
 const wanted = new Map<Unit, string>();
@@ -619,7 +632,7 @@ if (keepsRecord(channelArg)) {
       channel: channelArg,
       argv,
       regions,
-      source: currentSource(),
+      source: promotedFrom,
       contract,
       before: idsOf(current),
       after: idsOf(composition)!,
