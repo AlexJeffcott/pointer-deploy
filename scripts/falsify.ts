@@ -1122,6 +1122,58 @@ const MUTATIONS: Mutation[] = [
     replace: "  if (false) {",
     unitTest: "the same composition promoted again is a different promote",
   },
+  {
+    // The reading CHANGELOG.md exists to get right. Four of the five records in
+    // deploys/ are promotes that moved nothing, and an archive that lists them
+    // as deploys anybody asked for is a false reading of its own source.
+    name: "a promote that carried every unit reads as a deploy",
+    file: "scripts/record.ts",
+    find: '  return Object.values(units).every((u) => stateOf(u) === "carried") ? "no-op" : "moved";',
+    replace: '  return "moved";',
+    unitTest: "every unit carried is a no-op",
+  },
+  {
+    // A --region run leaves the other region where it was. Reading the regions
+    // a record KEPT bytes for, rather than every region the store has, makes
+    // the reading vanish for a record with no shots.json - because
+    // `promoteRecord` builds `manifests` from the regions it wrote, so the two
+    // are identical by construction. That is `prod`, which can never be shot.
+    name: "a one-region promote reads as having written every region",
+    file: "scripts/record.ts",
+    find: "  const others = [...new Set([...Object.keys(kept), ...ALL_REGIONS])]\n    .filter((r) => !written.includes(r))\n    .sort();",
+    replace: "  const others = Object.keys(kept)\n    .filter((r) => !written.includes(r))\n    .sort();",
+    unitTest: "a one-region promote names the region it did not write",
+  },
+  {
+    // The one line in a record a person wrote. A note that opens with a blank
+    // line would be gathered as a blank entry, which is the changelog silently
+    // dropping the only sentence saying what a deploy demonstrates.
+    name: "the note's first line is taken blank or not",
+    file: "scripts/record.ts",
+    find: "    if (trimmed) return trimmed;",
+    replace: "    return trimmed;",
+    unitTest: "a leading blank line is not the first line",
+  },
+  {
+    // The label is prose with a schema; from/unitId are the facts it was
+    // derived from. Reading the label is stopping one field short of the
+    // argument the whole document rests on.
+    name: "a unit's movement is read off the label rather than off its ids",
+    file: "scripts/record.ts",
+    find: '  return u.from === u.unitId ? "carried" : "moved";',
+    replace: '  return "moved";',
+    unitTest: "a unit at the same id was carried, whatever the record calls it",
+  },
+  {
+    // shoot writes this line whenever nobody passed --note, so a check that
+    // only refused an absent file would pass over every unwritten note there
+    // has ever been.
+    name: "the placeholder shoot writes counts as a note somebody wrote",
+    file: "scripts/record.ts",
+    find: "  if (head === NOTE_PLACEHOLDER) {",
+    replace: "  if (false) {",
+    unitTest: "the placeholder shoot writes is not a first line",
+  },
 ];
 
 // The runner, named the long way for the reason playwright.config.ts gives:
