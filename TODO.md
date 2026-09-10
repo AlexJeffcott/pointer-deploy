@@ -74,6 +74,16 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **What the changelog closed.** `CHANGELOG.md` is generated from `deploys/` by `bun run changelog`, never written by hand, and not committed: every fact in it is already in `deploys/`, so a copy in git buys nothing and costs staleness, a check for it, and a conflict on its counts whenever two branches each land a deploy. What has to be right is the archive and the readings, and `scripts/changelog.test.ts` holds the loader against fixtures - the half that had no test at all and had been wrong twice. The archive forced three readings the entry has to get right, each of them a state the records already hold: a promote every one of whose units is `carried` moved nothing and is not a deploy anybody asked for, a record written by `--region eu` names one region and keeps another promote's bytes under an as-served name, and the oldest record has no act at all, so `not recorded` and `nothing` are different cells. The fourth is a state the archive has never held: `warnings` is `[]` in all five records, so the block that lists them is written and tested against the case nobody has seen. Verified by hand on 2026-09-10 with a sixth record staged in the working tree - a moved unit, two warnings, no pictures - which made both tests red, rendered the entry it should, and was then removed.
 
+### 35. `falsify` cannot tell a red scenario from a build that failed
+
+A mutation is reported as caught when the scenario's process exits non-zero. Several scenarios build and publish from this working tree in their Background, so a mutation that does not COMPILE makes that build fail, the scenario go red, and `falsify` print `✓ caught by scenario X` — for a reading in which the scenario never ran a step of its own.
+
+Seen on 2026-09-10 while writing the step 0 mutations. `Shell.tsx`'s `const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE` was mutated to `const path = DEFAULT_ROUTE`, which narrows `path` to the literal `"/"`; `path === "/service"` two lines down then stops compiling, `bun run build` fails inside the Background, and the scenario is red on `build failed:`. The mutation now in `scripts/falsify.ts` moves the same behaviour into `router.ts`, where it compiles, and says so in a comment.
+
+**What it costs.** Every mutation of a file the matrix compiles is suspect in the same way, and the report gives a reader no way to tell. The ones aimed at `src/server/` are safe — the server is not rebuilt by a scenario — and the ones aimed at `src/web/` are not.
+
+**The fix is small.** `runScenario` already reads the runner's output to count how many scenarios matched; it can read it again for `build failed:` and `publish failed:` and refuse the reading rather than counting it, the same way a `--grep` matching nothing is refused today. Not built: it wants a fixture that produces the state on purpose, and the state is a compile error, which no committed source can hold.
+
 ### 31. Claims that need a second unit
 
 Clearing the slate to one sub-app took the subject away from four readings. `PLAN.md` step 0 then removed that sub-app, and the losses below are what going from one to none cost on top. None of these claims is wrong; each has nothing to measure. `PLAN.md` steps 1, 4, 5, 9 and 10 restore them.

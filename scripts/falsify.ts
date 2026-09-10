@@ -948,12 +948,20 @@ const MUTATIONS: Mutation[] = [
     scenario: "The page names no bundle beyond the frame's own",
   },
   {
-    // The frame drawing the landing view whatever the sidenav was asked for.
-    // The page renders, the URL moves, and every other check stays green.
-    name: "the frame draws the landing view whatever the route says",
-    file: "src/web/shell/Shell.tsx",
-    find: "  const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE;",
-    replace: "  const path = DEFAULT_ROUTE;",
+    // The router pushing the URL and forgetting to tell the view. The address
+    // bar moves, the sidenav marks the link it was given, and the frame goes on
+    // drawing the landing view - a page that looks entirely correct until you
+    // read the heading.
+    //
+    // NOT `const path = DEFAULT_ROUTE` in Shell.tsx, which was tried first: it
+    // narrows `path` to the literal "/", so `path === "/service"` stops
+    // compiling and `bun run build` fails inside the scenario's Background.
+    // The scenario does go red, and for a reason that has nothing to do with
+    // its quality - see TODO §35.
+    name: "the router moves the URL and not the view",
+    file: "src/web/shell/router.ts",
+    find: '  history.pushState(null, "", path);\n  route.value = path;',
+    replace: '  history.pushState(null, "", path);',
     scenario: "Moving between views draws each one and fetches nothing",
     live: true,
     browser: true,
