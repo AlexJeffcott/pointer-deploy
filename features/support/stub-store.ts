@@ -65,7 +65,7 @@ export function manifestDoc(
 /**
  * A channel history the origin will accept, one earlier id per unit.
  *
- * Opt-in on purpose. A history is what turns the version switcher on, so every
+ * Opt-in on purpose. A history is what turns the override path on, so every
  * scenario that does not ask for one is asserting a page without it - and that
  * is most of them.
  */

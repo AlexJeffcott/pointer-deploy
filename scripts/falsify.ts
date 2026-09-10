@@ -183,7 +183,7 @@ const MUTATIONS: Mutation[] = [
   },
   {
     // The half a sunset would be wrong on. One operator working through the
-    // version switcher, counted as visitors, reads as an old unit still in use
+    // query string, counted as visitors, reads as an old unit still in use
     // by people - which is exactly the finding that stops it being removed.
     name: "every response is counted as an operator's override",
     file: "src/server/index.ts",
@@ -233,7 +233,7 @@ const MUTATIONS: Mutation[] = [
     // The same wiring at the boundary the local scenarios cannot reach: the
     // stub store holds no history, so nothing @local can make an override
     // happen. @live, and it is the only check that an operator's own request
-    // is separated where a real history and a real switcher are involved.
+    // is separated where a real history and a real override are involved.
     name: "an operator's own choice is counted as a visitor's",
     file: "src/server/index.ts",
     find: "      overridden,\n    });",
@@ -373,7 +373,7 @@ const MUTATIONS: Mutation[] = [
   },
   {
     // A history entry dropped for a unit that STAYS retires a build the floor
-    // is deliberately keeping - the switcher stops offering something whose
+    // is deliberately keeping - an override stops reaching something whose
     // files are still there.
     name: "history entries are dropped whether or not the unit goes",
     file: "scripts/retention.ts",
@@ -529,23 +529,13 @@ const MUTATIONS: Mutation[] = [
     unitTest: "a different SubApp half refuses even when every member fits",
   },
   {
-    // §11, at the boundary a visitor crosses: choosing a shell this image
+    // §11, at the boundary a visitor crosses: asking for a shell this image
     // cannot feed must be refused, not rendered.
     name: "a shell this server cannot feed is served anyway",
     file: "src/server/composition.ts",
     find: "if (typeof blocks === \"string\") return blocks;",
     replace: "if (false) return blocks;",
-    scenario: "Choosing a shell this server cannot feed is refused",
-    live: true,
-  },
-  {
-    // And the control: an option that cannot be chosen must say so, or an
-    // operator finds out by being refused.
-    name: "the switcher offers a shell this server cannot feed",
-    file: "src/server/composition.ts",
-    find: "          typeof blocks === \"string\" ||",
-    replace: "          false ||",
-    scenario: "A shell this server cannot feed is offered and disabled",
+    scenario: "A shell this server cannot feed is refused",
     live: true,
   },
   {
@@ -553,8 +543,8 @@ const MUTATIONS: Mutation[] = [
     // shell 606c1c3c on 2026-08-28. Nothing covered it then.
     name: "a block field is renamed",
     file: "src/server/blocks.ts",
-    find: "  live: boolean;",
-    replace: "  alive: boolean;",
+    find: "  channel: string;",
+    replace: "  chanel: string;",
     unitTest: "matches the surface it is derived from",
   },
   {
@@ -609,9 +599,8 @@ const MUTATIONS: Mutation[] = [
   },
   // --- choosing a version --------------------------------------------------
   //
-  // The switcher lets a visitor compose the page themselves, so two of its
-  // three guards are about what it must REFUSE, and the third is about the
-  // record it offers from.
+  // A query string lets an operator compose the page themselves, so its guards
+  // are about what it must REFUSE, and about the record it composes from.
 
   {
     // Without this the query string is a way to make this origin serve any
@@ -624,37 +613,10 @@ const MUTATIONS: Mutation[] = [
     live: true,
   },
   {
-    // The same rule promote applies, applied where a visitor chooses. Without
-    // it the switcher offers a composition promote would have refused.
-    name: "the switcher offers a composition with no shared contract",
-    file: "src/server/composition.ts",
-    find:
-      "          disabled:\n" +
-      "            typeof blocks === \"string\" ||\n" +
-      "            typeof api === \"string\" ||\n" +
-      "            compositionRefusal(\n" +
-      "              { ...chosenContracts, [unit]: e.contracts },\n" +
-      "              { ...chosenSurfaces, [unit]: e.surface },\n" +
-      "            ) !== null,",
-    // Every term is kept and the whole reading is thrown away, so the mutant
-    // still typechecks under noUnusedLocals and still offers everything.
-    replace:
-      "          disabled:\n" +
-      "            false &&\n" +
-      "            (typeof blocks === \"string\" ||\n" +
-      "              typeof api === \"string\" ||\n" +
-      "              compositionRefusal(\n" +
-      "                { ...chosenContracts, [unit]: e.contracts },\n" +
-      "                { ...chosenSurfaces, [unit]: e.surface },\n" +
-      "              ) !== null),",
-    scenario: "A unit that cannot be composed with the rest is offered and disabled",
-    live: true,
-  },
-  {
-    // The switcher must never cost a visitor a wait. A manifest is worth
+    // An override must never cost a visitor a wait. A manifest is worth
     // waiting for on a cold cache, because without one there is no page; the
-    // history is not, because without it the page is the one that was served
-    // before the switcher existed.
+    // history is not, because without it the page is the one the channel
+    // points at.
     name: "a cold version history makes the visitor wait for the store",
     file: "src/server/index.ts",
     find: "      const channelHistory = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));",
@@ -673,13 +635,13 @@ const MUTATIONS: Mutation[] = [
     live: true,
   },
   {
-    // A switcher offering only what the channel has served cannot show a build
+    // An override limited to what the channel has served cannot reach a build
     // before it is deployed, which is the one thing an operator wants of it.
-    name: "the switcher forgets every build the channel never served",
+    name: "an override forgets every build the channel never served",
     file: "src/server/composition.ts",
     find: "  if (catalogue === null) return history;",
     replace: "  if (catalogue !== null || catalogue === null) return history;",
-    scenario: "The page offers a build that was published and never promoted",
+    scenario: "A build that was published and never promoted can be asked for",
     live: true,
   },
   {
@@ -695,7 +657,7 @@ const MUTATIONS: Mutation[] = [
   {
     // The catalogue is read on the same request and carries the same rule. It
     // is worth less to a visitor than the history is, because a visitor who
-    // never opens the switcher never looks at it.
+    // never asks for an override never looks at it.
     name: "a cold unit catalogue makes the visitor wait for the store",
     file: "src/server/index.ts",
     find: "              catalogues.peek(CATALOGUE_URL),",
@@ -708,13 +670,13 @@ const MUTATIONS: Mutation[] = [
     scenario: "A visitor whose channel has a history is not made to wait for the catalogue",
   },
   {
-    // A history that kept only what is live would make the switcher a control
-    // with one option, which is not a switcher.
+    // A history that kept only what is live would leave an override with one
+    // id to name, which is the id already being served.
     name: "a channel's history keeps only what it serves now",
     file: "scripts/promote.ts",
     find: "    ].slice(0, HISTORY_DEPTH);",
     replace: "    ].slice(0, 1);",
-    scenario: "The page offers every unit the channel has served",
+    scenario: "Asking for an older unit serves it and moves no channel",
     live: true,
   },
 
@@ -844,14 +806,6 @@ const MUTATIONS: Mutation[] = [
     scenario: "The page assembles from five bundles under its own policy",
     live: true,
     browser: true,
-  },
-  {
-    name: "the page does not say how long a unit has been served",
-    file: "src/server/composition.ts",
-    find: "        const since = entries[i + 1]?.supersededAt;",
-    replace: "        const since = undefined;",
-    scenario: "The page says how long the unit it serves has been served",
-    live: true,
   },
   {
     name: "the shell is served with no content policy",
@@ -1042,15 +996,15 @@ const MUTATIONS: Mutation[] = [
   // --- the boot prime ------------------------------------------------------
 
   {
-    // The switcher's two documents are `peek`ed on the request path, so a
-    // process that has read neither renders no switcher at all. Only a
-    // scenario that restarts the server can see it: every other one has
-    // already made a request.
+    // The two documents an override is judged against are `peek`ed on the
+    // request path, so a process that has read neither refuses every id it is
+    // asked for. Only a scenario that restarts the server can see it: every
+    // other one has already made a request.
     name: "the channel history is not read at boot",
     file: "src/server/index.ts",
     find: "  primed.push(histories.prime(historyUrl(MANIFEST_BASE, REGION, channel)));",
     replace: "",
-    scenario: "The first visitor to a machine that has just started is offered the switcher",
+    scenario: "The first visitor to a machine that has just started can still ask",
     live: true,
   },
   {
@@ -1061,7 +1015,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/index.ts",
     find: "await Promise.all(primed);",
     replace: "void Promise.all(primed);",
-    scenario: "The first visitor to a machine that has just started is offered the switcher",
+    scenario: "The first visitor to a machine that has just started can still ask",
     live: true,
   },
   {

@@ -1,4 +1,4 @@
-import type { AppAssets, BuildInfo, VersionOption } from "@pointer/blocks";
+import type { AppAssets, BuildInfo } from "@pointer/blocks";
 import type { ComposedUnit, Manifest } from "./manifest.ts";
 import type { Target } from "./origins.ts";
 
@@ -164,8 +164,8 @@ export function contentSecurityPolicy(m: Manifest, apiBase = ""): string {
   // The one host §13 names, and nothing else. The store is where every script
   // comes from, so it must not also be somewhere a compromised unit may send
   // anything, and the page's own origin needs no allowance: the server merges
-  // the unit catalogue and renders the switcher's options into the page, so
-  // nothing on it fetches `/units`, §25.
+  // the unit catalogue and judges an override itself, so nothing on the page
+  // fetches `/units`, §25.
   const service = serviceOrigin(apiBase);
   return [
     "default-src 'none'",
@@ -204,12 +204,7 @@ function preloadLinks(m: Manifest): string {
   return tags.map((t) => `\n    ${t}`).join("");
 }
 
-export function renderShell(
-  m: Manifest,
-  target: Target,
-  versions?: Record<string, VersionOption[]>,
-  apiBase = "",
-): string {
+export function renderShell(m: Manifest, target: Target, apiBase = ""): string {
   const { js, css } = assetUrls(m);
   const apps = appUrls(m);
   const digest = shellDigests(m);
@@ -220,10 +215,6 @@ export function renderShell(
   const appsTag = Object.keys(apps).length
     ? `\n    <script type="application/json" id="__APPS__">${jsonBlock(apps)}</script>`
     : "";
-  const versionsTag =
-    versions && Object.keys(versions).length
-      ? `\n    <script type="application/json" id="__VERSIONS__">${jsonBlock(versions)}</script>`
-      : "";
   const styleTag =
     css === null ? "" : `\n    <link rel="stylesheet" href="${attr(css)}"${sri(digest.css)} />`;
 
@@ -236,20 +227,15 @@ export function renderShell(
   </head>
   <body>
     <div id="app"></div>
-    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target, apiBase))}</script>${appsTag}${versionsTag}
+    <script type="application/json" id="__BUILD__">${jsonBlock(buildInfo(m, target, apiBase))}</script>${appsTag}
     <script type="module" src="${attr(js)}"${sri(digest.js)}></script>${preloadLinks(m)}
   </body>
 </html>
 `;
 }
 
-export function shellResponse(
-  m: Manifest,
-  target: Target,
-  versions?: Record<string, VersionOption[]>,
-  apiBase = "",
-): Response {
-  return new Response(renderShell(m, target, versions, apiBase), {
+export function shellResponse(m: Manifest, target: Target, apiBase = ""): Response {
+  return new Response(renderShell(m, target, apiBase), {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store, must-revalidate",

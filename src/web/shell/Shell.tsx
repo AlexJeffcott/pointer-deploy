@@ -3,66 +3,10 @@ import type { ShellStore } from "./api.ts";
 import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
 import { navigate, route } from "./router.ts";
-import { chooseVersion, readVersions, servedFor, type VersionOption } from "./versions.ts";
 import { DEFAULT_ROUTE, VIEWS } from "./views.ts";
 import styles from "./Shell.module.css";
 
 const apps: AppMap = readAppMap();
-const versions = readVersions();
-
-function optionLabel(o: VersionOption): string {
-  const name = o.marker ? `${o.unitId} (${o.marker})` : o.unitId;
-  if (o.disabled) return `${name} - no shared contract`;
-  return o.live ? `${name} - live` : name;
-}
-
-function UnitVersions({ unit, options }: { unit: string; options: VersionOption[] }) {
-  const id = `version-${unit}`;
-  const current = options.find((o) => o.current);
-  return (
-    <span class={styles.version}>
-      <label for={id}>{unit}</label>
-      <select
-        id={id}
-        data-version-select={unit}
-        value={current?.unitId}
-        onChange={(e: Event) => {
-          const wanted = (e.currentTarget as HTMLSelectElement).value;
-          const option = options.find((o) => o.unitId === wanted);
-          if (option) chooseVersion(unit, option);
-        }}
-      >
-        {options.map((o) => (
-          <option key={o.unitId} value={o.unitId} disabled={o.disabled && !o.current}>
-            {optionLabel(o)}
-          </option>
-        ))}
-      </select>
-      {current?.since ? (
-        <span
-          class={styles.age}
-          data-serving-since={current.since}
-          title={`serving since ${current.since}`}
-        >
-          {servedFor(current.since)}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-function Versions() {
-  const units = Object.keys(versions);
-  if (units.length === 0) return null;
-  return (
-    <div class={styles.versions} data-versions>
-      <span class={styles.versionsLabel}>Serving</span>
-      {units.map((unit) => (
-        <UnitVersions key={unit} unit={unit} options={versions[unit]!} />
-      ))}
-    </div>
-  );
-}
 
 function Tab({ path, label }: { path: string; label: string }) {
   const current = route.value === path;
@@ -147,8 +91,6 @@ export function Shell({ store }: { store: ShellStore }) {
           <Tab key={path} path={path} label={v.title} />
         ))}
       </nav>
-
-      <Versions />
 
       <p class={styles.footnote} style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
         {view.note}

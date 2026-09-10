@@ -6,7 +6,6 @@ import {
   currentIds,
   historyUrl,
   mergeKnown,
-  optionsFor,
   parseHistory,
   refuseComposition,
   surfaceOf,
@@ -54,9 +53,9 @@ const handedOut = createServedLog();
 // Every document a request reads, read once before the port opens.
 //
 // Waited for, and that is the whole point: the history and the catalogue are
-// `peek`ed on the request path, so a process that has not read them yet renders
-// a page with NO version switcher on it. Firing these and not waiting leaves
-// exactly that race, because the first request beats the store.
+// `peek`ed on the request path, so a process that has not read them yet refuses
+// every override it is asked for. Firing these and not waiting leaves exactly
+// that race, because the first request beats the store.
 //
 // The wait costs the first visitor nothing they were not already paying: it is
 // their own request that woke this machine, and without this they would wait on
@@ -110,7 +109,7 @@ const server = Bun.serve({
     // The bucket answers no LIST to a browser and no LIST to a script without a
     // key, so the one object that stands for that LIST is served here. This is
     // the reading an operator takes, or a script with no store key. The page
-    // takes none: it is served the switcher's options already merged.
+    // takes none.
     if (pathname === "/units") {
       const catalogue = await catalogues.get(CATALOGUE_URL);
       if (!catalogue) return text("the unit catalogue is not available", 503);
@@ -131,7 +130,6 @@ const server = Bun.serve({
     }
 
     let served = manifest;
-    let versions: Record<string, ReturnType<typeof optionsFor>[string]> | undefined;
     let shellSurface: UnitSurface | undefined;
     let overridden = false;
     const serves = (API_BASE ? apiVersions?.peek(apiVersionsUrl(API_BASE)) : null) ?? undefined;
@@ -139,7 +137,7 @@ const server = Bun.serve({
       const channelHistory = histories.peek(historyUrl(MANIFEST_BASE, target.region, target.channel));
       // What this channel has served, plus every published build. `peek` never
       // makes a visitor wait on the store, so a catalogue that is not there yet
-      // costs the switcher entries and costs the page nothing.
+      // costs an override its target and costs the page nothing.
       //
       // The suite's own channels take a build the harness made; a real channel
       // does not, which is the rule `promote` applies at deploy time applied
@@ -169,13 +167,12 @@ const server = Bun.serve({
           if (refusal) return text(`that composition cannot be served: ${refusal}`, 400);
           served = compose(manifest, history, chosen);
         }
-        versions = optionsFor(history, chosen, ids, BLOCKS, serves);
         shellSurface = surfaceOf(history, "shell", chosen.shell ?? ids.shell ?? "");
       }
     }
 
     const state = manifests.stateOf(url);
-    const res = shellResponse(served, target, versions, API_BASE);
+    const res = shellResponse(served, target, API_BASE);
     res.headers.set("x-manifest-age", state.ageMs === null ? "never" : String(state.ageMs));
     res.headers.set("x-manifest-refresh", state.lastError ?? "ok");
     const blocks = blockRefusal(BLOCKS, shellSurface);

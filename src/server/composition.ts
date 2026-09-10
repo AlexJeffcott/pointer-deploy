@@ -1,7 +1,4 @@
-import type { VersionOption } from "@pointer/blocks";
 import type { ComposedUnit, ManifestV3 } from "./manifest.ts";
-
-export type { VersionOption } from "@pointer/blocks";
 
 export type UnitSurface = {
   provides?: Record<string, string>;
@@ -46,9 +43,9 @@ export type ChannelHistory = {
  *
  * It is a `ChannelHistory` on purpose, and not a shape of its own: a catalogue
  * is a history whose scope is the store rather than one channel. That identity
- * is what lets `refuseComposition`, `compose` and `optionsFor` read it without
- * knowing which of the two they were handed, so the switcher gained every
- * published build without one new rule about how a composition is judged.
+ * is what lets `refuseComposition` and `compose` read it without knowing which
+ * of the two they were handed, so an override gained every published build
+ * without one new rule about how a composition is judged.
  *
  * The catalogue is DERIVED. `publish` rebuilds it from a LIST of `units/`
  * rather than appending to it, so a write lost to a crash or to two publishers
@@ -295,47 +292,6 @@ export function currentIds(m: ManifestV3): Record<string, string> {
     shell: m.shell.unitId,
     ...Object.fromEntries(Object.entries(m.apps).map(([n, a]) => [n, a.unitId])),
   };
-}
-
-export function optionsFor(
-  history: ChannelHistory,
-  chosen: Record<string, string>,
-  live: Record<string, string>,
-  provided: Record<string, string> = {},
-  serves?: string[],
-): Record<string, VersionOption[]> {
-  const chosenContracts = contractsChosen(history, chosen);
-  const chosenSurfaces = surfacesChosen(history, chosen);
-
-  return Object.fromEntries(
-    Object.entries(history.units).map(([unit, entries]) => [
-      unit,
-      entries.map((e, i) => {
-        const blocks = unit === "shell" ? blockRefusal(provided, e.surface) : null;
-        const api = unit === "shell" ? apiRefusal(serves, e.surface) : null;
-        // The entry below this one stopped being served at the promote that put
-        // this one at the head, so its stamp IS this one's start. Nothing else
-        // records that moment - a publish is not a promote, and the manifest
-        // holds only what is served now.
-        const since = entries[i + 1]?.supersededAt;
-        return {
-          unitId: e.unit.unitId,
-          marker: e.unit.marker ?? "",
-          current: chosen[unit] === e.unit.unitId,
-          live: live[unit] === e.unit.unitId,
-          deployed: live[unit] === e.unit.unitId,
-          ...(since ? { since } : {}),
-          disabled:
-            typeof blocks === "string" ||
-            typeof api === "string" ||
-            compositionRefusal(
-              { ...chosenContracts, [unit]: e.contracts },
-              { ...chosenSurfaces, [unit]: e.surface },
-            ) !== null,
-        };
-      }),
-    ]),
-  );
 }
 
 export function refuseComposition(

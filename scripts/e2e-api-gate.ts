@@ -15,7 +15,7 @@
 // `pointer-deploy-api` and puts it back, including after a failure - which is
 // what the `finally` is for. While the service answers only v2, a visitor to a
 // real channel still gets a page: the channel's own pointer is never refused,
-// only an override is, and only the switcher's shell option is greyed out.
+// only an override is.
 // `dist/` is left holding the build this ran.
 
 const CHANNEL = "test-qa";
@@ -74,16 +74,8 @@ const request = async (path: string): Promise<{ status: number; api: string; bod
 
 const visit = () => request("/");
 
-/** What the switcher says about one shell id on that page. */
-const optionFor = (body: string, unitId: string): { disabled?: boolean } | undefined => {
-  const m = /id="__VERSIONS__">(.*?)<\/script>/s.exec(body);
-  if (!m) return undefined;
-  const doc = JSON.parse(m[1]!) as Record<string, Array<{ unitId: string; disabled?: boolean }>>;
-  return doc.shell?.find((o) => o.unitId === unitId);
-};
-
 /**
- * Waits for the origin to report a state, because the version document is
+ * Waits for the origin to report a state, because the discovery document is
  * cached there and a service that has just restarted is not read instantly.
  */
 async function until(want: (state: string) => boolean, why: string): Promise<string> {
@@ -161,8 +153,8 @@ try {
 
   const fed = await until((s) => s === "ok", "the origin to read the service");
   check("the origin reports the shell as one the service can feed", fed === "ok", fed);
-  const enabled = optionFor((await visit()).body, shellId);
-  check("and the switcher offers it", enabled?.disabled === false, JSON.stringify(enabled));
+  const allowed = await request(`/?shell=${olderShell}`);
+  check("and an override onto the older shell is allowed", allowed.status === 200, `status ${allowed.status}`);
 
   // --- the fourth schedule moves, and nothing here does --------------------
 
@@ -174,16 +166,12 @@ try {
 
   const page = await visit();
   check("a visitor still receives the page", page.status === 200, `status ${page.status}`);
-  const greyed = optionFor(page.body, shellId);
-  check("the switcher no longer lets that shell be chosen", greyed?.disabled === true, JSON.stringify(greyed));
-  const greyedOlder = optionFor(page.body, olderShell);
-  check("nor the one before it", greyedOlder?.disabled === true, JSON.stringify(greyedOlder));
 
   // The channel's own pointer is served whatever the service says, and only an
   // override is refused. Both halves are asserted, because a gate that refused
   // the pointer would take the site down over a fourth deploy.
   const chosen = await request(`/?shell=${olderShell}`);
-  check("choosing one of them is refused", chosen.status === 400, `status ${chosen.status}`);
+  check("an override onto one of them is refused", chosen.status === 400, `status ${chosen.status}`);
   check("and the refusal names the version", chosen.body.includes("v1"), chosen.body.slice(0, 200));
 
   // --- and back ------------------------------------------------------------

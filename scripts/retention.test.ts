@@ -50,7 +50,7 @@ describe("which files a sweep may remove", () => {
     expect(reasonFor(result, "units/alpha/aaaa1111")).toBe("served");
   });
 
-  test("a unit the switcher still offers stays", () => {
+  test("a unit an override can still reach stays", () => {
     const result = plan({
       objects: [object("units/alpha/aaaa1111/index.js", 400)],
       histories: [
@@ -108,7 +108,7 @@ describe("which files a sweep may remove", () => {
     ]);
   });
 
-  // The drop exists so the switcher cannot offer a build whose files are gone.
+  // The drop exists so an override cannot reach a build whose files are gone.
   // Dropping one whose files STAY would retire a build the floor is keeping.
   test("a history entry is kept when the floor keeps its unit", () => {
     const result = plan({

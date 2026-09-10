@@ -26,9 +26,9 @@ Given("the server's copy of the manifest is older than its refresh interval", as
   await pastTtl();
 });
 
-// A history turns the version switcher on, and with it the one place the
-// origin reads the unit catalogue while a visitor is waiting. Without it that
-// branch never runs, so nothing local could tell a `peek` there from a `get`.
+// A history turns the override path on, and with it the one place the origin
+// reads the unit catalogue while a visitor is waiting. Without it that branch
+// never runs, so nothing local could tell a `peek` there from a `get`.
 Given("the {word} channel has served an earlier build", function (this: PointerWorld, channel: string) {
   this.stub!.pointHistory(this.storeChannel(channel as Channel), historyDoc(this.idsOf("alpha")));
 });

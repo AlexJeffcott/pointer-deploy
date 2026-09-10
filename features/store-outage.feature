@@ -32,11 +32,11 @@ Feature: Serving through a store outage
 
   @local
   Scenario: A visitor whose channel has a history is not made to wait for the catalogue
-    The switcher's options are merged from the channel's history and the unit
+    What an override may name is merged from the channel's history and the unit
     catalogue, on the request path. The catalogue is `peek`ed and never awaited,
-    so a catalogue that is missing or slow costs the switcher entries and costs
-    the visitor nothing. Nothing else can see the difference: without a history
-    that branch does not run at all.
+    so a catalogue that is missing or slow costs an override its target and
+    costs the visitor nothing. Nothing else can see the difference: without a
+    history that branch does not run at all.
 
     Given the qa channel has served an earlier build
     And a visitor has already loaded the qa origin

@@ -253,8 +253,8 @@ for (const unit of wanted) {
 //
 // It cannot stop a publish. The units are already up and immutable at this
 // point, and the catalogue is derived from them - so a failure here costs the
-// switcher and `bun run units` the newest entries until the next publish, and
-// costs a visitor nothing.
+// an override and `bun run units` the newest entries until the next publish,
+// and costs a visitor nothing.
 //
 // Every publish, including one the harness made, because the catalogue lists
 // every published unit and the server decides which of them a channel may

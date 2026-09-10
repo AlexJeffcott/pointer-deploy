@@ -23,11 +23,6 @@ Feature: Serving the application shell from the live manifest
     Then the shell reports the age of the manifest it was rendered from
     And the shell reports that its last refresh worked
 
-  @live
-  Scenario: The deployed origin offers the builds the channel has served
-    When a visitor loads the qa origin
-    Then the page offers a version switcher for every unit
-
   @live @local
   Scenario: The server holds no application files of its own
     When a visitor requests an application asset path from the qa origin

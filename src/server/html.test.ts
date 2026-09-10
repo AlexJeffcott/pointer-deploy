@@ -85,16 +85,16 @@ describe("where the page is told the service is", () => {
   });
 
   test("a server that names one writes it, under both schemas", () => {
-    expect(buildBlock(renderShell(v2, TARGET, undefined, "https://api.test"))).toMatchObject({
+    expect(buildBlock(renderShell(v2, TARGET, "https://api.test"))).toMatchObject({
       apiBase: "https://api.test",
     });
-    expect(buildBlock(renderShell(v1, TARGET, undefined, "https://api.test"))).toMatchObject({
+    expect(buildBlock(renderShell(v1, TARGET, "https://api.test"))).toMatchObject({
       apiBase: "https://api.test",
     });
   });
 
   test("the response carries what the page was rendered with", async () => {
-    const page = await shellResponse(v2, TARGET, undefined, "https://api.test").text();
+    const page = await shellResponse(v2, TARGET, "https://api.test").text();
     expect(buildBlock(page)).toMatchObject({ apiBase: "https://api.test" });
     expect(buildBlock(await shellResponse(v2, TARGET).text())).not.toHaveProperty("apiBase");
   });
@@ -358,7 +358,7 @@ describe("a composition carrying digests", () => {
       // server that told the page where the service is forbade it in the same
       // breath. Every unit test passed and the browser refused the fetch.
       const header =
-        shellResponse(signed, TARGET, undefined, "https://api.test").headers.get(
+        shellResponse(signed, TARGET, "https://api.test").headers.get(
           "content-security-policy",
         ) ?? "";
       expect(directiveOf(header, "connect-src")).toBe("https://api.test");
@@ -394,41 +394,6 @@ test("a composition with no digests renders and is still restricted", () => {
   expect(JSON.parse(/<script type="importmap">(.*?)<\/script>/s.exec(html)![1]!).integrity).toBeUndefined();
   expect(csp).toContain("default-src 'none'");
   expect(csp).toContain("https://store.test");
-});
-
-describe("the versions block", () => {
-  const options = {
-    shell: [
-      { unitId: "s1", marker: "", current: true, live: true, deployed: true, disabled: false },
-      { unitId: "s0", marker: "beta", current: false, live: false, deployed: false, disabled: true },
-    ],
-  };
-
-  test("carries every option the server computed", () => {
-    const html = renderShell(v2, TARGET, options);
-    const block = /id="__VERSIONS__">(.*?)<\/script>/s.exec(html)?.[1];
-    expect(JSON.parse(block!)).toEqual(options);
-  });
-
-  test("is absent when the server sent no options", () => {
-    expect(renderShell(v2, TARGET)).not.toContain("__VERSIONS__");
-  });
-
-  test("is absent when the options are empty rather than missing", () => {
-    expect(renderShell(v2, TARGET, {})).not.toContain("__VERSIONS__");
-  });
-
-  test("does not change what the page is allowed to load", () => {
-    expect(shellResponse(v2, TARGET, options).headers.get("content-security-policy")).toBe(
-      shellResponse(v2, TARGET).headers.get("content-security-policy"),
-    );
-  });
-
-  test("the response carries the block the render put there", () => {
-    expect(shellResponse(v2, TARGET, options).headers.get("content-type")).toBe(
-      "text/html; charset=utf-8",
-    );
-  });
 });
 
 describe("preloading the apps a navigation would need", () => {

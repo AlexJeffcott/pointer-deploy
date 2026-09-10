@@ -12,7 +12,7 @@ Feature: Counting which compositions the origin has handed out
     And the qa origin is asked what it has served
     Then it names the composition of build "alpha" on the qa channel
     And it has handed that composition out 1 time
-    And none of those responses came from the version switcher
+    And none of those responses was an operator override
 
   @local
   Scenario: Two visitors of one composition are one row, not two

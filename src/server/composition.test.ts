@@ -12,7 +12,6 @@ import {
   historyUrl,
   memberRefusal,
   mergeKnown,
-  optionsFor,
   parseHistory,
   refuseComposition,
   sharedContracts,
@@ -232,23 +231,23 @@ describe("parseHistory", () => {
 
 describe("the block gate", () => {
   const WRITES = {
-    "VersionOption.live": "l1",
-    "VersionOption.unitId": "u1",
+    "BuildInfo.channel": "l1",
+    "BuildInfo.buildId": "u1",
     "AppAssets.js": "j1",
   };
 
   test("a shell reading only what this server writes is served", () => {
-    expect(blockRefusal(WRITES, { blocks: { "VersionOption.live": "l1" } })).toBeNull();
+    expect(blockRefusal(WRITES, { blocks: { "BuildInfo.channel": "l1" } })).toBeNull();
   });
 
   test("a field this server does not write refuses, and names it", () => {
-    const refusal = blockRefusal(WRITES, { blocks: { "VersionOption.deployed": "d1" } });
-    expect(refusal).toContain("VersionOption.deployed");
+    const refusal = blockRefusal(WRITES, { blocks: { "BuildInfo.region": "d1" } });
+    expect(refusal).toContain("BuildInfo.region");
     expect(refusal).toContain("does not write");
   });
 
   test("a field this server writes differently refuses", () => {
-    const refusal = blockRefusal(WRITES, { blocks: { "VersionOption.live": "l2" } });
+    const refusal = blockRefusal(WRITES, { blocks: { "BuildInfo.channel": "l2" } });
     expect(refusal).toContain("writes differently");
   });
 
@@ -258,18 +257,18 @@ describe("the block gate", () => {
   });
 
   test("a server with no reading of its own judges nothing", () => {
-    expect(blockRefusal({}, { blocks: { "VersionOption.live": "l1" } })).toContain("does not write");
+    expect(blockRefusal({}, { blocks: { "BuildInfo.channel": "l1" } })).toContain("does not write");
     expect(blockRefusal({}, {})).toBeUndefined();
   });
 
   test("two fields wrong are reported as two", () => {
     expect(
       blockRefusal(WRITES, {
-        blocks: { "VersionOption.deployed": "d1", "VersionOption.live": "l2" },
+        blocks: { "BuildInfo.region": "d1", "BuildInfo.channel": "l2" },
       }),
     ).toBe(
-      "that shell reads VersionOption.deployed, which this server does not write; " +
-        "that shell reads VersionOption.live, which this server writes differently",
+      "that shell reads BuildInfo.region, which this server does not write; " +
+        "that shell reads BuildInfo.channel, which this server writes differently",
     );
   });
 
@@ -282,42 +281,21 @@ describe("the block gate", () => {
           {
             unit: unit("shell", "s1"),
             contracts: ["c1"],
-            surface: { blocks: { "VersionOption.live": "l1" } },
+            surface: { blocks: { "BuildInfo.channel": "l1" } },
           },
         ],
         alpha: [
           {
             unit: unit("alpha", "a1"),
             contracts: ["c1"],
-            surface: { blocks: { "VersionOption.deployed": "d1" } },
+            surface: { blocks: { "BuildInfo.region": "d1" } },
           },
         ],
       },
     };
-    const chosen = { shell: "s1", alpha: "a1" };
-    const options = optionsFor(h, chosen, chosen, WRITES);
-    expect(options.shell![0]!.disabled).toBe(false);
-    expect(options.alpha![0]!.disabled).toBe(false);
+    expect(refuseComposition(h, { shell: "s1", alpha: "a1" }, WRITES)).toBeNull();
   });
 
-  test("the switcher greys out a shell this server cannot feed", () => {
-    const history: ChannelHistory = {
-      schema: 1,
-      updatedAt: "2026-08-29T00:00:00.000Z",
-      units: {
-        shell: [
-          { unit: unit("shell", "s2"), contracts: ["c1"], surface: { blocks: { "VersionOption.live": "l1" } } },
-          { unit: unit("shell", "s1"), contracts: ["c1"], surface: { blocks: { "VersionOption.deployed": "d1" } } },
-          { unit: unit("shell", "s0"), contracts: ["c1"] },
-        ],
-      },
-    };
-    const options = optionsFor(history, { shell: "s2" }, { shell: "s2" }, WRITES);
-    const by = (id: string) => options.shell!.find((o) => o.unitId === id)!;
-    expect(by("s2").disabled).toBe(false);
-    expect(by("s1").disabled).toBe(true);
-    expect(by("s0").disabled).toBe(false);
-  });
 });
 
 describe("the API gate", () => {
@@ -349,25 +327,6 @@ describe("the API gate", () => {
     expect(apiRefusal(undefined, undefined)).toBeUndefined();
   });
 
-  test("the switcher greys out a shell the service cannot feed", () => {
-    const h: ChannelHistory = {
-      schema: 1,
-      updatedAt: "2026-08-29T00:00:00.000Z",
-      units: {
-        shell: [
-          { unit: unit("shell", "s2"), contracts: ["c1"], surface: { api: ["v1"] } },
-          { unit: unit("shell", "s1"), contracts: ["c1"], surface: { api: ["v0"] } },
-          { unit: unit("shell", "s0"), contracts: ["c1"] },
-        ],
-      },
-    };
-    const options = optionsFor(h, { shell: "s2" }, { shell: "s2" }, {}, ["v1"]);
-    const by = (id: string) => options.shell!.find((o) => o.unitId === id)!;
-    expect(by("s2").disabled).toBe(false);
-    expect(by("s1").disabled).toBe(true);
-    expect(by("s0").disabled).toBe(false);
-  });
-
   test("only the shell is judged on the API", () => {
     const h: ChannelHistory = {
       schema: 1,
@@ -377,10 +336,7 @@ describe("the API gate", () => {
         alpha: [{ unit: unit("alpha", "a1"), contracts: ["c1"], surface: { api: ["v9"] } }],
       },
     };
-    const chosen = { shell: "s1", alpha: "a1" };
-    const options = optionsFor(h, chosen, chosen, {}, ["v1"]);
-    expect(options.shell![0]!.disabled).toBe(false);
-    expect(options.alpha![0]!.disabled).toBe(false);
+    expect(refuseComposition(h, { shell: "s1", alpha: "a1" }, {}, ["v1"])).toBeNull();
   });
 
   test("refuseComposition refuses a chosen shell the service cannot feed", () => {
@@ -455,113 +411,6 @@ describe("parseHistory carries the member reading", () => {
   });
 });
 
-describe("optionsFor", () => {
-  const stamped: ChannelHistory = {
-    schema: 1,
-    updatedAt: "2026-08-31T12:00:00.000Z",
-    units: {
-      shell: [
-        { unit: unit("shell", "s2"), contracts: ["c2"] },
-        { unit: unit("shell", "s1"), contracts: ["c2"], supersededAt: "2026-08-31T11:00:00.000Z" },
-        { unit: unit("shell", "s0"), contracts: ["c2"], supersededAt: "2026-08-30T09:00:00.000Z" },
-      ],
-    },
-  };
-  const stampedOptions = () => optionsFor(stamped, { shell: "s2" }, { shell: "s2" }).shell ?? [];
-
-  test("says when the unit being served started being served", () => {
-    expect(stampedOptions()[0]?.since).toBe("2026-08-31T11:00:00.000Z");
-  });
-
-  test("each older option carries its own start, not the channel's", () => {
-    expect(stampedOptions().map((o) => o.since)).toEqual([
-      "2026-08-31T11:00:00.000Z",
-      "2026-08-30T09:00:00.000Z",
-      undefined,
-    ]);
-  });
-
-  test("the oldest entry a channel keeps says nothing, because nothing recorded it", () => {
-    expect(stampedOptions()[2]).not.toHaveProperty("since");
-  });
-
-  test("a build the catalogue contributed says nothing either", () => {
-    const merged = mergeKnown(stamped, {
-      schema: 1,
-      updatedAt: "t",
-      units: { shell: [{ unit: unit("shell", "s9"), contracts: ["c2"] }] },
-    });
-    const options = optionsFor(merged, { shell: "s2" }, { shell: "s2" }).shell ?? [];
-    expect(options.find((o) => o.unitId === "s9")).not.toHaveProperty("since");
-  });
-
-  test("marks what the page shows and what the channel serves now", () => {
-    const options = optionsFor(history, served, served);
-    expect(options.shell?.map((o) => [o.unitId, o.current, o.live])).toEqual([
-      ["s1", true, true],
-      ["s0", false, false],
-    ]);
-  });
-
-  test("current and live separate once a choice is made", () => {
-    const options = optionsFor(history, { ...served, shell: "s0" }, served);
-    expect(options.shell?.map((o) => [o.unitId, o.current, o.live])).toEqual([
-      ["s1", false, true],
-      ["s0", true, false],
-    ]);
-  });
-
-  test("disables an option that leaves no shared contract", () => {
-    const options = optionsFor(history, served, served);
-    expect(options.shell?.map((o) => [o.unitId, o.disabled])).toEqual([
-      ["s1", false],
-      ["s0", true],
-    ]);
-  });
-
-  test("the same option is allowed once the rest of the composition moves", () => {
-    const options = optionsFor(history, { ...served, alpha: "a0" }, served);
-    expect(options.shell?.map((o) => [o.unitId, o.disabled])).toEqual([
-      ["s1", false],
-      ["s0", false],
-    ]);
-  });
-
-  test("an entry with no marker reads as no marker", () => {
-    const bare = {
-      schema: 1 as const,
-      updatedAt: "t",
-      units: { shell: [{ unit: { ...unit("shell", "s1"), marker: undefined } as unknown as ComposedUnit, contracts: ["c2"] }] },
-    };
-    expect(optionsFor(bare, { shell: "s1" }, { shell: "s1" }).shell?.[0]?.marker).toBe("");
-  });
-
-  test("carries the old name of live, with the same value", () => {
-    for (const o of optionsFor(history, { ...served, shell: "s0" }, served).shell ?? []) {
-      expect(`${o.unitId} deployed=${o.deployed}`).toBe(`${o.unitId} deployed=${o.live}`);
-    }
-    expect(optionsFor(history, served, served).shell?.[0]?.deployed).toBe(true);
-    expect(optionsFor(history, served, served).shell?.[1]?.deployed).toBe(false);
-  });
-
-  test("carries the marker a build was labelled with", () => {
-    const marked: ChannelHistory = {
-      ...history,
-      units: { shell: [{ unit: unit("shell", "s1", { marker: "beta" }), contracts: ["c2"] }] },
-    };
-    expect(optionsFor(marked, { shell: "s1" }, { shell: "s1" }).shell?.[0]?.marker).toBe("beta");
-  });
-
-  test("an id the history does not hold supports nothing, so every option is refused", () => {
-    const options = optionsFor(history, { ...served, alpha: "gone" }, served);
-    expect(options.shell?.every((o) => o.disabled)).toBe(true);
-  });
-
-  test("a history naming no units offers nothing", () => {
-    expect(optionsFor({ schema: 1, updatedAt: "t", units: {} }, served, served)).toEqual({});
-  });
-});
-
 describe("refuseComposition", () => {
   test("allows what the channel serves", () => {
     expect(refuseComposition(history, served)).toBeNull();
@@ -590,15 +439,15 @@ describe("refuseComposition", () => {
           {
             unit: unit("shell", "s1"),
             contracts: ["c1"],
-            surface: { blocks: { "VersionOption.deployed": "d1" } },
+            surface: { blocks: { "BuildInfo.region": "d1" } },
           },
         ],
       },
     };
-    expect(refuseComposition(h, { shell: "s1" }, { "VersionOption.live": "l1" })).toBe(
-      "that shell reads VersionOption.deployed, which this server does not write",
+    expect(refuseComposition(h, { shell: "s1" }, { "BuildInfo.channel": "l1" })).toBe(
+      "that shell reads BuildInfo.region, which this server does not write",
     );
-    expect(refuseComposition(h, { shell: "s1" }, { "VersionOption.deployed": "d1" })).toBeNull();
+    expect(refuseComposition(h, { shell: "s1" }, { "BuildInfo.region": "d1" })).toBeNull();
   });
 
   test("refuses a composition with no contract in common", () => {
@@ -749,41 +598,6 @@ describe("the member gate", () => {
     expect(decidesMembers(undefined, app(ALPHA))).toBe(false);
   });
 
-  test("the switcher offers what promote would allow", () => {
-    const { "ShellStore.setName": _gone, ...smaller } = FULL;
-    const withSurfaces: ChannelHistory = {
-      schema: 1,
-      updatedAt: "2026-08-29T00:00:00.000Z",
-      units: {
-        shell: [
-          { unit: unit("shell", "s2"), contracts: ["c9"], surface: shell(smaller) },
-          { unit: unit("shell", "s1"), contracts: ["c1"], surface: shell(FULL) },
-        ],
-        bravo: [{ unit: unit("bravo", "b0"), contracts: ["c1"], surface: app(BRAVO) }],
-      },
-    };
-    const options = optionsFor(withSurfaces, { shell: "s2", bravo: "b0" }, { shell: "s2", bravo: "b0" });
-    expect(options.shell!.find((o) => o.unitId === "s2")!.disabled).toBe(false);
-    expect(options.shell!.find((o) => o.unitId === "s1")!.disabled).toBe(false);
-  });
-
-  test("the switcher greys out a shell that dropped a member in use", () => {
-    const { "ShellStore.reset": _gone, ...noReset } = FULL;
-    const withSurfaces: ChannelHistory = {
-      schema: 1,
-      updatedAt: "2026-08-29T00:00:00.000Z",
-      units: {
-        shell: [
-          { unit: unit("shell", "s2"), contracts: ["c9"], surface: shell(noReset) },
-          { unit: unit("shell", "s1"), contracts: ["c9"], surface: shell(FULL) },
-        ],
-        bravo: [{ unit: unit("bravo", "b0"), contracts: ["c9"], surface: app(BRAVO) }],
-      },
-    };
-    const options = optionsFor(withSurfaces, { shell: "s1", bravo: "b0" }, { shell: "s1", bravo: "b0" });
-    expect(options.shell!.find((o) => o.unitId === "s2")!.disabled).toBe(true);
-    expect(options.shell!.find((o) => o.unitId === "s1")!.disabled).toBe(false);
-  });
 });
 
 describe("compose", () => {
@@ -932,14 +746,6 @@ describe("mergeKnown", () => {
     );
   });
 
-  test("the switcher offers a build that was published and never promoted", () => {
-    const options = mergeKnown(history, catalogue);
-    expect(optionsFor(options, served, served).alpha?.map((o) => o.unitId)).toEqual([
-      "a1",
-      "a0",
-      "a9",
-    ]);
-  });
 });
 
 describe("parseHistory of a catalogue", () => {

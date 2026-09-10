@@ -271,7 +271,7 @@ export async function readMembers(surface: Surface, apps: Unit[]): Promise<Membe
  * Which fields of the server-to-shell blocks the SHELL actually reads, §11.
  *
  * The same question as the contract's, one boundary out. The server writes
- * `__BUILD__`, `__APPS__` and `__VERSIONS__`; the shell reads part of them; and
+ * `__BUILD__` and `__APPS__`; the shell reads part of them; and
  * the two are separate deploys, so "part" is the whole of what can be said
  * safely. A field the shell never reads can be renamed freely, and a field it
  * does read cannot be - which is the rule §11 had written in a comment.

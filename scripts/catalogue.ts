@@ -175,7 +175,7 @@ export function catalogueFrom(read: (Read | null)[]): Omit<BuiltCatalogue, "scan
     (units[r.name] ??= []).push(r.entry);
   }
 
-  // Newest publish first, so the switcher and the printed table both read
+  // Newest publish first, so the merged history and the printed table both read
   // top-down. The id breaks a tie, so two units published in the same
   // millisecond do not swap places between two rebuilds of the same store.
   for (const list of Object.values(units)) {

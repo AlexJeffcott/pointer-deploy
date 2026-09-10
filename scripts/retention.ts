@@ -35,7 +35,7 @@ export type HistoryReading = {
   region: string;
   /** When the history was last written. The last promote on that channel. */
   updatedAt: string;
-  /** Unit name to its entries, newest first, exactly as the switcher offers them. */
+  /** Unit name to its entries, newest first, exactly as the server merges them. */
   units: Record<string, Array<{ unitId: string; contracts: string[]; supersededAt?: string }>>;
 };
 
@@ -108,7 +108,7 @@ export function retentionPlan(input: PlanInput): RetentionPlan {
     newest.set(group, Math.max(newest.get(group) ?? 0, ms));
   }
 
-  // What a channel still offers through the switcher, and when a channel last
+  // What an override on a channel can still reach, and when a channel last
   // stopped serving something.
   const offered = new Set<string>();
   const stopped = new Map<string, number>();
@@ -156,7 +156,7 @@ export function retentionPlan(input: PlanInput): RetentionPlan {
   }
 
   // A history entry is dropped only for a unit whose files this plan removes.
-  // The drop exists so the switcher cannot offer a build whose files are gone;
+  // The drop exists so an override cannot reach a build whose files are gone;
   // dropping one whose files STAY would retire a build the floor is deliberately
   // keeping, which is the opposite of what the floor is for.
   const historyDrops: HistoryDrop[] = [];

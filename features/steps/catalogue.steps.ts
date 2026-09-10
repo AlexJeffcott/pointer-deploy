@@ -5,7 +5,7 @@ import {
   PROPAGATION_WINDOW_MS,
   PointerWorld,
   run,
-  versionsInShell,
+  unitIdsInShell,
 } from "../support/world.ts";
 import { UNITS, type Unit } from "../../scripts/contract.ts";
 import { CATALOGUE_KEY, readCatalogue } from "../../scripts/catalogue.ts";
@@ -58,7 +58,7 @@ Then(
     const text = await getObjectText(configFromEnv(), this.historyKey(channel as Channel));
     // A channel records what it PROMOTED. A unit that was only published is the
     // discriminating case: a catalogue read off the histories would miss it,
-    // and so would a switcher that had only the histories to offer from.
+    // and so would an override that had only the histories to compose from.
     expect(`${want} in the history: ${(text ?? "").includes(want)}`).toBe(
       `${want} in the history: false`,
     );
@@ -92,21 +92,22 @@ Then("it re-read none of the published units", function () {
   expect(read ? `read ${read[1]}` : `no reading in ${JSON.stringify(line)}`).toBe("read 0");
 });
 
-Then("the page offers that {string} unit", async function (this: PointerWorld, app: string) {
+When("a visitor asks the {word} origin for that {string} unit", async function (this: PointerWorld, channel: string, app: string) {
   const want = idOfNew(app);
-  // The catalogue reaches the page through two caches, the same two a promote
+  // The catalogue reaches the server through two caches, the same two a promote
   // goes through: the store's 5 s on the object and the server's manifest TTL.
+  // Until it arrives the id is one this channel cannot serve, and the request
+  // is refused.
   const started = Date.now();
-  let offered: string[] = [];
   while (Date.now() - started < PROPAGATION_WINDOW_MS + 15_000) {
-    await this.visit("qa");
-    offered = (versionsInShell(this.lastBody)[app] ?? []).map((o) => o.unitId);
-    if (offered.includes(want)) break;
+    await this.visit(channel as Channel, `/?${app}=${want}`);
+    if (this.lastResponse?.status === 200) break;
     await Bun.sleep(500);
   }
-  expect(
-    offered.includes(want)
-      ? "offered"
-      : `${want} is absent after ${Date.now() - started} ms; offered ${offered.join(", ") || "nothing"}`,
-  ).toBe("offered");
+});
+
+Then("the page runs that {string} unit", function (this: PointerWorld, app: string) {
+  const want = idOfNew(app);
+  expect(`status ${this.lastResponse?.status}`).toBe("status 200");
+  expect(`${app}=${unitIdsInShell(this.lastBody)[app as Unit]}`).toBe(`${app}=${want}`);
 });

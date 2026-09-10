@@ -36,7 +36,7 @@ Then("it has handed that composition out {int} time(s)", function (this: Pointer
   expect(row.responses).toBe(times);
 });
 
-Then("none of those responses came from the version switcher", function (this: PointerWorld) {
+Then("none of those responses was an operator override", function (this: PointerWorld) {
   const row = this.lastNamed;
   if (!row) throw new Error("no step has named a composition yet");
   expect(row.overrides).toBe(0);

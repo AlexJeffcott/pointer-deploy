@@ -484,9 +484,9 @@ if (!argv.includes("--no-warm")) {
 //
 // The history is written BEFORE its pointer, and is never allowed to stop the
 // promote. The pointer is the deploy and it is the commit point, the same way
-// publish writes unit.json last; an index of what a switcher may offer must not
-// be able to hold a deploy hostage. A failure there is loud and costs the
-// switcher one entry until the next promote.
+// publish writes unit.json last; an index of what an override may name must not
+// be able to hold a deploy back. A failure there is loud and costs an override
+// one entry until the next promote.
 for (const r of regions) {
   const historyKey = `manifests/${r}/${channelArg}.history.json`;
   try {
@@ -524,9 +524,9 @@ for (const r of regions) {
         {
           unit: served,
           contracts: manifests.get(unit)!.contracts ?? [],
-          // The switcher applies the same gate as this script, so it needs the
-          // same reading. Without it every option would fall back to the contract
-          // sets and be greyed out for the reason §9 removed.
+          // The server applies the same gate as this script, so it needs the
+          // same reading. Without it every override would fall back to the
+          // contract sets and be refused for the reason §9 removed.
           surface: surfacesByUnit[unit] ?? {},
         },
         ...older,
@@ -541,7 +541,7 @@ for (const r of regions) {
     console.error(
       `  WARNING the ${r} version history was not written: ${err instanceof Error ? err.message : String(err)}`,
     );
-    console.error(`  The deploy is unaffected. The switcher will not offer this build until the next promote.`);
+    console.error(`  The deploy is unaffected. No override can name this build until the next promote.`);
   }
 
   await putObject(cfg, pointerFor(r), new TextEncoder().encode(`${JSON.stringify(composition, null, 2)}\n`), {

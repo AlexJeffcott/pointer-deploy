@@ -19,7 +19,7 @@
 // out.
 //
 // A history entry is dropped only for a unit whose files are actually deleted:
-// the drop exists so the switcher cannot offer a build whose files are gone,
+// the drop exists so an override cannot reach a build whose files are gone,
 // and dropping one whose files stay would retire a build the floor is keeping.
 //
 // legacy/ is exempt and the sweep refuses to run if anything under it reaches
@@ -132,8 +132,8 @@ console.error(
     `${under("builds/")} under builds/, ${under("probe/")} under probe/`,
 );
 console.error(
-  `${counts.served} unit directories are being served and ${counts.offered} are still offered ` +
-    `by a switcher.`,
+  `${counts.served} unit directories are being served and ${counts.offered} can still be ` +
+    `reached by an override.`,
 );
 console.error(
   `The ${floorDays}-day floor holds ${counts.young} written since ${plan.cutoff} and ` +

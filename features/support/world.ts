@@ -110,26 +110,6 @@ export function appScriptUrls(html: string): Record<string, string> {
   }
 }
 
-export type ServedOption = {
-  unitId: string;
-  marker: string;
-  current: boolean;
-  live: boolean;
-  deployed: boolean;
-  disabled: boolean;
-  since?: string;
-};
-
-export function versionsInShell(html: string): Record<string, ServedOption[]> {
-  const m = /id="__VERSIONS__">(.*?)<\/script>/s.exec(html);
-  if (!m?.[1]) return {};
-  try {
-    return JSON.parse(m[1]) as Record<string, ServedOption[]>;
-  } catch {
-    return {};
-  }
-}
-
 export function assetUrlsInShell(html: string): { js: string | null; css: string | null } {
   return {
     js: /<script type="module" src="([^"]+)"/.exec(html)?.[1] ?? null,
