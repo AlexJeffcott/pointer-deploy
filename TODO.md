@@ -18,7 +18,7 @@ Open items and what is done. Read this first after a context clear.
 | | |
 | --- | --- |
 | Live | <https://pointer-deploy.fly.dev/> |
-| Fly app | `pointer-deploy`, one machine, region `ams` |
+| Fly app | `pointer-deploy`, two machines since §3: `ams` started, `iad` stopped under `auto_stop_machines`. `min_machines_running = 1` holds `ams` up, and the stopped machine's check reads `the machine hasn't started`, which is that and not a fault |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
 | Units | two: `shell` and `hello` |
