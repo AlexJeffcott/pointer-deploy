@@ -826,10 +826,20 @@ removed `VersionOption` and its seven fields, and every shell already in a
 channel's history reads them. `bun run blocks:record` prints the warning and
 writes anyway. What it costs is what the rule predicts:
 
-| Which shell | What happens now |
+| On a channel whose shell reads those fields | What happens |
 | --- | --- |
-| the one the channel points at, built before the removal | served, with `x-shell-blocks` naming the fields, until a newer shell is promoted |
-| any older shell, asked for by query string | 400. A rollback by query string reaches only shells built after the removal |
+| a visitor asking for nothing | served. `blockRefusal` refuses an override and never a pointer, and `x-shell-blocks` names the fields |
+| an override naming only a sub-app | **400.** The composition's shell is the CHANNEL's shell unless the query string names another one, so the gate refuses a request that never mentioned the shell |
+| an override naming a shell built after the removal | served. Every unit in that composition postdates the change |
+
+The middle row is the one that was measured rather than reasoned about, on
+2026-09-10, by `bun run e2e:preview` against the real store. It was written here
+first as *a rollback reaches only shells built after the removal*, which is true
+and is not the whole reading: until a channel's own shell moves, EVERY
+composition on it is refused, including one that names a sub-app and nothing
+else. The window closes at the next shell promote to that channel. `prod` is not
+in it at all - its shell records no block surface, so there is nothing to
+compare and the gate returns `unread`.
 
 That is the price of the removal and not a surprise from it. It is the same
 reading §11 was built to take, taken against a change made deliberately rather
@@ -860,6 +870,63 @@ was built with, and the intersection stays non-empty.
 That last row used to read *refused, correctly*, and it was neither. See
 **Compatible, not identical**.
 
+### A pull request gets one of these URLs
+
+The catalogue holds every published unit, so a build nobody promoted is already
+reachable in principle. What decides whether a channel will reach for it is the
+unit's **marker**, and the answer is one predicate:
+
+| Channel | Takes from the catalogue |
+| --- | --- |
+| `test-qa`, `test-prod` | every marker. This is where the suites promote |
+| `qa` | unmarked, and `pr-<digits>` |
+| `prod` | unmarked only |
+
+`admitsMarker` in `origins.ts` is the whole policy, and `prod` is its
+fallthrough on purpose: a channel added later lands on the strictest rule and
+has to be named to get any other one. CI builds a pull request with
+`BUILD_MARKER=pr-<number>`, publishes, and prints one URL per unit it changed.
+A unit the query string does not name keeps following the channel, so a preview
+of one sub-app is that sub-app against everything qa serves today.
+
+**A preview can be looked at and can never be deployed.** `promote` refuses any
+non-empty marker on a channel that is not `test-*`, and refuses it before it
+contacts the store. That refusal is older than this and was not changed for it:
+a `pr-` build is refused there exactly like a build the harness made.
+
+**Nothing else was built.** The link lives as long as the retention floor, 90
+days, because a unit no channel has served is held by the floor and by nothing
+else. The composition is judged by the same five refusals. The reviewer is
+marked `overridden` in the served log rather than counted as a visitor. The
+catalogue is `peek`ed, so a preview costs no visitor a wait.
+
+**It is not a feature flag**, and the difference is worth being plain about,
+because the query string looks like one. A flag picks a branch for a visitor who
+did not choose it; this picks a bundle for a visitor who typed the URL. There is
+no cohort and no percentage, and adding one would put product state in the thing
+that serves the pointer. This repository already has a flag channel and it is
+the **service**: `store.flags()` reads `showShares`, `showTotals` and `compact`
+from `GET /settings`, which an operator changes with no unit rebuilt and no
+image deployed. The other kind of flag - the one that exists only because a
+release is all-or-nothing - is what the per-unit deploy replaces.
+
+**What proves it.** Ten `@local` scenarios in
+`features/previewing-a-pull-request.feature`, six `falsify` mutations that
+loosen or tighten the predicate by one step each, and `bun run e2e:preview`,
+which builds and publishes a marked unit to the real store and then asks a
+server reading that store for it. The scenarios hand the server a catalogue this
+repository wrote; only the script makes a marker a fact the way a publish does,
+and on its first run it corrected a claim this file was making about §11.
+
+**One window, and it is not this item's.** A preview naming ONLY a sub-app is
+composed against the channel's own shell, so while that shell reads a block this
+server no longer writes, §11 refuses it - see the table in **The other surface**
+above. A preview naming its own shell as well is unaffected, because every unit
+in that composition came out of the same build. `e2e:preview` reads the two
+apart and reports the first as UNDECIDED rather than failed, the way `falsify`
+reports a mutation nobody ran: it is a state a promote closes, not a defect
+anybody reading this can fix.
+
 ## One record of every published unit
 
 Every publish writes `units/<name>/<id>/unit.json`, so the store has always held the whole list. Nothing could read it: a browser cannot LIST a bucket, and a script that can would still be answering the question one key at a time. So `publish` also writes `units/catalogue.json` - every published unit, grouped by name, newest publish first.
@@ -884,7 +951,7 @@ alpha    a3bba92a  2026-08-28  b2c81542        e0160a6
 
 **The catalogue is a `ChannelHistory`.** Not a shape of its own - the same shape a channel's version history has, because a catalogue *is* a history whose scope is the store rather than one channel. `refuseComposition` and `compose` therefore read it without knowing which of the two they were handed, and an override gained every published build without one new rule about how a composition is judged.
 
-**Which of them a channel may serve is a different question.** The catalogue lists every published unit, marker and all: 112 of the 129 units in the live store on 2026-08-31 were the harness's, and a record that leaves out 87% of what was published is not the record of what was published. `mergeKnown` answers the other half, where the channel is known - a marked unit reaches a `test-*` channel and no other, which is the rule `promote` applies at deploy time applied again where a visitor chooses. `bun run units` hides them for the same reason and by a different mechanism.
+**Which of them a channel may serve is a different question.** The catalogue lists every published unit, marker and all: 112 of the 129 units in the live store on 2026-08-31 were the harness's, and a record that leaves out 87% of what was published is not the record of what was published. `mergeKnown` answers the other half, where the channel is known, which is the rule `promote` applies at deploy time applied again where a visitor chooses. `bun run units` hides marked units for the same reason and by a different mechanism.
 
 **What this changed for an override.** What it could name used to come from the channel's history alone, which is 20 promotes deep and holds nothing that was never promoted. So the one thing an operator wanted of it - look at a build *before* deploying it - was the one thing it could not do. Measured against the live store on 2026-08-31: the qa channel's history held 2 shell builds, and the catalogue took that to 7, of which the member gate refuses 2.
 
@@ -1365,6 +1432,7 @@ bun run e2e                # deploy one app, deploy another, roll the first back
 bun run e2e:members        # drop a member, and refuse only the app that used it
 bun run e2e:deprecation    # mint a successor, mark the old contract, read what both commands say
 bun run e2e:schema         # retire a field, change four more, and read what the page does with no unit rebuilt
+bun run e2e:preview        # publish a pull request's build and ask the qa origin for it, §30
 bun run measure:preload    # what warming a sub-app's files buys, with a control
 bun run mutate             # Stryker over the server logic
 ```

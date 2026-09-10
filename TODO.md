@@ -423,6 +423,48 @@ state lives.
 
 ## Done
 
+- **A pull request gets a URL.** Was §30, done on 2026-09-10. `mergeKnown`'s
+  third argument goes from `allowMarked: boolean` to a predicate on the marker,
+  and `admitsMarker` in `origins.ts` is the whole policy: `test-*` takes every
+  marker, `qa` takes `pr-<digits>` as well as none, `prod` is the strict
+  fallthrough so a channel added later has to be named to get anything looser.
+  Nothing else moved - `promote` already refused every marker on a real channel,
+  the catalogue already listed every published unit, the floor already held a
+  unit no channel served, and `overridden` already separated an operator from a
+  visitor.
+
+  | Check | Result |
+  | --- | --- |
+  | `bun test` | 447 pass |
+  | `bun run verify` | 55 @local, up from 44 |
+  | `bun run falsify` | 65 of 93 run, each caught, 28 skipped |
+  | `bun run e2e:preview` | SUCCESS against the real store |
+
+  **The script earned its place on its first run.** Everything above was green
+  and the artefact was red, which is the whole argument for writing one: a
+  preview naming only a sub-app is composed against the CHANNEL's shell, and
+  while that shell reads a block this server no longer writes, §11 refuses it.
+  The entry above had the price of that removal written as *a rollback reaches
+  only shells built after it* - true, and not the whole reading. It is corrected
+  there. The script now reads the two asks apart: a preview naming its own shell
+  must be served, and one naming a sub-app alone is reported UNDECIDED while the
+  channel's shell predates the removal.
+
+  Not built, and named rather than left to be discovered: the server image is
+  not previewable this way - the query string swaps units, so a pull request
+  against `src/server` needs its own machine - and nothing on the page says it
+  is a preview, because saying so means shipping a shell to say it and the shell
+  is the unit most often being previewed.
+
+  **Not a feature flag.** A flag picks a branch for a visitor who did not choose
+  it; this picks a bundle for a visitor who typed the URL. No cohort, no
+  percentage, and adding either would put product state in the thing that serves
+  the pointer. The flag channel here is the SERVICE - `store.flags()` reads
+  `showShares`, `showTotals` and `compact` from `GET /settings`, changed with no
+  unit rebuilt and no image deployed. What the per-unit deploy replaces is the
+  other kind of flag, the one that exists only because a release is
+  all-or-nothing.
+
 - **The version switcher is removed.** Done on 2026-09-10. The `select` per unit
   was a front end for the query string, and the query string is the part that
   matters, so the control and everything built only to feed it went: 798 lines
@@ -456,10 +498,17 @@ state lives.
   and writes anyway. The reading moved with it: 19 members written by the server
   and 10 read by this shell, to 13 and 6.
 
-  | Which shell | What happens now |
+  | On a channel whose shell reads those fields | What happens |
   | --- | --- |
-  | the one the channel points at, built before the removal | served. `blockRefusal` refuses an override and never a pointer, so `x-shell-blocks` names the fields until a newer shell is promoted |
-  | any older shell, asked for by query string | 400. A rollback by query string reaches only shells built after the removal |
+  | a visitor asking for nothing | served. `blockRefusal` refuses an override and never a pointer, and `x-shell-blocks` names the fields |
+  | an override naming only a sub-app | **400.** The composition's shell is the CHANNEL's shell unless the query string names another, so the gate refuses a request that never mentioned the shell |
+  | an override naming a shell built after the removal | served |
+
+  The middle row was corrected on 2026-09-10 by `bun run e2e:preview`, which
+  measured it against the real store. It was written here first as *a rollback
+  reaches only shells built after the removal* - true, and not the whole
+  reading. The window closes at the next shell promote to a channel. `prod` is
+  not in it: its shell records no block surface, so the gate returns `unread`.
 
   That is the price and not a surprise: it is the same reading §11 was built to
   take, taken against a change made on purpose.
