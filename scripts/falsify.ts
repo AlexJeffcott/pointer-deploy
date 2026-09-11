@@ -1321,12 +1321,13 @@ const MUTATIONS: Mutation[] = [
 
   // --- `PLAN.md` step 3, the planner as one file ----------------------------
   //
-  // Seven of the thirteen are @local, which is the difference from step 2.
-  // Every rule about what a DOCUMENT is holds in a pure function, so
-  // `bun run falsify` - the command in the checklist - runs seven of these on
-  // every run rather than reporting all thirteen as skipped. The six that need
+  // Nine of the sixteen are @local, which is the difference from step 2. Every
+  // rule about what a DOCUMENT is holds in a pure function, so
+  // `bun run falsify` - the command in the checklist - runs nine of these on
+  // every run rather than reporting all sixteen as skipped. The seven that need
   // a browser are the ones about the page and the transaction: a file written
-  // to disk, a file chosen from disk, and a write the database gives up on.
+  // to disk, a file chosen from disk, a view drawn before the planner is read,
+  // and a write the database gives up on.
 
   {
     // A file from another application is read as a planner. `schemaVersion` and
@@ -1407,6 +1408,40 @@ const MUTATIONS: Mutation[] = [
     unitTest: "the tags are copied rather than held",
   },
 
+  {
+    // The id stops being read. Every other field is still checked, so a file is
+    // still refused for a missing title - and the rule the `tx.abort()` guard
+    // in `planner.ts` rests on is gone: a task with no id reaches
+    // `IDBObjectStore.put`, which is keyed on it.
+    name: "a task with no id is read as a task",
+    file: "src/web/shell/document.ts",
+    find: '  for (const field of ["id", "title", "column", "createdAt"] as const) {',
+    replace: '  for (const field of ["title", "column", "createdAt"] as const) {',
+    unitTest: "a task with no id is refused, and the field is named",
+  },
+  {
+    // One id twice, accepted. The page draws both tasks and says every task was
+    // replaced; `tasks` is keyed on `id`, so the database holds one. Nothing
+    // reports the difference and it only shows on the next visit.
+    name: "one id twice is read as two tasks",
+    file: "src/web/shell/document.ts",
+    find: "    if (first !== undefined) {",
+    replace: "    if (false) {",
+    unitTest: "two tasks carrying one id are refused, and both places are named",
+  },
+  {
+    // The view counts and exports a planner it has not read. `/backup` is in
+    // the shell bundle and is landable directly, so it draws on the first
+    // paint, and the file an export writes there is a valid planner holding
+    // nothing.
+    name: "the backup view counts a planner it has not read",
+    file: "src/web/shell/Shell.tsx",
+    find: '  const unread = planner.state === "unread";',
+    replace: "  const unread = false;",
+    scenario: "A cold landing on the backup view neither counts nor exports",
+    live: true,
+    browser: true,
+  },
   {
     // The file is written, downloaded and empty. A scenario that only checked
     // that a download happened would pass, which is why the step reads the

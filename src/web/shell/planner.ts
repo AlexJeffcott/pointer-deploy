@@ -108,12 +108,17 @@ export async function openPlanner(): Promise<Planner> {
         meta.put({ key: "writtenAt", value: new Date().toISOString() } satisfies MetaRow);
       } catch (e) {
         // A request that throws as it is QUEUED leaves the clear queued and
-        // everything after it unqueued, and the transaction then COMMITS an
-        // empty store - the one outcome one transaction exists to prevent. An
-        // unclonable value is the reachable way in, and `PLAN.md` step 3 hands
-        // this an array a file supplied. So the transaction is aborted by hand
-        // and the caller is told, rather than the planner being emptied
-        // quietly.
+        // everything after the throw unqueued, and the transaction then COMMITS
+        // what it holds: the clear, plus whatever was put before the throw.
+        // That is neither the planner that was there nor the one the caller
+        // asked for, which is the outcome one transaction exists to prevent.
+        //
+        // NOTHING REACHABLE THROWS HERE. `readDocument` requires a non-empty
+        // string id and rebuilds every field as a primitive, so neither a bad
+        // key nor a failed structured clone can happen, and `addTask` mints its
+        // own ids. This is the second line if that id rule ever loosens.
+        // `backing-up-the-planner.feature` arranges the throw to hold it and
+        // says in the Rule that the moment is arranged rather than met.
         tx.abort();
         throw e;
       }
