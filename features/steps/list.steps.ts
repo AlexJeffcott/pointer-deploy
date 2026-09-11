@@ -83,16 +83,34 @@ When("they take {string} off the list", async function (this: PointerWorld, titl
 });
 
 /**
- * The reload, and the whole of `PLAN.md` step 1's "in memory only".
+ * The reload, and what `PLAN.md` step 2 measures with it.
  *
  * `page.reload()` rather than a fresh context on purpose: the same tab, the
- * same origin and the same storage the browser would keep. Step 2 puts the
- * planner in IndexedDB and this scenario is what has to change then.
+ * same origin and the same storage the browser would keep. At step 1 this ended
+ * the planner; from step 2 it is how the planner is shown to survive, and a
+ * fresh profile - `openSecondBrowser` - is what shows the other half.
+ *
+ * The wait is on the panel having drawn its LIST and not merely its section.
+ * Reading IndexedDB is asynchronous, so a step that returned at the first paint
+ * would hand the next one a panel still saying it was reading.
  */
 When("they load the page again", async function (this: PointerWorld) {
   const page = this.browserPage;
+  // Not a settling delay, and not politeness to the harness. Writing is
+  // asynchronous: measured on 2026-09-11, a task added and the page reloaded in
+  // the same ten milliseconds was gone, because the transaction was still open
+  // when the browser took the page away. What survives a reload is what was
+  // STORED, so this waits for the page's own reading that there is nothing left
+  // to store - and a reload that beats that window is TODO §40, which this step
+  // is deliberately not measuring.
+  await page.waitForFunction(
+    () => document.documentElement.dataset.plannerPending !== "yes",
+    undefined,
+    { timeout: 10_000 },
+  );
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector(`${PANEL} section`, { timeout: 20_000 });
+  await page.waitForSelector(`${PANEL} [data-memory-note]`, { timeout: 20_000 });
 });
 
 Then("the list holds no tasks", async function (this: PointerWorld) {
@@ -159,13 +177,5 @@ Then(
   },
 );
 
-Then(
-  "the panel says the tasks are kept in this page alone",
-  async function (this: PointerWorld) {
-    const said = await this.browserPage.$eval(
-      `${PANEL} [data-memory-note]`,
-      (n) => n.textContent?.replace(/\s+/g, " ").trim() ?? "",
-    );
-    expect(said).toBe("These tasks are kept in this page alone. A reload starts again with none.");
-  },
-);
+// The note at the foot of the panel is read by `planner.steps.ts`. It says one
+// of two sentences from `PLAN.md` step 2 onwards, and which one is the reading.

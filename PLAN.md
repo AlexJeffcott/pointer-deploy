@@ -150,15 +150,17 @@ Database `pointer-planner`, owned by the shell.
 
 ### Opening it
 
-The shell opens with **no version first**, reads `db.version`, and then decides. Opening at a fixed version against a database that is already newer raises `VersionError`, and the shell must never be in a position to do that.
+The shell ends up opening with **no version first**, reading `db.version`, and then deciding. Opening at a fixed version against a database that is already newer raises `VersionError`, and the shell must never be in a position to do that.
 
-| Stored version | What the shell does |
-| --- | --- |
-| equal to what this shell expects | uses it |
-| lower | closes, reopens at the expected version, runs the forward upgrade |
-| **higher** | closes it, uses no cache, says so on the page, and **leaves every byte untouched** |
+| Stored version | What the shell does | Built at |
+| --- | --- | --- |
+| equal to what this shell expects | uses it | step 2 |
+| lower | closes, reopens at the expected version, runs the forward upgrade | step 14 |
+| **higher** | closes it, uses no cache, says so on the page, and **leaves every byte untouched** | step 16 |
 
 The third row is what a rollback produces, and the requirement is that it degrades rather than fails. A shell that meets data from a newer shell is not entitled to read it and is not entitled to delete it.
+
+**The last column is the whole reason steps 15 and 16 exist, and it was nearly read the other way.** This section describes where the shell ENDS UP, and a reader taking it as the design to build at step 2 would open with no version from the start - which is strictly safer, and which would leave step 15 with no `VersionError` to produce and step 16 with nothing to fix. So step 2 opens at the one version it knows, and `src/web/shell/planner.ts` says why at `SCHEMA_VERSION`. The limit is real while it stands: a visitor who is served a rolled-back shell between step 14 and step 16 meets a page that cannot open its planner at all. Step 15 is where that is measured rather than reasoned about.
 
 ---
 
@@ -200,7 +202,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | --- | --- | --- | --- | --- |
 | 0 | 2026-09-10 | The frame: five routes, three empty, `hello` removed | A view naming no unit is legitimate, and nothing is fetched for it | rewrite `serving-the-shell` |
 | 1 | 2026-09-11 | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
-| 2 |  | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
+| 2 | 2026-09-11 | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
 | 3 |  | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
 | 4 |  | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
 | 5 |  | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
@@ -215,6 +217,22 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 14 |  | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
 | 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
 | 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+
+### What step 2 settled, and what it cost
+
+**The planner survives the page, and `list` did not change to make it.** The shell opens `pointer-planner` at version 1, reads the tasks after the first paint, and writes them back on every change. The panel draws `store.tasks()` exactly as it did at step 1 and names no database. That is the claim §15 exists for, and step 2 is the first thing that tests it: the place the tasks are KEPT moved, and the bundle that draws them was rebuilt with no change to what it draws.
+
+**One sentence on the page changed, and it is a reading rather than a claim.** Step 1's panel said the tasks were kept in this page alone. It now says one of two sentences, chosen by `PlannerReport.state`: "kept in this browser alone" when the database is open, and step 1's words when it is not. A browser that refuses IndexedDB - a private window, a blocked origin - degrades to step 1's behaviour rather than failing, and says so. Two scenarios drive that by taking `indexedDB` away before the page loads.
+
+**The first paint cannot say the planner is empty, because it does not know.** Reading the database is asynchronous and the first paint is not, so `PlannerReport.state` starts at `unread` and the panel draws neither the list nor "No tasks yet" until it moves. `The empty message waits for the planner to be read` is the scenario, and it is measured by an observer installed before navigation that records the planner's state every time an empty message is added to the page - because by the time a step could look, the page is correct and the moment has gone.
+
+**The surface grew by five declarations and the mint is additive.** `1c4a120` / `planner-stored-2026-09`: `PlannerReport`, `NO_PLANNER`, and `ShellStore.planner`, `ShellStore.setPlanner`, `ShellStore.loadTasks`. `15ed669` stays promotable, nothing published against step 1 breaks, and no channel is stranded - which is the contrast with step 1, whose mint froze `prod` and is §39. `list` uses two of the five: `ShellStore.planner` and `PlannerReport.state`. The other three are written by the shell and read by nobody else, which is what `setService` already was.
+
+**What the step cost, and it was a defect in the feature rather than in a check.** Measured against `test-qa`: a task added and the page reloaded in the same ten milliseconds was gone, because the write transaction was still open when the browser took the page away. Three reload scenarios failed on it. The fourth passed, and which one passed is the reading - `Tags survive a reload` spends 150 ms typing before it reloads, and closed the window by accident. Nothing makes the window zero: IndexedDB has no synchronous commit and `pagehide` cannot flush a transaction. So `PlannerReport.pending` says whether a change has reached the database, and `they load the page again` waits for it to clear before reloading. **No scenario measures that window**, by construction, and TODO §40 carries what would close it.
+
+**Six mutations, and the sixth said a scenario measured nothing.** `FALSIFY_LIVE=1 bun run falsify --only ...` over the six `@browser` mutations step 2 adds, on 2026-09-11: five caught, one not. `the empty message is drawn before the planner has been read` stayed green - because `list` is a separately published bundle, fetched and imported after the shell paints, so IndexedDB is always open before the panel first renders. The requirement was about a moment that does not occur in this composition, and the scenario would have passed for the rest of the project's life. The fix is an arrangement rather than a deletion: `the planner is slow to open` delays the first `indexedDB.open` by 1500 ms, the panel then renders while the planner is unread, and the scenario reads both halves - that the panel says it is reading, and that no empty message was drawn while it was. Re-run: **6 of 6 caught.** Step 4 preloads a unit off the landing route, which is where that margin starts to close without help.
+
+**A reading on how this section is written, because it nearly went the other way.** "Opening it" above describes the shell that exists at step 16, not the one step 2 builds. Taken as an instruction it would have had step 2 open with no version - safer, and it would have left step 15 with no failure to produce and step 16 with nothing to fix. The last column of that table is new, and `src/web/shell/planner.ts` says the same thing at `SCHEMA_VERSION`.
 
 ### What step 1 settled, and what it cost
 

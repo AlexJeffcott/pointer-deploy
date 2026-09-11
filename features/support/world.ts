@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
@@ -155,6 +155,16 @@ export class PointerWorld {
 
   page: Page | null = null;
   requests: string[] = [];
+
+  /**
+   * Browser contexts this world opened, beyond the one the fixture gives it.
+   *
+   * Playwright closes the fixture's context and not these, so they are held
+   * here and closed when the scenario ends. `PLAN.md` step 2 is what needs
+   * them: IndexedDB is per profile, so "in this browser and in no other" can
+   * only be measured from a second profile.
+   */
+  private extraContexts: BrowserContext[] = [];
 
   lastResponse: Response | null = null;
   lastBody = "";
@@ -814,6 +824,23 @@ export class PointerWorld {
       document.addEventListener("securitypolicyviolation", (e) => {
         seen.push(`${e.violatedDirective} ${e.blockedURI}`);
       });
+
+      // What the planner's state was every time the page said it was empty,
+      // `PLAN.md` step 2. Recorded as it happens, because the reading is about
+      // a moment that has passed by the time a step could look: a panel that
+      // draws "No tasks yet" and then fills in has already told a visitor with
+      // a full planner that it was empty, and the finished page is correct.
+      const emptied: string[] = [];
+      (globalThis as unknown as { __emptyWhen: string[] }).__emptyWhen = emptied;
+      const note = (node: Node): void => {
+        if (!(node instanceof Element)) return;
+        if (node.matches("[data-empty]") || node.querySelector("[data-empty]")) {
+          emptied.push(document.documentElement.dataset.planner ?? "unset");
+        }
+      };
+      new MutationObserver((records) => {
+        for (const record of records) for (const node of record.addedNodes) note(node);
+      }).observe(document, { childList: true, subtree: true });
     });
   }
 
@@ -821,6 +848,36 @@ export class PointerWorld {
     return this.browserPage.evaluate(
       () => (globalThis as unknown as { __refusals?: string[] }).__refusals ?? [],
     );
+  }
+
+  /** The planner's state at each moment the page drew an empty message. */
+  async emptyMessageStates(): Promise<string[]> {
+    return this.browserPage.evaluate(
+      () => (globalThis as unknown as { __emptyWhen?: string[] }).__emptyWhen ?? [],
+    );
+  }
+
+  /**
+   * A second browser profile, which every step after this one then drives.
+   *
+   * A context and not a tab. Two tabs of one profile share IndexedDB, so a
+   * scenario driven through one could not tell a stored planner from a shared
+   * one, and would pass whether or not anything was stored.
+   */
+  async openSecondBrowser(): Promise<void> {
+    const browser = this.browserPage.context().browser();
+    if (!browser) {
+      throw new Error("this page has no browser behind it, so no second one can be opened");
+    }
+    const context = await browser.newContext();
+    this.extraContexts.push(context);
+    await this.usePage(await context.newPage());
+  }
+
+  /** Closes every context this world opened. Playwright closes only its own. */
+  async closeExtraBrowsers(): Promise<void> {
+    for (const context of this.extraContexts.splice(0)) await context.close();
+    this.page = null;
   }
 
   get browserPage(): Page {

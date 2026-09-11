@@ -96,8 +96,10 @@ describe("readMembers, against the surface this repository ships", () => {
       expect(Object.keys(reading.uses.list ?? {}).sort()).toEqual([
         "FieldSunset.instead",
         "FieldSunset.sunset",
+        "PlannerReport.state",
         "ShellStore.addTask",
         "ShellStore.goingAway",
+        "ShellStore.planner",
         "ShellStore.removeTask",
         "ShellStore.setTags",
         "ShellStore.tasks",

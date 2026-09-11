@@ -44,6 +44,40 @@ export type FieldSunset = {
 export type ServiceField = { path: string; type: string; going: FieldSunset | null };
 
 /**
+ * Where the planner is kept, and whether it has been read yet, `PLAN.md` step 2.
+ *
+ * Read by `list`, which says on the page which of these it is. "unread" is a
+ * real value and not a missing one, for the same reason it is on `ServiceReport`:
+ * opening IndexedDB is asynchronous and the first paint is not, so a page that
+ * drew "No tasks yet" before the read landed would have told the visitor
+ * something false.
+ *
+ * "unstored" is a browser that refuses IndexedDB - a private window, a blocked
+ * origin, a setting. The planner still works and still holds what this page put
+ * in it; it is step 1's behaviour, and the page says so rather than failing.
+ */
+export type PlannerReport = {
+  state: "unread" | "stored" | "unstored";
+  /** The schema version this shell writes, or null while nothing is stored. */
+  schemaVersion: number | null;
+  /**
+   * Whether a change made here has still to reach the database.
+   *
+   * Writing is asynchronous and a page can be closed part-way through one.
+   * Measured on 2026-09-11: a task added and the page reloaded in the same
+   * ten milliseconds was gone, because the transaction was still open when the
+   * browser took the page away. Nothing makes that window zero - IndexedDB has
+   * no synchronous commit - so the page is given the reading instead, and
+   * anything that must know the planner is safe waits for this to be false.
+   */
+  pending: boolean;
+  /** Why the planner is not being stored, or null when it is. */
+  error: string | null;
+  /** When the planner was read, ISO. Null while it has never been read. */
+  readAt: string | null;
+};
+
+/**
  * What the page knows about the service it was told to call, §26.
  *
  * A sub-app reads this and never fetches: the shell owns the one read, the same
@@ -93,6 +127,17 @@ export type ShellStore = {
   /** Replaces the tags on one task. The rest keep theirs. */
   setTags(id: string, tags: readonly string[]): void;
   removeTask(id: string): void;
+  /**
+   * Replaces every task at once.
+   *
+   * The shell calls this with what it read out of IndexedDB and nothing else
+   * does. It is on this surface for the same reason `setService` is: the shell
+   * writes what it learned into the store the panels read, so that what the
+   * panel draws and what the planner holds stay one fact.
+   */
+  loadTasks(tasks: readonly Task[]): void;
+  planner(): PlannerReport;
+  setPlanner(report: PlannerReport): void;
   service(): ServiceReport;
   setService(report: ServiceReport): void;
   /** The sunset on one field path, or null when the service does not mark it. */
@@ -107,6 +152,15 @@ export type ShellStore = {
  * is removing rather than adding to.
  */
 const DEFAULT_COLUMN = "todo";
+
+/** A planner nothing has looked at yet. The value every page starts from. */
+export const NO_PLANNER: PlannerReport = {
+  state: "unread",
+  schemaVersion: null,
+  pending: false,
+  error: null,
+  readAt: null,
+};
 
 export const NO_SERVICE: ServiceReport = {
   base: "",
@@ -134,6 +188,7 @@ const newId = (): string => `t${(++minted).toString(36)}-${Date.now().toString(3
 export function createStore(initial: readonly Task[] = []): ShellStore {
   const tasks = signal<readonly Task[]>(initial);
   const service = signal<ServiceReport>(NO_SERVICE);
+  const planner = signal<PlannerReport>(NO_PLANNER);
 
   return {
     tasks: () => tasks.value,
@@ -155,6 +210,13 @@ export function createStore(initial: readonly Task[] = []): ShellStore {
     },
     removeTask: (id) => {
       tasks.value = tasks.value.filter((t) => t.id !== id);
+    },
+    loadTasks: (loaded) => {
+      tasks.value = [...loaded];
+    },
+    planner: () => planner.value,
+    setPlanner: (report) => {
+      planner.value = report;
     },
     service: () => service.value,
     setService: (report) => {

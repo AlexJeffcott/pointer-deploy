@@ -333,15 +333,29 @@ try {
     afterRemount,
   );
 
-  // And the other half of `PLAN.md` step 1: in memory, and nowhere else. Step 2
-  // is what makes this line change.
+  // And `PLAN.md` step 2: the planner is in IndexedDB, so the task is still
+  // there after a reload. This asserted the opposite until step 2 landed, which
+  // is what the step 1 scenario was written for.
+  //
+  // The wait before the reload is not politeness. Writing is asynchronous and a
+  // page reloaded inside the commit window loses the change - TODO §40 - so
+  // what survives a reload is what was STORED, and the page says when that is
+  // true.
+  await page.waitForFunction(
+    () => document.documentElement.dataset.plannerPending !== "yes",
+    undefined,
+    { timeout: 10_000 },
+  );
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-app="list"] section', { timeout: 30_000 });
-  const afterReload = await page.$$eval('[data-app="list"] [data-task]', (n) => n.length);
+  await page.waitForSelector('[data-app="list"] [data-memory-note]', { timeout: 30_000 });
+  const afterReload = await page.$$eval('[data-app="list"] [data-task]', (nodes) =>
+    nodes.map((n) => n.getAttribute("data-task") ?? "").join(", "),
+  );
   check(
-    "and they do not survive a reload, because IndexedDB is step 2",
-    afterReload === 0,
-    `${afterReload} task(s) came back`,
+    "and they survive a reload, because the frame keeps them in IndexedDB",
+    afterReload === "Book the ferry",
+    afterReload === "" ? "nothing came back" : afterReload,
   );
 
   heading("Take the sub-app off the channel, and put it back");

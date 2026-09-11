@@ -11,10 +11,17 @@
       "hash": "15ed669",
       "firstSeenCommit": "28f2c2cab54714d400dbf51dd6f4d78d49a399a1",
       "firstSeenAt": "2026-09-11T09:01:29.869Z"
+    },
+    {
+      "name": "planner-stored-2026-09",
+      "hash": "1c4a120",
+      "firstSeenCommit": "333c330749a20e4e9aaa7f6f07d1d768ddceb646",
+      "firstSeenAt": "2026-09-11T13:08:07.925Z"
     }
   ],
   "retained": [
     "9d1b0a3",
-    "15ed669"
+    "15ed669",
+    "1c4a120"
   ]
 }

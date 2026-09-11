@@ -1239,6 +1239,86 @@ const MUTATIONS: Mutation[] = [
     live: true,
     browser: true,
   },
+  // --- `PLAN.md` step 2, the planner in IndexedDB ----------------------------
+  //
+  // All six are `@browser`, because there is no other kind of visitor of a
+  // database in a browser. `bun run falsify` reports them as skipped and
+  // `FALSIFY_LIVE=1 bun run falsify` runs them - which is the distinction step
+  // 1 got wrong by counting the array instead of the run.
+
+  {
+    // The whole of step 2 in one cut. `write` is still called and still
+    // resolves, so `pending` clears and nothing on the page reports a failure;
+    // the tasks simply are not there on the next visit.
+    name: "the planner is never written",
+    file: "src/web/shell/planner.ts",
+    find: "      for (const task of tasks) store.put(task);",
+    replace: "      for (const task of tasks) void task;",
+    scenario: "A task is still there after a reload",
+    live: true,
+    browser: true,
+  },
+  {
+    // Read and discarded. The database is correct throughout and the page
+    // starts empty every time, which is exactly what step 1 did - so this is
+    // the mutation that says step 2 happened at all.
+    name: "the planner is read and the tasks are dropped",
+    file: "src/web/shell/index.tsx",
+    find: "    store.loadTasks(await planner.read());",
+    replace: "    await planner.read();",
+    scenario: "The order the tasks were added in survives a reload",
+    live: true,
+    browser: true,
+  },
+  {
+    // A write that adds and never removes. Every task ever typed comes back on
+    // the next visit, including the ones taken off the list, and no scenario
+    // that only ADDS can see it.
+    name: "the write adds to the database instead of replacing it",
+    file: "src/web/shell/planner.ts",
+    find: "      store.clear();",
+    replace: "      void store;",
+    scenario: "A task taken off the list stays off after a reload",
+    live: true,
+    browser: true,
+  },
+  {
+    // The first paint says the planner is empty before it has been read. Every
+    // finished page is correct, so this is caught only by the observer that
+    // records the state at the moment the message appears.
+    name: "the empty message is drawn before the planner has been read",
+    file: "src/web/apps/list/index.tsx",
+    find: '      {planner.state === "unread" ? (',
+    replace: "      {false ? (",
+    scenario: "The empty message waits for the planner to be read",
+    live: true,
+    browser: true,
+  },
+  {
+    // The page promises storage it does not have. A browser that refuses
+    // IndexedDB still works, so the only thing wrong is the sentence - which is
+    // the reason that sentence is a scenario.
+    name: "the panel claims the planner is stored whatever the frame reports",
+    file: "src/web/apps/list/index.tsx",
+    find: '          {planner.state === "stored"',
+    replace: "          {true",
+    scenario: "The panel says the planner is not being stored",
+    live: true,
+    browser: true,
+  },
+  {
+    // The version in `meta` stops describing the database it is in. Nothing a
+    // visitor does goes wrong today; `PLAN.md` step 14 reads this field to
+    // decide whether to migrate, and it would read a lie.
+    name: "the database records a schema version it was not written at",
+    file: "src/web/shell/planner.ts",
+    find: "export const SCHEMA_VERSION = 1;",
+    replace: "export const SCHEMA_VERSION = 2;",
+    scenario: "The database records the schema version it was written at",
+    live: true,
+    browser: true,
+  },
+
   {
     name: "the service accepts a greeting no page can draw",
     file: "api/service.ts",

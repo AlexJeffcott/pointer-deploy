@@ -11,7 +11,7 @@ Open items and what is done. Read this first after a context clear.
 
 **Cut back on 2026-09-10.** Every closed item's full text — its measurements, its refuted leads and its reasoning — is in git history, and `TODO.md` at `f7d2318` is the last version that carries it. The index at the bottom keeps every `§N` resolvable, because 119 references to those numbers live in `scripts/`, `src/`, `api/`, `README.md` and `PLAN.md`.
 
-**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`; step 1 added `list` on 2026-09-11, so **two** units remain: the shell draws five views and `/` places `list`. A unit name in the index below is a name that was true at the time.
+**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`; step 1 added `list` on 2026-09-11 and step 2 put the planner in IndexedDB the same day, so **two** units remain: the shell draws five views, `/` places `list`, and the tasks are in a database the shell owns. A unit name in the index below is a name that was true at the time.
 
 ## Where things are
 
@@ -23,8 +23,9 @@ Open items and what is done. Read this first after a context clear.
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite. `prod` is still on step 0's composition and is refused every promote of this surface until `hello` is dropped — §39, and the runbook is in `PLAN.md` |
 | Units | two: `shell` and `list`, the second placed on `/` at `PLAN.md` step 1. `hello` is gone; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
-| Contract | `15ed669` (`planner-2026-09`), minted at step 1. `9d1b0a3` (`hello-2026-09`) is retained beside it and no unit this tree builds compiles against it |
+| Contract | `1c4a120` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
+| Planner | IndexedDB `pointer-planner`, version 1, owned by the shell: `tasks` keyed on `id`, `meta` keyed on `key`. Opened at a fixed version until `PLAN.md` step 16 - which is what gives step 15 a `VersionError` to show. §40 is the write window a reload can beat |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |
 | Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog`, never written by hand and **gitignored** - every fact in it is already in `deploys/`. `scripts/changelog.test.ts` holds the loader that reads the archive |
@@ -52,6 +53,8 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
+**`PLAN.md` step 2 landed on 2026-09-11** and opened two items of its own: §41, a first-paint requirement no composition could reach, and §40, the write window a reload can beat. Six mutations were added with it and all six are caught, the sixth only after §41's arrangement was built.
+
 **Read cold on 2026-09-11, on the step 1 branch.** Twelve defects. Two are open and have numbers of their own — §38, a harness publishing into the operator's catalogue with no marker, and §39, `prod` frozen behind a removal. Ten were fixed on the branch:
 
 | What it was | What holds it now |
@@ -78,6 +81,53 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
 
+### 42. An interrupted live suite leaves a channel refusing every promote
+
+**Measured on 2026-09-11.** `bun run verify:live` was killed by a signal at scenario 9 of 46. The `After` hook that puts a moved region back never ran, so `test-qa` was left with `list f1fdb597` in `eu` and `4a8fa04b` in `us`. The next run failed **41 of 46**, every one of them in its Background, on
+
+```
+eu and us serve different compositions: list f1fdb597 != 4a8fa04b.
+Writing both would replace one with a composition nobody chose for it.
+Name one with --region <eu|us>. Nothing was changed.
+```
+
+That refusal is §3's region rule working correctly - it is the whole point of refusing a split - and the reading it does not give is **why** the channel is split. A person meeting 41 red scenarios reads it as a code failure, and the recovery is one command: `bun run promote test-qa --region us --shell <id> --app <name>=<id>`, naming what the other region already serves.
+
+| | |
+| --- | --- |
+| What is missing | Nothing detects a split at the START of a run. The suite discovers it one Background at a time, 41 times |
+| The cheap fix | A `BeforeAll` that reads both regions of every test channel and fails with one message naming the recovery command, rather than letting every scenario fail on its own |
+| The fuller fix | The same check restores parity itself, the way `restoreRegionParity` does at the end of a scenario. It knows both compositions and which region is the base |
+| Not a fix | Making the promote write both regions anyway. That is exactly what §3 refuses, and for the right reason |
+
+This is distinct from §6, which is a superseded composition inside a healthy run.
+
+### 41. A first-paint requirement that no composition can reach
+
+**Measured on 2026-09-11.** `PlannerReport.state` starts at `unread` and `list` draws neither the list nor "No tasks yet" until it moves, so that a panel never tells a visitor with a full planner that it is empty. The mutation that removes that guard **stayed green**: `list` is a separately published bundle, fetched and imported after the shell paints, and IndexedDB opens in a few milliseconds - so the panel's first render always happens after the read. The state the requirement is about did not occur.
+
+The scenario now arranges it: `the planner is slow to open` delays the first `indexedDB.open` by 1500 ms. With that, 6 of 6 of step 2's mutations are caught. What is open is the general case, not this scenario.
+
+| | |
+| --- | --- |
+| The guard is not dead code | `PLAN.md` step 4 preloads a unit off the landing route, so a panel will mount sooner. Step 6 pulls a snapshot, which is a slower read than a local open. The margin closes on its own |
+| The arrangement is a harness fact, not a visitor's | 1500 ms is chosen to be longer than a bundle fetch, not measured from anything. A visitor on a slow disk or a cold profile is the real case and nothing here measures how often it happens |
+| The class is wider than the planner | Any "before X lands" requirement in this shell has the same shape: the panel that would show it is fetched after the shell paints. `data-api` has the same margin and no scenario about its first paint at all |
+
+### 40. A reload inside the commit window loses the last change
+
+**Measured on 2026-09-11 against `test-qa`.** A task is added, the write starts in the click handler, and the page is reloaded about ten milliseconds later: the task is gone. Three scenarios in `keeping-the-planner-in-the-browser.feature` failed on it and a fourth passed, and which one passed is the reading - `Tags survive a reload` spends 150 ms typing tags before it reloads and closes the window by accident. The browser aborts a transaction that is still open when it takes the page away, and the transaction needs a few milliseconds.
+
+Nothing available makes the window zero. IndexedDB has no synchronous commit; `pagehide` cannot flush a transaction, only start one that is aborted the same way; and `navigator.sendBeacon` sends bytes to a server, which is step 6 and a different claim. What is built instead is a reading: `PlannerReport.pending` is true while a change has not reached the database, and `they load the page again` waits for it to clear. **So no scenario measures this window, by construction** - the step that would have is the one that waits.
+
+| What would close it | What it costs |
+| --- | --- |
+| Say it on the page: draw "saving…" while `pending` is true | A visitor who is about to close a tab is told. Two lines in `list`, and `PlannerReport.pending` already carries the reading |
+| Hold the last change in `localStorage` as well, and reconcile on open | `localStorage` is synchronous, so the window really is zero. The cost is a second place a task can be, and a reconciliation rule when the two disagree - the merge `PLAN.md` refuses for import and pull, arriving by the back door |
+| Leave it | A task typed and a tab closed in the same instant is lost. A person who types and then reloads within ten milliseconds is doing something no visitor does on purpose |
+
+Not decided. The first row is cheap and is probably right; the second is the only one that removes the window and it contradicts a rule `PLAN.md` states.
+
 ### 34. What the deploy record does not reach
 
 `bun run promote` opens `deploys/<composedAt>-<channel>/` on a real channel and writes the act and the pointer bytes into it; `bun run shoot --out <dir>` fills in the pictures, gated so that no shot can be filed under a composition it is not a picture of; `bun run changelog` gathers the archive into a gitignored `CHANGELOG.md`; `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
@@ -85,6 +135,7 @@ Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold re
 | Missing | What it costs |
 | --- | --- |
 | `scripts/record.ts` scores 81.12% under mutation | **Measured 2026-09-10, and this is the row that was avoiding the number.** Widening the scope is two lines, not the difficulty this row used to claim: `commandRunner.command` becomes `bun test src/server api scripts/record.test.ts` and `scripts/record.ts` joins `mutate`. Run that way, `record.ts` kills 850 and 198 survive - 103 `StringLiteral`, 54 `ConditionalExpression`, 15 `MethodExpression`, 14 `EqualityOperator`, 11 `Regex` and 10 `LogicalOperator` - and the whole tree falls from 96.51% to 89.35%, under `thresholds.break: 96`. So the scope is unchanged and the reason is now a number rather than a claim about difficulty. The 54 conditionals are worth reading first: that is where the real gaps were in `composition.ts`. Note the runner cannot be `bun test scripts`, because two tests in `changelog.test.ts` read the real archive and the mutation sandbox has no `deploys/` |
+| `bun run pr` cannot be run twice | It replaces the `<!--REVIEW` marker with the table it generates, so a second run finds no marker and refuses by name: "no way to know where a previous run's section ended". Every promote made after the first run - which is the normal order, because a promote is what fills the production column - needs the template pasted back by hand first. Met twice on 2026-09-11. The fix is to leave a machine-readable end marker after the generated block, which is what the refusal says is missing |
 | A promote nobody commits is a record nobody has | The directory is written into the working tree and left there. `bun run pr` refuses a production column that git does not hold at the commit it links, so the failure is caught - one pull request late |
 | A publish from `pr` uses the asset bucket's key | §4 refuses CI that key because it is a production-origin execution key, and `bun run pr` now uses it on a laptop on every pull request. The second Tigris key §4 wants closes both |
 | The picture is not a function of the composition | The gate proves the pointer. `unchecked.apiBase` and `unchecked.renderer` name two of the inputs it does not reach, and the third - `/service` drawing a wall clock - is named in prose and measured by nobody. §29 is the case that bites: the live browser suite writes the greeting audience to the deployed service |
@@ -139,6 +190,8 @@ removed 24 objects and two `test-qa` history entries. The same run had published
 `features/steps/shell.steps.ts:186` — "both origins are served by one machine" — reads `fly machine list` and asserts exactly one machine is `started`. Nothing in the scenario puts the other one to sleep. It passes only while `iad` happens to be suspended under `auto_stop_machines`, which is most of the time and is not a fact the scenario establishes.
 
 Seen on 2026-09-11: `bun run verify:live` was 37 of 38, and the failure was this. `iad` was `started` because a single `curl -H 'fly-prefer-region: iad'` — taken minutes earlier to check that `us` was healthy after the step 0 deploy — woke it. Reading the deployment made the suite red.
+
+Seen again on 2026-09-11, at step 2. `bun run verify:live` was **45 of 46** and this was the failure. `iad` was `started` at 14:01:06, part-way through the run: no deploy this time, and nothing anybody typed - the suite's own traffic to the `prod` origin woke it under `auto_stop_machines`. So the scenario is now order-dependent on ITSELF, not only on what somebody did beforehand, and a full live run can red itself. The step that failed is the machine count; every reading about the build, the pointer and the composition passed.
 
 **The assertion is not wrong.** The claim is that ONE server answers two origins, and with two machines up a request can reach either, so the scenario cannot prove it. What is missing is the arrangement: the suite already stops a machine elsewhere (`shell.steps.ts:46`, one per run, §6), so a `Given` that suspends every machine but one is the same mechanism applied where the reading needs it.
 

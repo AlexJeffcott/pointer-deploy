@@ -1,0 +1,48 @@
+{
+  "schema": 3,
+  "composedAt": "2026-09-11T11:31:45.600Z",
+  "contract": "15ed669",
+  "shell": {
+    "unitId": "0ec4e071",
+    "commit": "fcc250c362687d1efb44f2a50ac0660c1b3790f3",
+    "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/shell/0ec4e071/",
+    "js": "index-q6rdkxpq.js",
+    "css": "index-t1mb1e5f.css",
+    "imports": {
+      "preact": "preact-11j199jp.js",
+      "preact/hooks": "preact-hooks-nybdghbf.js",
+      "preact/jsx-runtime": "preact-jsx-runtime-snts87ms.js",
+      "@preact/signals": "preact-signals-nr6q7y4a.js",
+      "@pointer/shell": "api-qh98cy4r.js"
+    },
+    "integrity": {
+      "index-q6rdkxpq.js": "sha384-H5tESWip0VgfjNuJJSpinIT05XFHuXS91rTNZs29ofCg1QbPe5zBWH1mncyesX9p",
+      "shared-8gddj0jn.js": "sha384-KryfUN2eCMZEywTSMr9eJUj4IJorxBTFgVlyY/smxoixqJEpBFPe/JHtuhsLmSjV",
+      "shared-451d1nwh.js": "sha384-J8v0AFoJfxNLeM9/8Y1wOeRx6k5HPg+S6GyXDL3KdFCnUE2rglYJeoCok4iTqnNK",
+      "shared-y3s0h7r1.js": "sha384-QmEw63SsGWiK8X7xVkzh+SS3ybdaOEd+gyX2dn6M06n/UOxp/51zVVMCmWj0QHJC",
+      "shared-dcypq63b.js": "sha384-poM1JlsHqpyUTqS8SGW2twQJQ2W29+y8x1GlpP5p5VqRFcEZYAHU0Fs4oKFYzYc3",
+      "shared-m327drfr.js": "sha384-MVPwvDm41LV5FM0QBYtRziJvozuEUSK4Z5k64egrZJzzQbJaQld3P6BoCJldpO6t",
+      "api-qh98cy4r.js": "sha384-oNTXrJ1PVkth/SPIzp58JN61nIK38mnbE0dq8eTZAgKQJnOeNVOBp48F5lFeQxII",
+      "preact-11j199jp.js": "sha384-ltfgbI0gkw8SDjCIoskyKwGI2xFrlSWow89IIO46lXDcGf4GK419xkjcDDuEVlj3",
+      "preact-hooks-nybdghbf.js": "sha384-3zLap9h72YyNVtfnosxbKUbUL7npZmJCPh72cIGM185CwiTNYsOt7T7gKLdmge2E",
+      "preact-jsx-runtime-snts87ms.js": "sha384-5+dMdsP+R3GRjHe28lmLZiQuIusNKfvHNOGXEuEl7HJ2zfx8SvwHryGyfbyJpfCh",
+      "preact-signals-nr6q7y4a.js": "sha384-G+5IvujBTog+JvJpF5pUHYuC7MQtkXoFzs0TsesvCfwZbtolp0PR/uIvj7xkZH9l",
+      "index-t1mb1e5f.css": "sha384-EC+C69g8Eq87ZjIrchrxJEaXUAQxpPmu/+nar40OVMQ4bgloNpEtmHUep5KmbqjF"
+    },
+    "marker": ""
+  },
+  "apps": {
+    "list": {
+      "unitId": "cffda106",
+      "commit": "fcc250c362687d1efb44f2a50ac0660c1b3790f3",
+      "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/list/cffda106/",
+      "js": "list-v9pnwqts.js",
+      "css": "list-agn6t6qh.css",
+      "integrity": {
+        "list-v9pnwqts.js": "sha384-W6XAsSiotdxlFHseGSh8i3uNMTckO4Kzu7nsf789v9wPD9XNKdFhO+7Ek1JC7EYc",
+        "list-agn6t6qh.css": "sha384-HEH/uz+f85bphFjhDUsRQoIMi/raMA7QtD61Bqgc6BH9t6+CvLlH8Dfj5yd0Kiir"
+      },
+      "marker": ""
+    }
+  }
+}

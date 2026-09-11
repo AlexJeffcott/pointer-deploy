@@ -84,10 +84,13 @@ adds a task, tags one and removes one, all through the store the frame handed
 it; the frame draws the service report, and that is the reading `/service`
 shows.
 
-The tasks are in memory and nowhere else, which is `PLAN.md` step 1 rather than
-an omission. IndexedDB is step 2, so a reload starts the planner empty and the
-panel says so on the page. `keeping-a-list-of-tasks.feature` is where that is
-written down, in a scenario step 2 has to change rather than fill in.
+The tasks are in IndexedDB from `PLAN.md` step 2, in a database the shell opens
+and `list` never names. The panel did not change when that landed, which is the
+whole point of the store being the frame's: a sub-app draws what it is handed
+and does not know where the frame keeps it. What did change is one sentence on
+the page, because "kept in this browser" and "kept in this page" are different
+promises to a visitor and a browser that refuses IndexedDB gets the second one.
+`keeping-the-planner-in-the-browser.feature` is where that is written down.
 
 Each sub-app is its own **unit**: its own bundle, its own stylesheet, its own id,
 published and promoted on its own and fetched when its view first needs it. That
@@ -143,6 +146,29 @@ rendering, so `@preact/signals` stays out of the hashed surface entirely.
 `ComponentType`, in `subapp.ts`, is the one vendor type the contract references -
 and it is REFERENCED rather than inlined, so the hash does not yet cover what
 Preact means by it. That hole is named in the TODO under §9.
+
+### Where the store keeps what it holds
+
+The shell opens IndexedDB `pointer-planner` at version 1 - `tasks` keyed on `id`,
+`meta` keyed on `key` - reads the tasks after the first paint and writes them
+back on every change. `PLAN.md` step 2 is where that arrived, and the interesting
+part is what did **not** move: `list` names no database, and the panel that drew
+the tasks before the planner was stored is the same panel that draws them now.
+
+Three things follow from the read being asynchronous, and each of them is a
+scenario rather than a comment:
+
+| | |
+| --- | --- |
+| The page must not say it is empty before it has looked | `PlannerReport.state` starts at `unread`, and the panel draws neither the list nor "No tasks yet" until it moves. A panel that drew the empty message and then filled in would have told a visitor with a full planner that it was empty, and a step that looked afterwards would have found the correct page and agreed with it |
+| A browser may refuse storage altogether | A private window or a blocked origin gives `unstored`. The planner degrades to what step 1 had - the tasks in one page - and the sentence on the page changes to say so. It is never an error a visitor is shown |
+| A write is not instant, and a page can be taken away mid-write | Measured: a task added and the page reloaded ten milliseconds later was gone, because the transaction was still open. `PlannerReport.pending` is the reading, and TODO §40 is the window itself, which nothing here closes |
+
+The shell opens at the ONE version it knows rather than opening with no version
+and deciding. That is deliberate and it is a limit: `PLAN.md` step 15 rolls this
+shell back onto data a later version wrote, and the `VersionError` that produces
+is what step 16 exists to fix. Building the fix at step 2 would have left both
+steps with nothing to demonstrate.
 
 ### What happens on a request
 

@@ -37,7 +37,7 @@ Nothing regenerates a shot. A picture of what was served on a date is falsified 
 | | |
 | --- | --- |
 | `bun run typecheck` | |
-| `bun test` | 684 tests on 2026-09-11 |
+| `bun test` | 691 tests on 2026-09-11 |
 | `bun run verify` | the `@local` suite |
 | `bun run verify:browser` | the `@browser` suite. **The only command that runs a sub-app's scenarios** |
 | `bun run falsify` | when the change adds or moves a check. `FALSIFY_LIVE=1` for the 30 `@live` and `@browser` mutations of the 114, which it otherwise reports as skipped |

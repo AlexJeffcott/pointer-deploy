@@ -6,7 +6,7 @@
 // same rules stated where a mutation can be aimed at them.
 
 import { describe, expect, test } from "bun:test";
-import { createStore, NO_SERVICE, type Task } from "./api.ts";
+import { createStore, NO_PLANNER, NO_SERVICE, type Task } from "./api.ts";
 
 const titles = (tasks: readonly Task[]): string[] => tasks.map((t) => t.title);
 
@@ -129,5 +129,85 @@ describe("the task store", () => {
     });
     expect(store.goingAway("snapshot.tasks")).toEqual(going);
     expect(store.goingAway("snapshot.document")).toBeNull();
+  });
+});
+
+// `PLAN.md` step 2. The database itself is browser-only and is measured by
+// `keeping-the-planner-in-the-browser.feature`; these are the store's half of
+// it, which is what the shell writes into after the read and what `list` reads
+// to decide which sentence to put on the page.
+describe("the planner the store reports", () => {
+  test("a fresh store has not read a planner", () => {
+    expect(createStore().planner()).toEqual(NO_PLANNER);
+  });
+
+  test("loading tasks replaces every task rather than adding to them", () => {
+    const store = createStore();
+    store.addTask("typed before the read landed");
+    store.loadTasks([
+      { id: "a", title: "Book the ferry", column: "todo", due: null, tags: [], createdAt: "x" },
+    ]);
+    expect(titles(store.tasks())).toEqual(["Book the ferry"]);
+  });
+
+  test("the tasks loaded in are copied, not held", () => {
+    const store = createStore();
+    const loaded: Task[] = [
+      { id: "a", title: "Book the ferry", column: "todo", due: null, tags: [], createdAt: "x" },
+    ];
+    store.loadTasks(loaded);
+    loaded.push({ id: "b", title: "later", column: "todo", due: null, tags: [], createdAt: "y" });
+    expect(titles(store.tasks())).toEqual(["Book the ferry"]);
+  });
+
+  test("loading no tasks empties a store that held some", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.loadTasks([]);
+    expect(store.tasks()).toEqual([]);
+  });
+
+  test("a planner that was read reports the version it is stored at", () => {
+    const store = createStore();
+    store.setPlanner({
+      state: "stored",
+      schemaVersion: 1,
+      pending: false,
+      error: null,
+      readAt: "2026-09-11T12:00:00.000Z",
+    });
+    expect(store.planner().state).toBe("stored");
+    expect(store.planner().schemaVersion).toBe(1);
+    expect(store.planner().pending).toBe(false);
+  });
+
+  // The window `TODO` §40 is about, and the reading that makes it measurable:
+  // a change is made here and the database does not hold it yet.
+  test("a planner with a write still going says it is pending", () => {
+    const store = createStore();
+    store.setPlanner({
+      state: "stored",
+      schemaVersion: 1,
+      pending: true,
+      error: null,
+      readAt: "2026-09-11T12:00:00.000Z",
+    });
+    expect(store.planner().pending).toBe(true);
+    expect(store.planner().state).toBe("stored");
+  });
+
+  test("a planner that cannot be stored reports why, and keeps its tasks", () => {
+    const store = createStore();
+    store.setPlanner({
+      state: "unstored",
+      schemaVersion: null,
+      pending: false,
+      error: "this browser does not offer IndexedDB",
+      readAt: "2026-09-11T12:00:00.000Z",
+    });
+    store.addTask("Book the ferry");
+    expect(store.planner().state).toBe("unstored");
+    expect(store.planner().error).toBe("this browser does not offer IndexedDB");
+    expect(titles(store.tasks())).toEqual(["Book the ferry"]);
   });
 });
