@@ -225,6 +225,8 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 
 **"Nothing is fetched for a view that names no unit" gained teeth.** At step 0 there was no bundle a mutation could make the page fetch, so the unit-level half of that claim was structural. It is now a difference between `/`, which fetches `list`, and the four views that fetch nothing - and the `@browser` walk measures it.
 
+**A surface change strands a channel that carries a unit built against the old one.** `test-prod` still held `hello 72e6a6f4`, which uses `ShellStore.greeting`, `ShellStore.setGreeting`, `Greeting.text` and `Greeting.audience` - all four gone from this surface - so `promote` refused every merge into that channel and named the unit and every member. Four `verify:live` scenarios failed in their Background on it. `bun run promote test-prod --from-build --drop hello` is the whole fix, and the refusal is §9's gate working on a composition nobody manufactured for it. TODO carries the reading.
+
 **What came back, and what did not.** `bun run e2e` and `bun run e2e:members` pass rather than exiting non-zero. Six scenarios returned to `deploying-a-unit`, one to `choosing-a-version`, an Outline to `checking-what-the-page-loads`, and two to `recovering-from-an-error`; nine `falsify` mutations came back with them. What still has no subject is every claim needing a THIRD unit: two sub-apps sharing one runtime, a member dropped refusing one app and not another, and warming a unit off the landing route. TODO §31 carries those, and `PLAN.md` steps 4, 5 and 10 are where they come back.
 
 ### What step 0 settled, and what it cost

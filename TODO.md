@@ -44,6 +44,8 @@ bun run changelog                        # the archive as CHANGELOG.md. Run it w
 bun run pr                               # the review URLs and both sets of shots
 ```
 
+**A surface change can strand a channel, and `--drop` is the way off it.** `PLAN.md` step 1 removed `greeting` from `ShellStore`. `test-prod` still carried `hello 72e6a6f4`, which uses four of the members that went, so `promote` refused every merge into that channel and named the unit and all four members — and four `verify:live` scenarios failed in their Background rather than in an assertion. That is §9's gate working at the boundary it exists for, and the first time it has refused a composition nobody manufactured for it. One command puts the channel back in reach: `bun run promote test-prod --from-build --drop hello`. Removal is said, never inferred, so a channel a surface change strands stays stranded until an operator says what leaves.
+
 `e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` **with `--from-build`** refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two. A promote naming ids (`--shell`, `--app`) takes none of those three checks, which is deliberate: naming an id is how a rollback is made, and the tree it is made from is not the tree that built the unit. The sentence used to claim all three commands were covered.
 
 ## Open
