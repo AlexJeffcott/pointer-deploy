@@ -81,6 +81,27 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
 
+### 42. An interrupted live suite leaves a channel refusing every promote
+
+**Measured on 2026-09-11.** `bun run verify:live` was killed by a signal at scenario 9 of 46. The `After` hook that puts a moved region back never ran, so `test-qa` was left with `list f1fdb597` in `eu` and `4a8fa04b` in `us`. The next run failed **41 of 46**, every one of them in its Background, on
+
+```
+eu and us serve different compositions: list f1fdb597 != 4a8fa04b.
+Writing both would replace one with a composition nobody chose for it.
+Name one with --region <eu|us>. Nothing was changed.
+```
+
+That refusal is §3's region rule working correctly - it is the whole point of refusing a split - and the reading it does not give is **why** the channel is split. A person meeting 41 red scenarios reads it as a code failure, and the recovery is one command: `bun run promote test-qa --region us --shell <id> --app <name>=<id>`, naming what the other region already serves.
+
+| | |
+| --- | --- |
+| What is missing | Nothing detects a split at the START of a run. The suite discovers it one Background at a time, 41 times |
+| The cheap fix | A `BeforeAll` that reads both regions of every test channel and fails with one message naming the recovery command, rather than letting every scenario fail on its own |
+| The fuller fix | The same check restores parity itself, the way `restoreRegionParity` does at the end of a scenario. It knows both compositions and which region is the base |
+| Not a fix | Making the promote write both regions anyway. That is exactly what §3 refuses, and for the right reason |
+
+This is distinct from §6, which is a superseded composition inside a healthy run.
+
 ### 41. A first-paint requirement that no composition can reach
 
 **Measured on 2026-09-11.** `PlannerReport.state` starts at `unread` and `list` draws neither the list nor "No tasks yet" until it moves, so that a panel never tells a visitor with a full planner that it is empty. The mutation that removes that guard **stayed green**: `list` is a separately published bundle, fetched and imported after the shell paints, and IndexedDB opens in a few milliseconds - so the panel's first render always happens after the read. The state the requirement is about did not occur.
@@ -168,6 +189,8 @@ removed 24 objects and two `test-qa` history entries. The same run had published
 `features/steps/shell.steps.ts:186` — "both origins are served by one machine" — reads `fly machine list` and asserts exactly one machine is `started`. Nothing in the scenario puts the other one to sleep. It passes only while `iad` happens to be suspended under `auto_stop_machines`, which is most of the time and is not a fact the scenario establishes.
 
 Seen on 2026-09-11: `bun run verify:live` was 37 of 38, and the failure was this. `iad` was `started` because a single `curl -H 'fly-prefer-region: iad'` — taken minutes earlier to check that `us` was healthy after the step 0 deploy — woke it. Reading the deployment made the suite red.
+
+Seen again on 2026-09-11, at step 2. `bun run verify:live` was **45 of 46** and this was the failure. `iad` was `started` at 14:01:06, part-way through the run: no deploy this time, and nothing anybody typed - the suite's own traffic to the `prod` origin woke it under `auto_stop_machines`. So the scenario is now order-dependent on ITSELF, not only on what somebody did beforehand, and a full live run can red itself. The step that failed is the machine count; every reading about the build, the pointer and the composition passed.
 
 **The assertion is not wrong.** The claim is that ONE server answers two origins, and with two machines up a request can reach either, so the scenario cannot prove it. What is missing is the arrangement: the suite already stops a machine elsewhere (`shell.steps.ts:46`, one per run, §6), so a `Given` that suspends every machine but one is the same mechanism applied where the reading needs it.
 
