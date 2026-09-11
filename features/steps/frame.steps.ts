@@ -129,14 +129,8 @@ Then(
  * silently opening something else.
  */
 When("they open the {word} view", async function (this: PointerWorld, name: string) {
-  const found = Object.entries(VIEWS).find(([, v]) => v.title.toLowerCase() === name);
-  if (!found) {
-    throw new Error(
-      `no view called ${JSON.stringify(name)}. The shell places ` +
-        `${Object.values(VIEWS).map((v) => v.title.toLowerCase()).join(", ")}.`,
-    );
-  }
-  await this.openView(found[0], [...found[1].apps]);
+  const v = this.viewCalled(name);
+  await this.openView(v.path, v.apps);
 });
 
 /**

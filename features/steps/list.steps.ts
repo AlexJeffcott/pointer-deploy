@@ -9,23 +9,11 @@
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { PointerWorld } from "../support/world.ts";
-import { VIEWS } from "../../src/web/shell/views.ts";
 
 const PANEL = '[data-app="list"]';
 
-const viewCalled = (name: string): { path: string; apps: string[] } => {
-  const found = Object.entries(VIEWS).find(([, v]) => v.title.toLowerCase() === name);
-  if (!found) {
-    throw new Error(
-      `no view called ${JSON.stringify(name)}. The shell places ` +
-        `${Object.values(VIEWS).map((v) => v.title.toLowerCase()).join(", ")}.`,
-    );
-  }
-  return { path: found[0], apps: [...found[1].apps] };
-};
-
 Given("a visitor opens the {word} view", async function (this: PointerWorld, name: string) {
-  const v = viewCalled(name);
+  const v = this.viewCalled(name);
   await this.openView(v.path, v.apps);
 });
 
