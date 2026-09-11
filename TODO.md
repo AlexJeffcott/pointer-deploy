@@ -54,7 +54,9 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
-**`PLAN.md` step 3 landed on 2026-09-11** and opened one item of its own: §43, one `unstored` state for three different facts, which is step 2's defect and was invisible until step 3 arranged a failing write. Thirteen mutations were added with it and **seven of them are `@local`**, so `bun run falsify` runs seven of the thirteen rather than reporting all thirteen as skipped.
+**`PLAN.md` step 3 is built and NOT deployed.** `qa` still serves step 2, so the step is not done by this repository's own definition - one publish and one promote - and `PLAN.md`'s steps table leaves its Done column empty until the promote. It opened three items: §43, one `unstored` state for three different facts; §44, a cold-state step `PLAN.md` specified and nothing built; §45, document fields nothing reads. Sixteen mutations were added with it and **nine of them are `@local`**, so `bun run falsify` runs nine of the sixteen rather than reporting all sixteen as skipped.
+
+**A cold read by `devils-advocate-agent` on 2026-09-11 found two defects and four wrong sentences, all fixed on the branch.** `/backup` drew a task count and an armed Export button before the planner had been read, and the file that window exports is a valid, importable planner holding nothing. A document carrying one id twice was accepted, so the page said two tasks and the database held one. The sentences overstated what the contract emit refused, what the arranged write failure produces, how many callers `loadTasks` has, and where the field-by-field rebuild applies. `PLAN.md` step 3's section carries the whole reading.
 
 **`PLAN.md` step 2 landed on 2026-09-11** and opened two items of its own: §41, a first-paint requirement no composition could reach, and §40, the write window a reload can beat. Six mutations were added with it and all six are caught, the sixth only after §41's arrangement was built.
 
@@ -83,6 +85,30 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
+
+### 45. The document declares two fields nothing reads
+
+**Found by `devils-advocate-agent` on 2026-09-11.** `PlannerDocument.exportedAt` is required and `readDocument` never looks at it. `createdAt` is checked as a non-empty string and never as a date - and `planner.ts` sorts the restored list by it, lexicographically, because insertion order is what the list draws and `getAll` returns key order.
+
+So a hand-edited file carrying `"createdAt": "yesterday"` is accepted and reorders the list on the next reload. `What was imported is still there after a reload` asserts an order and passes because `plannerFile` in `features/steps/backup.steps.ts` mints ascending ISO timestamps - the harness builds exactly the data that makes the assertion true.
+
+| | |
+| --- | --- |
+| The fix for `createdAt` | Refuse a value `Date.parse` cannot read, and name the field. Two lines and one unit test, and it closes the order hazard |
+| The fix for `exportedAt` | Either read it - refuse a file with no stamp - or stop declaring it required. A field a document must carry and nothing checks is a field a writer can omit with no consequence |
+| Why not at step 3 | Both are new rules on a door step 3 built, and neither is reachable from a file this application writes. They belong with step 6, which adds two more doors to the same rule |
+
+### 44. A cold-state step the plan specified and nothing built
+
+**Found by `devils-advocate-agent` on 2026-09-11.** `PLAN.md`'s "What this costs the suite" says `indexedDB.deleteDatabase("pointer-planner")` goes in the browser world's setup, "once, so no scenario can forget it", with one `falsify` mutation that removes it and a named scenario that must go red. `deleteDatabase` appears nowhere outside that table. Step 2 did not build it and step 3 did not notice.
+
+Every browser scenario does start cold, because Playwright gives each test a fresh context and IndexedDB is per profile. That is a DEFAULT and not a decision: nothing in this repository asserts it, and `workers: 1` and `fullyParallel: false` are set for the pointer rather than for the planner.
+
+| | |
+| --- | --- |
+| What it costs today | Nothing measurable. The isolation holds |
+| What it costs later | A change to `playwright.config.ts` - reusing a context to make the suite faster is the obvious one - silently makes every planner scenario order-dependent, and the first failure looks like a race |
+| The fix | The step `PLAN.md` already specifies, plus the mutation it already specifies. One `Before` hook and one array entry |
 
 ### 43. One `unstored` state for three different facts
 
