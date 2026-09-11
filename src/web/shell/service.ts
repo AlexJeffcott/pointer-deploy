@@ -1,8 +1,16 @@
 import type { BuildInfo } from "@pointer/blocks";
-import type { Greeting, ServiceField, ServiceReport, ServiceRoute, ShellStore } from "./api.ts";
+import type { ServiceField, ServiceReport, ServiceRoute, ShellStore } from "./api.ts";
 import { NO_SERVICE } from "./api.ts";
 
-export type ApiGreeting = Greeting;
+/**
+ * The one resource this service holds, and the path the data call is made on.
+ *
+ * No unit draws it. `PLAN.md` step 0 removed the panel that did, and step 6
+ * replaces the resource with snapshots. What is left is a route to call, which
+ * is why this is a path and no longer a type: nothing keeps a field of the
+ * response, so nothing here declares its shape. See `readData`.
+ */
+const DATA_PATH = "greeting";
 
 /**
  * The service's own account of what it holds, §26.
@@ -29,31 +37,6 @@ const obj = (name: string, value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : field(name, "is not an object");
-
-/**
- * Strict about what the page cannot draw without, tolerant about the rest.
- *
- * `text` is required: a response without it is a response this shell cannot
- * use, and saying so by field is the whole reason this parser exists.
- * `audience` was added to the service later, so absent means an OLDER deploy
- * and not a fault - the mirror of the rule that lets a service add a field
- * without breaking a shell published last month.
- */
-export function parseGreeting(input: unknown): ApiGreeting {
-  const g = obj("greeting", input);
-  return {
-    text: str("greeting.text", g.text),
-    // Empty is a legitimate audience: it means the service holds none, and the
-    // panel greets nobody in particular. So it is checked for TYPE and not for
-    // length, which is the one place `str` is the wrong helper.
-    audience:
-      g.audience === undefined
-        ? ""
-        : typeof g.audience === "string"
-          ? g.audience
-          : field("greeting.audience", "is not a string"),
-  };
-}
 
 /**
  * The discovery document, read at the boundary like every other response.
@@ -136,8 +119,16 @@ export function readApiBase(): string {
 }
 
 export type ServiceClient = {
-  greeting(): Promise<ApiGreeting>;
-  setGreeting(patch: Partial<ApiGreeting>): Promise<ApiGreeting>;
+  /**
+   * One call at `API_VERSION`, whose BODY is not read.
+   *
+   * The reading is whether the version this shell calls answers, and nothing
+   * about the answer's shape. Parsing it put a `greeting.text is missing` on
+   * `data-api` for a service that was answering `v1` perfectly well, under a
+   * doc comment claiming the opposite - a response the page keeps nothing from
+   * cannot be the wrong shape for it.
+   */
+  data(): Promise<void>;
   discovery(): Promise<Discovery>;
   /**
    * The `Sunset` header the last DATA response carried, or null.
@@ -166,40 +157,17 @@ export function createClient(base: string, options: ClientOptions = {}): Service
     return res.json();
   }
 
-  const write = (path: string, body: unknown): Promise<unknown> =>
-    call(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
   return {
-    greeting: async () => parseGreeting(await call(`/${API_VERSION}/greeting`)),
-    setGreeting: async (patch) => parseGreeting(await write(`/${API_VERSION}/greeting`, patch)),
+    // The status and the `Sunset` header, and nothing out of the body. `call`
+    // still reads the JSON, because a body this shell never looked at would let
+    // a truncated response read as an answer.
+    data: async () => {
+      await call(`/${API_VERSION}/${DATA_PATH}`);
+    },
     // Not under a version prefix. The document says which versions there are,
     // so asking for it at one of them would need the answer first.
     discovery: async () => parseDiscovery(await call(`/versions`)),
     lastSunset: () => sunset,
-  };
-}
-
-export function serviceBacked(
-  store: ShellStore,
-  client: ServiceClient,
-  onError: (message: string) => void,
-): ShellStore {
-  const send = (p: Promise<unknown>) =>
-    void p.catch((e: unknown) => onError(e instanceof Error ? e.message : String(e)));
-
-  return {
-    greeting: () => store.greeting(),
-    service: () => store.service(),
-    setService: (report) => store.setService(report),
-    goingAway: (path) => store.goingAway(path),
-    setGreeting: (patch) => {
-      store.setGreeting(patch);
-      send(client.setGreeting(patch));
-    },
   };
 }
 
@@ -249,15 +217,32 @@ export function noteSunset(store: ShellStore, client: ServiceClient): void {
 }
 
 /**
- * Reads the greeting into the store, and keeps the defaults if it cannot.
+ * The one DATA call this page makes, at the version it was built against.
+ *
+ * Nothing is stored from the body, and that is not an oversight. Since
+ * `PLAN.md` step 0 no unit draws the service's greeting, so what the call is
+ * for is the RESPONSE, and two readings depend on having made one:
+ *
+ *   - whether the version this shell calls answers at all. The discovery
+ *     document is served from `/versions`, outside any version prefix, so
+ *     reading it says nothing about `API_VERSION`. `index.tsx` puts the answer
+ *     on the page as `data-api`;
+ *   - the `Sunset` header a data response carried, RFC 8594, which
+ *     `noteSunset` folds into the report and `/service` draws. A document and a
+ *     response can disagree, which is the whole reason the report keeps both.
+ *
+ * Neither of those is a reading about the BODY, and until 2026-09-11 this ran
+ * the response through a parser that required `greeting.text`. A service
+ * answering `v1` with a body this page keeps nothing from then put
+ * `api field greeting.text is missing or not a string` on `data-api`, under
+ * this comment. The parser went with the field nobody draws.
  *
  * Never throws, and returns "ok" or what went wrong. A service that is not
- * there costs the page the service's greeting and not the page: the store was
- * built with one already.
+ * there costs the page the reading and not the page.
  */
-export async function hydrate(store: ShellStore, client: ServiceClient): Promise<string> {
+export async function readData(client: ServiceClient): Promise<string> {
   try {
-    store.setGreeting(await client.greeting());
+    await client.data();
     return "ok";
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

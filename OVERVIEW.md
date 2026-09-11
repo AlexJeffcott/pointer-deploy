@@ -29,11 +29,13 @@ Live: <https://pointer-deploy.fly.dev/>
 
 ## Where the application is now
 
-The page is a title, a fixed sidenav and five views, and not one of them places a unit. `/`, `/board` and `/week` are waiting for one; `/service` is drawn by the frame itself, from the one reading it took of the service, and `/backup` will be drawn by the frame too. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views, and one of them places a unit: `/` draws `list`, which is every task the planner holds. `/board` and `/week` are waiting for one; `/service` is drawn by the frame itself, from the one reading it took of the service, and `/backup` will be drawn by the frame too. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
 
-That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app, so the application is the frame. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+The tasks are in memory and nowhere else, which is `PLAN.md` step 1 rather than an omission: IndexedDB is step 2, so a reload starts the planner empty and the panel says so on the page.
 
-**Every two-unit example below is the mechanism rather than the tree.** The readings are real and were taken when `hello` existed. TODO §31 lists what going to one unit cost each claim, and `PLAN.md` says which step gives it back.
+That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app and step 1 added `list`. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+
+**Examples naming `hello` below are readings taken before step 0.** They are real and they were taken against that tree; what this one builds is `shell` and `list`. TODO §31 lists what is still waiting for a third unit, and `PLAN.md` says which step gives it back.
 
 What gets built on this slate is documented as it is built. The process is the thing being shown, more than whatever the application turns out to be.
 
@@ -82,7 +84,7 @@ flowchart LR
         direction TB
         M["manifests/eu/qa.json"]
         U1["units/shell/c2601912/"]
-        U2["units/hello/3bba892b/"]
+        U2["units/list/eecdb7c6/"]
     end
 
     B -- "1 · GET / — the Host header picks the channel" --> S
@@ -90,7 +92,7 @@ flowchart LR
     S -- "3 · HTML naming each unit's own files" --> B
     B -- "4 · every unit, in parallel" --> U1
     B --> U2
-    B -- "5 · the greeting, and what the service holds" --> A
+    B -- "5 · what the service holds, and one call at the version it uses" --> A
 ```
 
 The server reads one small JSON file and nothing else. Every unit directory was written at a different time, and the pointer is the only thing that joins them. `units/catalogue.json` is read from cache only, so a cold or missing catalogue costs an override its target and the visitor no wait.
@@ -101,8 +103,8 @@ The server reads one small JSON file and nothing else. Every unit directory was 
 bun run build                             # every unit into dist/units/
 bun run publish                           # uploads only what changed, and rebuilds the catalogue
 bun run promote qa --from-build           # the deploy. Every id read from dist/build.json
-bun run promote qa --app hello=3bba892b   # one unit by id. Same command
-bun run promote qa --app hello=36226fb9   # the rollback. Same command
+bun run promote qa --app list=eecdb7c6    # one unit by id. Same command
+bun run promote qa --app list=36226fb9    # the rollback. Same command
 bun run promote qa --shell c2601912       # the shell alone
 bun run units                             # which ids there are to name
 ```
@@ -113,9 +115,9 @@ Nobody memorises a hash. `publish` prints the new ids on stdout as JSON, so a sc
 
 ### The three rules that make it safe
 
-- **`promote` merges, it does not replace.** It reads the channel's current composition, applies only what you named, and writes the result. Without the merge, "deploy hello" would silently roll every other unit back to whatever the operator last had on disk.
+- **`promote` merges, it does not replace.** It reads the channel's current composition, applies only what you named, and writes the result. Without the merge, "deploy list" would silently roll every other unit back to whatever the operator last had on disk.
 - **`publish` writes the unit's own descriptor last**, after every file it names is readable. `promote` refuses a unit without one, so a channel can never point at a half-uploaded unit.
-- **A unit id is the hash of that unit's output, and nothing else.** The commit is deliberately excluded: one commit touching only `hello` would otherwise change every id and republish every unit. Publishing is therefore idempotent per unit — everything untouched reports `unchanged`.
+- **A unit id is the hash of that unit's output, and nothing else.** The commit is deliberately excluded: one commit touching only `list` would otherwise change every id and republish every unit. Publishing is therefore idempotent per unit — everything untouched reports `unchanged`.
 
 ---
 
@@ -133,7 +135,7 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 | A published build is permanent, so a page loaded before a deploy still fetches its files | Operator | `publishing-a-build.feature`, 6 scenarios |
 
 - **Changing which build a channel points at** — `promote` writes one JSON object. Machine ids and timestamps are **asserted identical** before and after.
-- **Shipping one sub-app** — each unit has its own id, directory and asset base. `promote --app hello=<id>` merges into the current composition.
+- **Shipping one sub-app** — each unit has its own id, directory and asset base. `promote --app list=<id>` merges into the current composition.
 - **One image, every environment** — `Host` selects the channel, `FLY_REGION` the region. Both are pure functions.
 - **A permanent build** — files are written under a content-hash id and never overwritten. A deploy deletes nothing.
 
@@ -141,9 +143,9 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
-| The frame and the panel agree about what the page says, though the bundles were built separately | Visitor | `shared-state.feature`, 4 scenarios, in a real browser |
+| The frame and the panel agree about what the page holds, though the bundles were built separately | Visitor | `keeping-a-list-of-tasks.feature`, 9 scenarios, in a real browser, run by `bun run verify:browser` alone |
 | One panel failing costs me that panel alone | Visitor | `recovering-from-an-error.feature`, 3 scenarios |
-| I see the version live now, never one frozen into the server image | Visitor | `serving-the-shell.feature`, 6 scenarios |
+| I see the version live now, never one frozen into the server image | Visitor | `serving-the-shell.feature`, 7 scenarios |
 
 - **One shared state** — the shell, the store and each shared library land in one chunk; every sub-app is built with those specifiers **external**, and the page's import map joins them up. `build.ts` refuses a sub-app that bundled its own copy.
 - **One panel failing** — a sub-app is a Preact component inside the shell's tree, so the shell's error boundary catches what it throws. A separate render root caught nothing.
@@ -153,7 +155,7 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 
 ### C. A rollback that actually works
 
-Composing units means composing combinations nothing has ever type-checked. A shell that renamed an export, put in front of a six-week-old `hello`, is a page where one panel renders an error. Three mechanisms answer that.
+Composing units means composing combinations nothing has ever type-checked. A shell that renamed an export, put in front of a six-week-old `list`, is a page where one panel renders an error. Three mechanisms answer that.
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
@@ -164,7 +166,7 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 
 - **Refusing a composition that cannot work** — each unit records **which members of the shell's surface it uses**, measured by removal: cut the declaration, recompile, see whether it still builds. `promote` refuses a sub-app needing a member this shell lacks, and names both.
 - **An additive change** — contract identity is a content hash. An added export still satisfies every retained contract, so nothing republishes; a breaking change shows at once as a `fail` column in `bun run contract:matrix`.
-- **Seeing a rollback first** — `?hello=<id>` on the origin's own URL composes that unit for you alone, and moves no channel. An id the channel never served is refused, and so is a composition that cannot work.
+- **Seeing a rollback first** — `?list=<id>` on the origin's own URL composes that unit for you alone, and moves no channel. An id the channel never served is refused, and so is a composition that cannot work.
 - **Previewing a pull request** — CI builds it with `BUILD_MARKER=pr-<number>` and publishes; the same URL then runs it, because `qa` is the one real channel that admits that marker. `promote` still refuses it, so a preview can be looked at and never deployed. It is not a feature flag: nothing picks for a visitor who did not type the URL, and flags live in the service.
 - **An older manifest schema** — a schema 2 manifest is kept in the store permanently, with a test channel pointed at it, in a real browser.
 
@@ -203,9 +205,9 @@ Composing units means composing combinations nothing has ever type-checked. A sh
 - **Using the service** — the shell records which API versions it accepts, the service publishes what it serves, and the **running server** intersects them into a response header. The page never waits: it renders from defaults and fills in afterwards.
 - **A contract going away** — `contract:deprecate` records a reason, a date and what to move to, beside the hash and never inside it. It **warns and never refuses**, because published units were built against the deprecated contract.
 - **What the service holds** — the service publishes the fields of every version it answers; `API_DEPRECATED` in its environment retires one, with no code change and no rebuild. Responses carrying a retired field say so, in RFC 9745 `Deprecation` and RFC 8594 `Sunset`. A value it cannot act on stops it starting, because a mistaken "nothing is going away" is a false reading rather than silence.
-- **Changing what the page offers** — the service answers two fields over two routes, one of them writable. A single `POST` changes what the panel draws, on every channel that reads that service, with nothing rebuilt and no id moved. A greeting with no text is refused, because a page whose greeting is blank looks broken rather than empty.
+- **Changing what the page offers** — the service answers two fields over two routes, one of them writable. A single `POST` changes what it holds, on every channel that reads that service, with nothing rebuilt and no id moved. No unit draws that resource on this slate — the planner's tasks are in the browser — so the claim that a PAGE changes for such a write gets its subject back at `PLAN.md` step 6, when the service starts holding the planner's snapshots. A greeting with no text is refused, because it is a value no page could draw.
 - **Which unit a change reaches** — ownership is measured at the field, never the resource. `readMembers` cuts one declaration — `Limits.allowNegative`, not `Limits` — and recompiles each unit, so `bun run contract:members` prints which panel needs which field. Nothing declares it, so nothing can get it wrong.
-- **Reading a retirement on the page** — the shell reads the document once and hands it to every panel through the store, so a separately published sub-app reports it without calling the service itself. No unit id moves between the reading before the retirement and the reading after.
+- **Reading a retirement on the page** — the shell reads the document once and hands it to every panel through the store, so a separately published sub-app reports it without calling the service itself. `list` asks about `snapshot.tasks`, which the service does not answer until step 6, so nothing is drawn for it today and `bun run e2e:members` is what holds the call. No unit id moves between the reading before a retirement and the reading after.
 - **Deleting old files** — `bun run sweep` removes only what no channel can serve, behind a **90-day floor** on two clocks: the object's age, and when a channel stopped serving it.
 
 ---

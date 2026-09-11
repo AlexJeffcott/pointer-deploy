@@ -3,6 +3,17 @@
 //   bun run sweep                        # says what it would delete
 //   bun run sweep --delete               # does it. Irreversible
 //   bun run sweep --floor-days 30        # a shorter floor, stated out loud
+//   bun run sweep --only units/shell/ab  # only keys under this prefix
+//
+// `--only` NARROWS the candidate set and changes neither reading: a unit a
+// channel serves, or that an override can still reach, is held whatever prefix
+// is named. It exists because the floor is global and the reason for it is a
+// visitor's tab, so removing ONE object that no visitor ever had - a probe's
+// build published without a marker, say - otherwise meant lowering the floor for
+// everything. Measured on 2026-09-11: `--floor-days 0` alone reached 71 unit
+// directories, two of them ordinary published units and one of them
+// `units/catalogue.json`, which is a group of its own here and would have left
+// `bun run units` unreadable until a `--rebuild`.
 //
 // Two readings decide, and both have to allow it:
 //
@@ -47,6 +58,12 @@ type Entry = { unit: { unitId: string }; contracts?: string[]; supersededAt?: st
 const CHANNELS = ["qa", "prod", "test-qa", "test-prod"];
 const argv = process.argv.slice(2);
 const DELETE = argv.includes("--delete");
+
+const onlyFlag = argv.indexOf("--only");
+const onlyPrefix = onlyFlag === -1 ? null : argv[onlyFlag + 1];
+if (onlyFlag !== -1 && !onlyPrefix) {
+  throw new Error("--only takes a key prefix, such as units/shell/5569c9df");
+}
 
 const daysFlag = argv.indexOf("--floor-days");
 const floorDays = daysFlag === -1 ? FLOOR_DAYS : Number(argv[daysFlag + 1]);
@@ -102,11 +119,19 @@ for (const { region, channel, pointer: pointerKey, history: key } of manifestKey
   });
 }
 
-const objects = [
+const listed = [
   ...(await listObjectDetails(cfg, "units/")),
   ...(await listObjectDetails(cfg, "builds/")),
   ...(await listObjectDetails(cfg, "probe/")),
 ];
+// Narrowed here and nowhere else. The pointers and the histories above are read
+// whole, so both readings see everything they would otherwise see and `--only`
+// can hold nothing it would not have held.
+const objects = onlyPrefix ? listed.filter((o) => o.key.startsWith(onlyPrefix)) : listed;
+if (onlyPrefix) {
+  console.error(`--only ${onlyPrefix}: ${objects.length} of ${listed.length} objects considered`);
+  if (objects.length === 0) throw new Error(`no object's key begins with ${onlyPrefix}`);
+}
 
 // -- the plan ---------------------------------------------------------------
 

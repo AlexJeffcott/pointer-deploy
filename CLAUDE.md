@@ -37,14 +37,19 @@ Nothing regenerates a shot. A picture of what was served on a date is falsified 
 | | |
 | --- | --- |
 | `bun run typecheck` | |
-| `bun test` | 660 tests on 2026-09-10 |
+| `bun test` | 684 tests on 2026-09-11 |
 | `bun run verify` | the `@local` suite |
-| `bun run falsify` | when the change adds or moves a check |
+| `bun run verify:browser` | the `@browser` suite. **The only command that runs a sub-app's scenarios** |
+| `bun run falsify` | when the change adds or moves a check. `FALSIFY_LIVE=1` for the 30 `@live` and `@browser` mutations of the 114, which it otherwise reports as skipped |
 | `bun run verify:live` | when the change touches the store, the pointer or the server |
+
+`verify:browser` is in that table from 2026-09-11 and was missing before it. Every scenario in `keeping-a-list-of-tasks.feature` is `@browser @test-channel`, and so is `Moving between views draws each one and fetches nothing` — which carries the whole per-view half of `PLAN.md` step 0's claim. `verify` runs `@local` and `verify:live` runs `@live`, so neither reaches any of them: the requirement a step ships is written in a file the documented gate never opened.
+
+`bun run falsify` runs the `@local` mutations alone and REPORTS the rest as skipped. A count of mutations in the array is not a count of mutations that ran; `--only <text>` narrows a run so a claim about a few of them can be measured without running all 114.
 
 Green checks do not prove a feature works. `~/projects/CLAUDE.md` carries the reasoning; the short form is that a suite which wires the stack by hand can pass while the path a visitor takes is broken, and this repository has `bun run e2e` because of it.
 
-`bun run e2e` and `bun run e2e:members` **exit non-zero on this slate**, and that is the correct state rather than a fault to fix. Both measure a sub-app, `PLAN.md` step 0 builds none, and a command that exited 0 while measuring nothing would be the exact failure the paragraph above names. They come back at step 1; TODO §31 lists every other check that lost its subject with them.
+`bun run e2e` and `bun run e2e:members` measure a sub-app, so both refuse to run when the tree builds none. `PLAN.md` step 1 builds `list` and both pass again. Run them when a change touches a unit, the contract surface or `promote`; TODO §31 lists what is still waiting for a third unit.
 
 ## Voice
 

@@ -6,7 +6,7 @@
 // probes read the direction they claim to read.
 
 import { describe, expect, test } from "bun:test";
-import { directionFrom, type Surface } from "./contract.ts";
+import { directionFrom, readRegistry, readSurface, type Surface } from "./contract.ts";
 
 /** Long enough for two tsc runs per comparison on a cold cache. */
 const SLOW = 30_000;
@@ -120,8 +120,31 @@ describe("the direction of a surface change", () => {
     SLOW,
   );
 
-  // The reading this file used to end on - the two surfaces this repository
-  // had actually published, and the direction between them - needs two minted
-  // contracts, and the slate holds one. It comes back the day a second is
-  // minted, which is the day the reading first means something again.
+  // The reading this file exists to make good on: not a generated pair, but the
+  // two surfaces this repository has actually published. `PLAN.md` step 1
+  // minted the second, so the reading has a subject again - TODO §31's fourth
+  // row. It cannot go stale: a published contract's files are hashed by
+  // `verifyRegistry`, so the pair below is the pair that was minted.
+  test(
+    "the two contracts this repository has published are a breaking pair",
+    async () => {
+      const registry = await readRegistry();
+      const named = (name: string) => {
+        const record = registry.contracts.find((c) => c.name === name);
+        if (!record) throw new Error(`the registry no longer holds ${name}`);
+        return record;
+      };
+      const older = named("hello-2026-09");
+      const newer = named("planner-2026-09");
+
+      const d = await directionFrom(await readSurface(older), await readSurface(newer));
+      expect(d.additive).toBe(false);
+      // Which half, and which declaration. The greeting the shell used to hold
+      // is gone, so a sub-app published against the older contract consumes
+      // something that is no longer there.
+      expect(broken(d)).toEqual(["shell"]);
+      expect(d.halves.find((h) => h.half === "shell")?.output).toContain("DEFAULT_GREETING");
+    },
+    SLOW,
+  );
 });

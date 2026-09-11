@@ -61,7 +61,7 @@ const skippedForNoPanel: string[] = [];
 const onPanel = (what: string, run: () => void): void => {
   if (PANEL) run();
   else {
-    console.log(`  skip ${what} - no sub-app on this slate`);
+    console.log(`  skip ${what} - no panel on this slate draws a field of the service`);
     skippedForNoPanel.push(what);
   }
 };
@@ -166,14 +166,19 @@ const attrOf = async (page: Page, selector: string, name: string): Promise<strin
 };
 
 /**
- * The sub-app whose panel this reads, or null when the tree builds none.
+ * The sub-app whose panel draws a field of the SERVICE, or null when none does.
  *
- * `PLAN.md` step 0 is the frame alone, so half the readings below have no
- * subject. They are SKIPPED and said to be skipped rather than dropped: a run
- * that quietly stopped asking about the panel would report the same "ok" count
- * as one that asked and got the right answer.
+ * Null since `PLAN.md` step 0, and it stays null at step 1 for a different
+ * reason: the tree builds `list`, but `list` draws the planner's tasks, which
+ * live in the browser and which the service holds none of. It gets a subject at
+ * step 6, when the service starts holding snapshots, and the panel's
+ * `store.goingAway("snapshot.tasks")` call is what step 13 reads.
+ *
+ * The readings that need one are SKIPPED and said to be skipped rather than
+ * dropped: a run that quietly stopped asking about the panel would report the
+ * same "ok" count as one that asked and got the right answer.
  */
-const PANEL: string | null = (APPS as string[])[0] ?? null;
+const PANEL: string | null = null;
 
 /** Every reading this run makes, taken from the rendered DOM of both views. */
 async function readPanels(page: Page): Promise<Panels> {

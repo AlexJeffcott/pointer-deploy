@@ -1,13 +1,27 @@
 import { signal } from "@preact/signals";
 
 /**
- * The one thing the shell owns and a panel draws.
+ * One task in the planner.
  *
- * Two fields rather than one, and that is deliberate: a single field cannot be
- * retired in favour of anything, so the service could publish a deprecation
- * nothing could act on. `audience` exists so `text` has somewhere to go.
+ * The document shape the whole application is built on, declared here because
+ * the shell owns it and every sub-app is handed it. `column` and `due` carry no
+ * mover yet - `board` arrives at `PLAN.md` step 4 and `week` at step 5 - and
+ * they are declared now because they are what a task IS, not what this step
+ * draws. Step 2 writes this record into IndexedDB and step 3 exports it.
+ *
+ * There is no "done" flag. A task is done when it sits in the `done` column, so
+ * the board and the list cannot disagree about what done means.
  */
-export type Greeting = { text: string; audience: string };
+export type Task = {
+  id: string;
+  title: string;
+  /** A column id. */
+  column: string;
+  /** YYYY-MM-DD, or null when the task has no date. */
+  due: string | null;
+  tags: readonly string[];
+  createdAt: string;
+};
 
 /** One route the service publishes, as it publishes it. */
 export type ServiceRoute = { method: string; path: string };
@@ -32,10 +46,10 @@ export type ServiceField = { path: string; type: string; going: FieldSunset | nu
 /**
  * What the page knows about the service it was told to call, §26.
  *
- * A sub-app reads this and never fetches: the shell owns the one read, the
- * same way it owns the greeting. `state` is the reading a panel acts on, and
- * "unread" is a real value rather than a missing one - a page whose service is
- * slow has not failed, and must not be drawn as though it had.
+ * A sub-app reads this and never fetches: the shell owns the one read, the same
+ * way it owns the tasks. `state` is the reading a panel acts on, and "unread"
+ * is a real value rather than a missing one - a page whose service is slow has
+ * not failed, and must not be drawn as though it had.
  */
 export type ServiceReport = {
   /** Where the service is, or "" when the server named none. */
@@ -60,10 +74,25 @@ export type ServiceReport = {
   readAt: string | null;
 };
 
+/**
+ * What the shell provides and a sub-app consumes.
+ *
+ * Every member here is called by something. `PLAN.md` §15 puts shared state in
+ * the shell, so the task store is the shell's and `list` writes through it -
+ * which is also why there is no member for reading one task: a panel draws the
+ * collection.
+ *
+ * The list is deliberately narrow. A member no unit calls is surface the member
+ * gate cannot refuse anything for, and the greeting this store used to hold was
+ * exactly that from `PLAN.md` step 0 onwards.
+ */
 export type ShellStore = {
-  greeting(): Greeting;
-  /** Names the fields to change. The rest stay as they are. */
-  setGreeting(patch: Partial<Greeting>): void;
+  tasks(): readonly Task[];
+  /** Adds a task at the end of the list. Blank titles are refused, silently. */
+  addTask(title: string): void;
+  /** Replaces the tags on one task. The rest keep theirs. */
+  setTags(id: string, tags: readonly string[]): void;
+  removeTask(id: string): void;
   service(): ServiceReport;
   setService(report: ServiceReport): void;
   /** The sunset on one field path, or null when the service does not mark it. */
@@ -71,11 +100,13 @@ export type ShellStore = {
 };
 
 /**
- * What the page draws before the service has answered, and keeps if it never
- * does. Both fields are values a panel can render, so a slow service costs a
- * DIFFERENT page and never a blank one.
+ * Where a task lands when nothing says otherwise.
+ *
+ * Not exported, so it is not contract surface: no unit needs to name it until
+ * `board` can move a task, and a member nothing calls is the surface this step
+ * is removing rather than adding to.
  */
-export const DEFAULT_GREETING: Greeting = { text: "Hello", audience: "world" };
+const DEFAULT_COLUMN = "todo";
 
 export const NO_SERVICE: ServiceReport = {
   base: "",
@@ -89,14 +120,41 @@ export const NO_SERVICE: ServiceReport = {
   readAt: null,
 };
 
-export function createStore(initial?: Partial<Greeting>): ShellStore {
-  const greeting = signal<Greeting>({ ...DEFAULT_GREETING, ...initial });
+/**
+ * A task id, unique within one page.
+ *
+ * A counter and the clock rather than a random value, because the counter is
+ * what makes two tasks added in the same millisecond different and the clock is
+ * what stops a reload colliding with what a later step reads back out of
+ * IndexedDB.
+ */
+let minted = 0;
+const newId = (): string => `t${(++minted).toString(36)}-${Date.now().toString(36)}`;
+
+export function createStore(initial: readonly Task[] = []): ShellStore {
+  const tasks = signal<readonly Task[]>(initial);
   const service = signal<ServiceReport>(NO_SERVICE);
 
   return {
-    greeting: () => greeting.value,
-    setGreeting: (patch) => {
-      greeting.value = { ...greeting.value, ...patch };
+    tasks: () => tasks.value,
+    addTask: (title) => {
+      const trimmed = title.trim();
+      if (trimmed === "") return;
+      const task: Task = {
+        id: newId(),
+        title: trimmed,
+        column: DEFAULT_COLUMN,
+        due: null,
+        tags: [],
+        createdAt: new Date().toISOString(),
+      };
+      tasks.value = [...tasks.value, task];
+    },
+    setTags: (id, tags) => {
+      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, tags: [...tags] } : t));
+    },
+    removeTask: (id) => {
+      tasks.value = tasks.value.filter((t) => t.id !== id);
     },
     service: () => service.value,
     setService: (report) => {

@@ -52,15 +52,19 @@ Then("it says the count starts again when the machine is replaced", function (th
   expect(said).toContain("in memory");
 });
 
+// The unit the scenario overrode is `list`, and this step has to read the same
+// one. It read `hello` until `PLAN.md` step 0 removed that unit, and `shell`
+// while the shell was the only unit there was - which is why the scenario and
+// the step have to move together.
 Then("that composition is counted as an operator's override, and nothing else is", function (this: PointerWorld) {
   const rows = reading(this).compositions;
-  const asked = this.unitIdOf("one", "shell");
+  const asked = this.unitIdOf("one", "list");
   const overridden = rows.filter((c) => c.overrides > 0);
 
-  expect(`overridden: ${JSON.stringify(overridden.map((c) => `shell=${c.units.shell} x${c.overrides}`))}`)
-    .toBe(`overridden: ${JSON.stringify([`shell=${asked} x1`])}`);
+  expect(`overridden: ${JSON.stringify(overridden.map((c) => `list=${c.units.list} x${c.overrides}`))}`)
+    .toBe(`overridden: ${JSON.stringify([`list=${asked} x1`])}`);
 
-  const visitors = rows.filter((c) => c.overrides === 0 && c.units.shell !== asked);
+  const visitors = rows.filter((c) => c.overrides === 0 && c.units.list !== asked);
   expect(`the channel's own composition was counted, unoverridden: ${visitors.length > 0}`).toBe(
     "the channel's own composition was counted, unoverridden: true",
   );

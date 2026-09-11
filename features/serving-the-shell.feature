@@ -40,24 +40,31 @@ Feature: Serving the application shell from the live manifest
 
     The shell owns placement, and a view may place nothing. Such a view is not a
     hole in the page: the frame draws it, and the browser is told to fetch
-    nothing for it. Every view this shell places is one of them, so the whole
-    application is the frame and the page a visitor gets names no other bundle.
+    nothing for it. `PLAN.md` step 1 places `list` on `/`, so the subject of
+    this rule is now the four routes that still name no unit - `/board` and
+    `/week`, waiting for a unit at steps 4 and 5, and `/service` and `/backup`,
+    which never get one.
+
+    The page is one document for all five routes, so what it may name is exactly
+    the units its views place: `list`, and nothing else. That is the half read
+    off the HTML. The half about a particular view is read in a browser, below.
 
     Background:
       Given the qa channel points at build "alpha"
 
     @live @local
-    Scenario: The page names no bundle beyond the frame's own
+    Scenario: The page names the units its views place, and no others
       When a visitor loads the qa origin
-      Then the page names no sub-app for the browser to import
-      And the page asks the browser to warm nothing
+      Then the page names "list" for the browser to import, and no other sub-app
+      And the page asks the browser to warm "list", and nothing else
 
   Rule: The frame drawing those views, in a browser
 
-    Every view this shell places names no unit, so walking the whole sidenav
-    must cost the browser no request at all. A count taken before the walk and
-    after it is what says so: a link that navigated instead of routing would
-    fetch the frame again and read as a page that works.
+    The four views that name no unit have to cost the browser nothing. A count
+    taken after the landing view has loaded and before one link is clicked is
+    what says so: a link that navigated instead of routing would fetch the frame
+    again and read as a page that works, and a view that quietly gained a unit
+    would fetch a bundle.
 
     Background:
       Given the qa channel points at build "tree"

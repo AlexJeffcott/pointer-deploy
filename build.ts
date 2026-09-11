@@ -1,10 +1,11 @@
 // Builds every unit and records what each emitted in dist/build.json, so
 // publish.ts does not re-derive the names.
 //
-// One unit, on this slate: `PLAN.md` step 0 is the frame by itself, so `APPS`
-// is empty and the second of the two builds below runs zero times. Everything
-// about it stays, because steps 1, 4 and 5 each add one back, and because the
-// two guards inside that loop are what make a sub-app share the page's runtime.
+// Two units, on this slate: `PLAN.md` step 1 put `list` on `/`, so `APPS` holds
+// one name and the second of the two builds below runs once. It was empty at
+// step 0 - the frame by itself - and steps 4 and 5 add `board` and `week`. The
+// two guards inside that loop are what make a sub-app share the page's runtime,
+// and they measure nothing while `APPS` is empty.
 //
 // A unit is the thing that gets published and rolled back on its own: the
 // shell, and one per sub-app. Two kinds of build, and the difference is the

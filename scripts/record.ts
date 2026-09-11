@@ -806,7 +806,13 @@ export function movedSummary(units: Record<string, UnitMove> | undefined): strin
     .filter(([, u]) => stateOf(u) !== "carried")
     .map(([name, u]) => {
       if (stateOf(u) === "dropped") return `${name} dropped (was ${u.from ?? "an id it did not record"})`;
-      if (stateOf(u) === "new") return `${name} ${u.unitId} (first promote)`;
+      // "added", not "first promote". `new` says the composition this promote
+      // replaced held no id for this unit - which is also true of a unit that
+      // was dropped and put back, and `deploys/2026-09-10T21-15-37Z-qa` is one:
+      // `hello 3bba892b` had been served for weeks before the promote eight
+      // minutes earlier removed it. The record cannot see a unit's history and
+      // must not imply it has.
+      if (stateOf(u) === "new") return `${name} ${u.unitId} (added)`;
       return `${name} ${u.from} → ${u.unitId}`;
     });
   return parts.length ? parts.join(", ") : "nothing";

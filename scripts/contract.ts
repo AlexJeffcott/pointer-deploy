@@ -28,22 +28,18 @@ export const REGISTRY = join(CONTRACTS_DIR, "registry.json");
 /**
  * The units that are published and composed independently.
  *
- * One, on this slate. `PLAN.md` step 0 is the frame by itself: the shell draws
- * five views and none of them places a unit, so there is no sub-app to build,
- * publish or promote. Steps 1, 4 and 5 add `list`, `board` and `week` back, one
- * per step, and every mechanism here is written for the plural it does not
- * currently have.
+ * Two, on this slate: the frame and `list`, which `PLAN.md` step 1 places on
+ * `/`. Steps 4 and 5 add `board` and `week`, one per step.
  *
- * `APPS` is therefore empty and its element type is `never`. That is the
- * reading that is true, and it is deliberately not widened to `string`: a site
- * that only compiles because an app might exist is a site that would go on
- * compiling after the list emptied, which is how the state below arrives
- * unnoticed.
+ * The element type is derived rather than widened to `string`, deliberately: a
+ * site that only compiles because an app MIGHT exist is a site that goes on
+ * compiling after the list empties, which is how `PLAN.md` step 0 arrived at
+ * `APPS: never[]` with every reading about a sub-app quietly measuring nothing.
  */
-export const UNITS = ["shell"] as const;
+export const UNITS = ["shell", "list"] as const;
 export type Unit = (typeof UNITS)[number];
 export type App = Exclude<Unit, "shell">;
-export const APPS: App[] = [];
+export const APPS: App[] = ["list"];
 
 /**
  * Bare specifiers the shell owns and every sub-app borrows.
@@ -74,7 +70,32 @@ export type ContractRecord = {
   /** Directory name. For people. The hash is the identity. */
   name: string;
   hash: string;
+  /**
+   * The commit whose surface hashes to `hash`, or the mint's own HEAD when
+   * nothing can say yet.
+   *
+   * A mint happens with the new surface in the WORKING TREE and HEAD still at
+   * the commit before it, so `git rev-parse HEAD` names the last commit that
+   * did NOT have this surface. Both records in this repository were written
+   * that way and both are off by one: `planner-2026-09` named `de60d9eb`, whose
+   * surface hashes to `9d1b0a3`, the previous contract. `promote` refuses a
+   * build for exactly this reason and the mint did it to itself.
+   *
+   * So the reading is honest about what it can see. A clean tree at HEAD is the
+   * commit; a dirty one is recorded with `mintedDirty`, and the commit named is
+   * where the work started rather than what it contains. `contract:mint
+   * --at <commit>` states the answer once it exists.
+   */
   firstSeenCommit: string;
+  /**
+   * True when the tree that produced the surface carried uncommitted changes,
+   * so `firstSeenCommit` does NOT hold the surface this record names.
+   *
+   * Absent on a record written before this was read, which is not the same as
+   * false - the two earliest records were corrected by hand from the commits
+   * that actually hold their surfaces.
+   */
+  mintedDirty?: boolean;
   firstSeenAt: string;
   /** §10. Recorded after the mint, and never part of the hash. */
   deprecated?: Deprecation;

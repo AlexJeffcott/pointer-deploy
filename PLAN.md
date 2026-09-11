@@ -34,7 +34,7 @@ It also supplies state that persists across a deploy, which is the surface §11'
 | Unit | Route | Draws | First fetched |
 | --- | --- | --- | --- |
 | `shell` | the frame | title, fixed sidenav, routing, the store, IndexedDB, export, import, push, pull | always |
-| `list` | `/` | every task: add, rename, tag, complete, delete | on the landing route |
+| `list` | `/` | every task: add, tag, delete, rename. Completing is `board`'s `moveTask` at step 4, renaming is `renameTask` at step 9 - see below | on the landing route |
 | `board` | `/board` | one column per fixed column, and a task moves between them | preloaded, imported when the route is opened |
 | `week` | `/week` | seven days, and every task that has a due date | preloaded, imported when the route is opened |
 | — | `/service` | what the service holds and what it retires. The frame draws it | never |
@@ -72,6 +72,7 @@ Which unit uses which member. This table is a design constraint and not a descri
 | `setDue(id, due)` | | | ✓ | |
 | `setTags(id, tags)` | ✓ | | | |
 | `removeTask(id)` | ✓ | | | |
+| `renameTask(id, title)` | ✓ | | | |
 | `goingAway(path)` | ✓ | | | |
 | `service()` | | | | `/service` |
 | `storage()` | | | | `/backup` |
@@ -79,7 +80,11 @@ Which unit uses which member. This table is a design constraint and not a descri
 | `importDocument(json)` | | | | `/backup` |
 | `push()` / `pull(address)` | | | | `/backup` |
 
-Dropping `moveTask` refuses `board` and nothing else. Dropping `setDue` refuses `week` and nothing else. That is the reading §31 row 1 lost when the slate went to one sub-app.
+Dropping `moveTask` refuses `board` and nothing else. Dropping `setDue` refuses `week` and nothing else. That is the reading §31 row 1 lost when the slate went to one sub-app; step 1 restores the half that needs one sub-app, and step 10 the "and nothing else" half.
+
+**A member is declared when a unit calls it, and not before.** The table is the finished surface. What `src/web/shell/api.ts` holds at any step is the rows the units built so far use, because a member no unit calls is surface the member gate cannot refuse anything for - which is what `greeting` and `setGreeting` became at step 0, and why step 1 minted a contract that drops them. So step 1 declares `tasks`, `addTask`, `setTags`, `removeTask` and `goingAway`; steps 4 and 5 add `columns`/`moveTask` and `setDue`; and step 9 adds `renameTask`, which is the last row `list` needs and the one member whose arrival can be additive, because by then there are two other published units that do not call it.
+
+**That is also why `list` does not rename or complete a task at step 1.** The units table says it draws both. Completing is `moveTask`, which is `board`'s, and step 4 gives `list` that. Renaming is `renameTask`, and **step 9 is where it arrives** — as the additive change, because by then `board` and `week` are published against a surface that does not have it, and a member added to `ShellStore` grows no app's use set. That is the whole demonstration: one unit republishes, two do not, and `contract:matrix` stays green across the mint. Step 9's row used to read `setTags`, which step 1 minted; a step demonstrating an additive change to a member that already exists demonstrates nothing.
 
 There is no "done" flag. A task is done when it is in the `done` column, so the board and the list cannot disagree about what done means.
 
@@ -194,7 +199,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | Step | Done | Ships | Demonstrates | Feature file |
 | --- | --- | --- | --- | --- |
 | 0 | 2026-09-10 | The frame: five routes, three empty, `hello` removed | A view naming no unit is legitimate, and nothing is fetched for it | rewrite `serving-the-shell` |
-| 1 |  | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
+| 1 | 2026-09-11 | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
 | 2 |  | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
 | 3 |  | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
 | 4 |  | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
@@ -202,7 +207,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
 | 7 |  | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
 | 8 |  | Slot history and restore | Data rollback, by the same mechanism as the pointer | `restoring-an-older-snapshot` |
-| 9 |  | Additive contract change: `setTags` | Nothing republishes. `contract:matrix` stays green | `contract:matrix`, not a scenario |
+| 9 |  | Additive contract change: `renameTask` | `board` and `week` do not republish and still compile against the new contract. `contract:matrix` stays green | `contract:matrix`, not a scenario |
 | 10 |  | Breaking change: drop `moveTask` | `promote` refuses `board` and names it. `list` and `week` are untouched | restores `bun run e2e:members` |
 | 11 |  | A new `board` alone | The unit of release is a panel | `deploying-a-unit` |
 | 12 |  | `promote --app board=<older id>` | The code rollback is the deploy command. Put beside step 8 | `deploying-a-unit` |
@@ -211,17 +216,58 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
 | 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
 
+### What step 1 settled, and what it cost
+
+**A second unit, and a contract minted for it.** `list` is `15ed669` / `planner-2026-09`, and the surface it is built against dropped `greeting`, `setGreeting`, `Greeting` and `DEFAULT_GREETING` as well as adding the five members above. Both units compile against `15ed669` and neither against `9d1b0a3`, so the mint's direction reading calls the pair NOT additive and names `DEFAULT_GREETING`. Nothing is refused for it: the intersection is non-empty, and `9d1b0a3` stays retained because a rollback onto a unit published against it is what retaining is for. `scripts/contract.test.ts` holds that reading - the fourth row of §31, which needed two published contracts and now has them.
+
+**The shell still calls the service once, and keeps nothing from it.** The greeting is gone from the store, so `hydrate` is `readData`: the one call at `API_VERSION`, made because `/versions` sits outside any version prefix and cannot say whether the version this shell CALLS answers, and because only a data response carries the `Sunset` header `/service` draws. `serviceBacked` is gone; `setGreeting` went on 2026-09-11, one branch late - step 1 said it had gone while `ServiceClient` still declared it, `createClient` still implemented it and the bundle still shipped it. The planner is in the browser, so no write is sent anywhere until step 6.
+
+**And `readData` no longer parses the body it does not keep.** It called `client.greeting()` behind a parser that requires `greeting.text`, so a service answering `v1` correctly with any other body put `api field greeting.text is missing or not a string` on `data-api` - a reading about the SHAPE of a response, under a doc comment saying the reading is whether the version answers. `ServiceClient.data()` makes the call and reads the status and the `Sunset` header and nothing else. `parseGreeting` and `ApiGreeting` went with it: nothing in the shell drew a field of that response, so the parser was checking a boundary no value crossed.
+
+**`list` calls `goingAway("snapshot.tasks")`, which returns null.** The service holds no snapshots until step 6 and the field is retired at step 13, so nothing is drawn for it today. The call is not decoration: `bun run e2e:members` drops the member and reads a refusal naming `list`, which is the whole of §9's first half and had no subject at step 0.
+
+**"Nothing is fetched for a view that names no unit" gained teeth.** At step 0 there was no bundle a mutation could make the page fetch, so the unit-level half of that claim was structural. It is now a difference between `/`, which fetches `list`, and the four views that fetch nothing - and the `@browser` walk measures it.
+
+**A surface change strands a channel that carries a unit built against the old one.** `test-prod` still held `hello 72e6a6f4`, which uses `ShellStore.greeting`, `ShellStore.setGreeting`, `Greeting.text` and `Greeting.audience` - all four gone from this surface - so `promote` refused every merge into that channel and named the unit and every member. Four `verify:live` scenarios failed in their Background on it. `bun run promote test-prod --from-build --drop hello` is the whole fix, and the refusal is §9's gate working on a composition nobody manufactured for it. TODO carries the reading.
+
+**And `prod` is in that state too, which is the part step 1 did not say.** Measured on 2026-09-11: both regions of `prod` serve `shell c2601912` and `hello 3bba892b` at contract `9d1b0a3`, and `hello 3bba892b`'s `uses` names all four of the members this surface removed. `promote` loads every CARRIED unit's manifest and judges the whole composition, so every promote naming the new shell on `prod` is refused until `hello` is said to leave. **The runbook is below and nothing on this branch has run it:** `prod` has no hostname, so no browser can reach it, and the promote is the one act in this repository whose record cannot have pictures.
+
+### Deploying `PLAN.md` step 1 to `prod`
+
+Not done. The commands, in order, for whoever decides to:
+
+```sh
+git checkout main && git pull          # a clean tree at the commit being deployed
+bun run build                          # no BUILD_MARKER: a marked build is refused on a real channel
+bun run publish
+bun run promote prod --from-build --drop hello
+bun run shoot --note "..." --out deploys/<composedAt>-prod   # REFUSES: prod has no hostname
+git add deploys/<composedAt>-prod && git commit
+```
+
+| | |
+| --- | --- |
+| Why `--drop hello` | `hello 3bba892b` uses `ShellStore.greeting`, `ShellStore.setGreeting`, `Greeting.text` and `Greeting.audience`. Without it the promote is refused and names the unit and all four |
+| Why not `--app hello=<older>` | Every published `hello` was built against `9d1b0a3`. There is no id that composes with this shell |
+| Why the build must be clean and unmarked | A `--from-build` to a real channel refuses a harness build, a dirty tree and another commit. Naming ids with `--shell`/`--app` takes none of those checks, which is why the runbook uses `--from-build` |
+| What the record will hold | `promote.json`, `manifest.eu.json`, `manifest.us.json`, `notes.md` — **and no pictures**. `shoot` refuses `prod` because `Host` is forbidden to `setExtraHTTPHeaders` and Fly routes on SNI. TODO §2 is the domain and the certificate that would change it |
+| The way back | `bun run promote prod --shell c2601912 --app hello=3bba892b`, which is the composition `prod` serves today |
+
+**A reading on the mint, for the repository's owner.** The removal of `greeting`, `setGreeting`, `Greeting` and `DEFAULT_GREETING` was optional. Keeping the four declared and unused would have made `15ed669` additive, left `prod` and `test-prod` promotable without a `--drop`, and cost nothing but four dead declarations - which step 6 removes anyway when the service changes its subject. What the removal bought is §31's "a published pair reads as not additive" row, held by `scripts/contract.test.ts`. So a repository whose headline claim is that a deploy is one JSON write froze its only un-shootable channel behind a manual removal, to give one test row a subject that `contract:mint --name scratch-breaking` produces on demand and that README already documents. That reads as the wrong trade. It is **not** re-minted here: a contract is an identity two published units already claim, and churning it again to undo a judgement is the owner's call and not a defect fix.
+
+**What came back, and what did not.** `bun run e2e` and `bun run e2e:members` pass rather than exiting non-zero. Six scenarios returned to `deploying-a-unit`, one to `choosing-a-version`, an Outline to `checking-what-the-page-loads`, and two to `recovering-from-an-error`; thirteen `falsify` mutations came back with them, and step 1 said nine and counted the array. **Measured on 2026-09-11 with `FALSIFY_LIVE=1 bun run falsify --only ...`: ten caught, two not caught, one refused by §35's guard for not compiling.** Eight of the thirteen are `@live` or `@browser`, so `bun run falsify` - the command in the checklist - had run none of them. The three that failed are in TODO's cold-read table with what each did instead; after they were re-aimed, 3 of 3 caught. What still has no subject is every claim needing a THIRD unit: two sub-apps sharing one runtime, a member dropped refusing one app and not another, and warming a unit off the landing route. TODO §31 carries those, and `PLAN.md` steps 4, 5 and 10 are where they come back.
+
 ### What step 0 settled, and what it cost
 
 **Five routes, and which three are "empty".** The units table above names five: `/`, `/board`, `/week`, `/service`, `/backup`. It also says two of them name no unit — `/service` and `/backup` — which is the finished application. At step 0 none of the five names a unit, because the tree builds none, so "three empty" is read as the three that are **waiting for one**: `/` at step 1, `/board` at step 4, `/week` at step 5. The frame draws all five and says on each of the three which it is. That is the reading that makes step 1 the smallest next step: build `list`, place it on `/`, and move nothing else.
 
-**That reading is prose and nothing checks it.** `views.test.ts` asserts five routes and zero placed apps, which is true under either reading, so a check that appeared to settle it settles only the count. The other reading — `/backup` is also waiting, for the shell code that draws it at step 3, so four of five are waiting for something — is not refuted here. It is named so that step 1 does not inherit a settled-looking assumption.
+**That reading was prose and nothing checked it.** `views.test.ts` asserted five routes and zero placed apps, which was true under either reading. Step 1 settles it by acting: `list` went on `/`, and `views.test.ts` now names which route places it and which four place nothing. The alternative reading — `/backup` is also waiting, for the shell code that draws it at step 3 — is untouched by that and is still the right way to read the `/backup` note.
 
-**No contract was minted.** Step 0 changes no declaration in `src/web/shell/api.ts` or `src/web/shell/subapp.ts`, so the surface at HEAD still hashes to `9d1b0a3`. That is checked rather than asserted: `build.ts` refuses a build whose HEAD surface the registry does not hold.
+**No contract was minted.** Step 0 changed no declaration in `src/web/shell/api.ts` or `src/web/shell/subapp.ts`, so the surface at HEAD still hashed to `9d1b0a3`. That was checked rather than asserted — `build.ts` refuses a build whose HEAD surface the registry does not hold — and it was true only because the greeting members stayed declared while nothing called them. Step 1 removed them and minted `15ed669`.
 
 **A composition naming no sub-app is now legitimate.** `src/server/manifest.ts` used to refuse one at schema 3, which made the whole application a 503. Schema 2 still refuses one, and the file says why the two differ. `src/server/html.test.ts` now renders a schema-3 manifest with no app — the page every visitor gets from here on, and the one shape `bun test` did not touch: it was covered only through schema 1, which returns `{}` from a different branch.
 
-**What lost its subject.** Going to zero units cost eight checks their subject, on top of the four the previous slate cost. TODO §31 lists every one of them, where it was, and which step brings it back. `bun run e2e` and `bun run e2e:members` exit non-zero rather than passing: a green check that measured nothing is the failure mode `~/projects/CLAUDE.md` exists to name.
+**What lost its subject.** Going to zero units cost eight checks their subject, on top of the four the previous slate cost. TODO §31 lists every one of them, where it was, and which step brings it back. `bun run e2e` and `bun run e2e:members` exited non-zero rather than passing: a green check that measured nothing is the failure mode `~/projects/CLAUDE.md` exists to name. Step 1 restored both, and most of the rest with them.
 
 **It is not one publish and one promote, and that is the finding.** Every other step in this table is. This one changes what a MANIFEST may say, which is the surface between the pointer and the running image, and that surface has no gate and no version. The first promote wrote a pointer with `apps: {}`, the deployed image threw `manifest names no apps` on it, `ams` kept serving what it had, and `iad` answered 503 to every request for `us` until the pointer was put back. TODO §36 carries it, with the readings.
 
@@ -229,7 +275,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 
 **And the way back was not a command.** `--app hello=<id>` exited 1, because `--app` checked its name against what this tree builds. The recovery was an edit to `scripts/contract.ts` and a promote from a dirty tree, which `deploys/2026-09-10T21-15-37Z-qa/promote.json` records. That is fixed: a promote composes from the channel's own apps as well as this tree's units, so a unit the tree stopped building is carried and can be named, and `--drop <app>` is the only way one leaves. Verified live on 2026-09-10 — `--app hello=3bba892b` from a tree that builds no sub-app, twice, with a record for each.
 
-**So step 0 is deployed as far as the running image allows.** `qa` serves the frame with five views, and the composition still names a `hello` unit that no view places: the page warms two files it never imports. Finishing it is a `fly deploy` of the server, and then `bun run promote qa --from-build`. Until that happens the `@live` scenario `The page names no bundle beyond the frame's own` passes against `test-qa` and would fail against the real `qa`, and `bun run verify:live` cannot pass at all: the suite promotes to `test-qa` from this tree, so it writes the pointer the image refuses.
+**So step 0 finished with a `fly deploy` and then a promote.** `deploys/2026-09-11T08-34-02Z-qa` is the record: `bun run promote qa --from-build --drop hello`, the first promote in the archive that moved anything, and the first that removed a unit. `qa` has served the frame with five views and no sub-app since. TODO §36 stays open regardless: what took a region down was that nothing gates what a pointer may SAY against what the image parses, and that gap is unchanged by any of this.
 
 Steps 1 and 2 are deliberately separate. A planner that forgets everything on reload is not a product, and shipping it first makes persistence a visible increment rather than an assumption nobody watched arrive.
 

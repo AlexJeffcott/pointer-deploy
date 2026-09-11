@@ -5,7 +5,8 @@
 // and a sub-app fit each other. Under the hash, a member REMOVED from
 // `ShellStore` breaks the shell's cell against every older contract, empties
 // the intersection and refuses the promote - even when no sub-app in the
-// composition ever called it. Two of the eight members of `ShellStore` are used
+// composition ever called it. Two of the seven members of `ShellStore` -
+// `service` and `setService`, which the frame calls and no panel does - are used
 // by no sub-app at all, so that refusal is wrong twice over on this repository.
 //
 // The rule this file computes instead:
@@ -119,6 +120,39 @@ export function membersIn(text: string, name: string): Member[] {
   };
 
   for (const statement of file.statements) {
+    // A VariableStatement has no `name` of its own - the names are on its
+    // declarators - so `named` returns null for it and `export declare const
+    // NO_SERVICE: ServiceReport;` was never probed at all. `build.ts` documents
+    // `provides` as "every removable member of its surface", and until
+    // 2026-09-11 it was every removable member except the exported constants.
+    // `DEFAULT_GREETING` was one of those, and it is the declaration the
+    // direction reading names when it calls the published pair not additive.
+    if (ts.isVariableStatement(statement)) {
+      const declared = statement.declarationList.declarations;
+      for (const [i, d] of declared.entries()) {
+        const own = named(d);
+        if (!own) continue;
+        // One declarator is the whole statement, which is what tsc emits for
+        // `export const X: T`. Where a statement declares several, the cut has
+        // to take a separating comma with it or what is left does not parse -
+        // and a surface that does not parse reads as "every unit uses this",
+        // which is a wrong answer rather than an error.
+        if (declared.length === 1) {
+          take(statement, own);
+          continue;
+        }
+        const start = i === 0 ? d.getStart(file) : declared[i - 1]!.getEnd();
+        const end = i === 0 ? declared[1]!.getStart(file) : d.getEnd();
+        found.push({
+          path: own,
+          text: text.slice(d.getStart(file), d.getEnd()),
+          digest: digestOf(text.slice(d.getStart(file), d.getEnd())),
+          start,
+          end,
+        });
+      }
+      continue;
+    }
     const name = named(statement);
     if (!name) continue;
     take(statement, name);

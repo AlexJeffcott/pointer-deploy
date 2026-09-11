@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "promote",
+  "channel": "qa",
+  "argv": [
+    "qa",
+    "--from-build"
+  ],
+  "command": "bun run promote qa --from-build",
+  "startedAt": "2026-09-11T11:31:44.919Z",
+  "composedAt": "2026-09-11T11:31:45.600Z",
+  "writtenAt": "2026-09-11T11:31:46.737Z",
+  "regions": [
+    "eu",
+    "us"
+  ],
+  "source": {
+    "commit": "fcc250c362687d1efb44f2a50ac0660c1b3790f3",
+    "dirty": false
+  },
+  "contract": "15ed669",
+  "units": {
+    "list": {
+      "unitId": "cffda106",
+      "from": "eecdb7c6",
+      "state": "moved"
+    },
+    "shell": {
+      "unitId": "0ec4e071",
+      "from": "e27ad5ff",
+      "state": "moved"
+    }
+  },
+  "warnings": [],
+  "manifests": {
+    "eu": "manifest.eu.json",
+    "us": "manifest.us.json"
+  }
+}

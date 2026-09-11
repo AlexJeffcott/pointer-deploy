@@ -947,7 +947,7 @@ describe("changeKind", () => {
     ).toBe("moved");
   });
 
-  test("a first promote is a deploy", () => {
+  test("a unit added to the composition is a deploy", () => {
     expect(changeKind(promoteFile({ units: { hello: { unitId: "9f2", from: null, state: "new" } } }))).toBe(
       "moved",
     );
@@ -981,9 +981,14 @@ describe("movedSummary", () => {
     );
   });
 
-  test("a first promote says so rather than naming a side it has not got", () => {
+  // "added" rather than "first promote", and the difference is a false reading
+  // the archive already holds: `deploys/2026-09-10T21-15-37Z-qa` records
+  // `hello 3bba892b` as `new`, because the promote eight minutes earlier had
+  // removed it - and that unit had been served for weeks. A record cannot see a
+  // unit's history and must not word itself as though it could.
+  test("a unit the composition did not hold is added, not first promoted", () => {
     expect(movedSummary({ hello: { unitId: "9f2", from: null, state: "new" } })).toBe(
-      "hello 9f2 (first promote)",
+      "hello 9f2 (added)",
     );
   });
 
