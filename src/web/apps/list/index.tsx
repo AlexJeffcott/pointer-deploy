@@ -23,6 +23,17 @@ const tagsFrom = (text: string): string[] =>
 
 export default function List({ store }: SubAppProps) {
   const tasks = store.tasks();
+  /**
+   * Where the frame keeps what this panel draws, `PLAN.md` step 2.
+   *
+   * Read for two things. The note at the foot says which of them it is, because
+   * "kept in this browser" and "kept in this page" are different promises to a
+   * visitor. And nothing about the LIST is drawn until the state leaves
+   * "unread": IndexedDB opens asynchronously, so a panel that drew "No tasks
+   * yet" on the first paint would be telling a visitor with a full planner that
+   * it was empty.
+   */
+  const planner = store.planner();
   const [title, setTitle] = useState("");
   /**
    * What somebody is part-way through typing into a tag input, by task id.
@@ -76,7 +87,11 @@ export default function List({ store }: SubAppProps) {
         </button>
       </form>
 
-      {tasks.length === 0 ? (
+      {planner.state === "unread" ? (
+        <p class={styles.empty} data-planner-unread>
+          Reading the planner…
+        </p>
+      ) : tasks.length === 0 ? (
         <p class={styles.empty} data-empty>
           No tasks yet.
         </p>
@@ -121,11 +136,18 @@ export default function List({ store }: SubAppProps) {
       )}
 
       {/* Said on the page, in these words, because it is a limit a visitor has
-          to know about rather than discover. PLAN.md step 2 is what changes it,
-          and a scenario in keeping-a-list-of-tasks.feature reads this line. */}
-      <p class={styles.note} data-memory-note>
-        These tasks are kept in this page alone. A reload starts again with none.
-      </p>
+          to know about rather than discover. Step 1 had one sentence here;
+          step 2 has two, and which one is drawn is a reading of the frame's
+          planner rather than a claim this bundle makes. Step 7 is what changes
+          the first of them, when a slot puts one planner in two browsers.
+          Scenarios in keeping-the-planner-in-the-browser.feature read both. */}
+      {planner.state === "unread" ? null : (
+        <p class={styles.note} data-memory-note>
+          {planner.state === "stored"
+            ? "These tasks are kept in this browser alone. Another browser starts with none."
+            : "These tasks are kept in this page alone. A reload starts again with none."}
+        </p>
+      )}
 
       {going ? (
         <p class={styles.going} data-going="snapshot.tasks">

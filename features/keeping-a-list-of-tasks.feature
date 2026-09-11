@@ -8,10 +8,13 @@ Feature: Keeping a list of tasks
   shell owns the task store and hands it down, so what the panel draws and what
   the planner holds are one fact rather than two readings that can disagree.
 
-  The tasks are in memory and nowhere else, and that is the step rather than an
-  omission: IndexedDB arrives at step 2, so a reload starts the planner empty.
-  The panel says so on the page, in those words, so that a visitor is told
-  rather than left to find out.
+  Where the tasks are KEPT is step 2's subject and has moved to
+  `keeping-the-planner-in-the-browser.feature`: the shell reads them out of
+  IndexedDB and writes them back, and the sentence this panel used to carry
+  about a reload losing them is now one of two, chosen by what the frame reports.
+  Nothing in this file changed when that landed, which is the claim it was
+  written to make - `list` draws the store and does not know where the store
+  keeps what it holds.
 
   Rule: A panel that writes into the frame's store
 
@@ -22,7 +25,6 @@ Feature: Keeping a list of tasks
     @browser @test-channel
     Scenario: A planner nobody has used yet holds no tasks
       Then the list holds no tasks
-      And the panel says the tasks are kept in this page alone
 
     @browser @test-channel
     Scenario: A task added through the panel is drawn by the list
@@ -97,18 +99,10 @@ Feature: Keeping a list of tasks
       And they open the tasks view
       Then the list holds "Book the ferry"
 
-  Rule: In memory, and nowhere else
+  Rule: What survives a reload is not this file's subject
 
-    Step 2 puts the planner in IndexedDB. Until it does, the store is a signal
-    in one page and a reload is the end of it. Said here as a requirement so
-    that step 2 changes a scenario rather than filling in a silence.
-
-    Background:
-      Given the qa channel points at build "tasks"
-      And a visitor opens the tasks view
-
-    @browser @test-channel
-    Scenario: A reload starts the planner empty again
-      When they add the task "Book the ferry"
-      And they load the page again
-      Then the list holds no tasks
+    Step 1 had a scenario here saying a reload starts the planner empty, written
+    so that step 2 would change a scenario rather than fill in a silence. Step 2
+    changed it: it is "A task is still there after a reload" in
+    `keeping-the-planner-in-the-browser.feature`, and its opposite is gone
+    because it is no longer true.
