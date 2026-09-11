@@ -11,7 +11,7 @@ Open items and what is done. Read this first after a context clear.
 
 **Cut back on 2026-09-10.** Every closed item's full text — its measurements, its refuted leads and its reasoning — is in git history, and `TODO.md` at `f7d2318` is the last version that carries it. The index at the bottom keeps every `§N` resolvable, because 119 references to those numbers live in `scripts/`, `src/`, `api/`, `README.md` and `PLAN.md`.
 
-**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`; step 1 added `list` on 2026-09-11, so **two** units remain: the shell draws five views and `/` places `list`. A unit name in the index below is a name that was true at the time.
+**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`; step 1 added `list` on 2026-09-11 and step 2 put the planner in IndexedDB the same day, so **two** units remain: the shell draws five views, `/` places `list`, and the tasks are in a database the shell owns. A unit name in the index below is a name that was true at the time.
 
 ## Where things are
 
@@ -23,8 +23,9 @@ Open items and what is done. Read this first after a context clear.
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite. `prod` is still on step 0's composition and is refused every promote of this surface until `hello` is dropped — §39, and the runbook is in `PLAN.md` |
 | Units | two: `shell` and `list`, the second placed on `/` at `PLAN.md` step 1. `hello` is gone; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
-| Contract | `3740ba6` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it |
+| Contract | `1c4a120` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
+| Planner | IndexedDB `pointer-planner`, version 1, owned by the shell: `tasks` keyed on `id`, `meta` keyed on `key`. Opened at a fixed version until `PLAN.md` step 16 - which is what gives step 15 a `VersionError` to show. §40 is the write window a reload can beat |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |
 | Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog`, never written by hand and **gitignored** - every fact in it is already in `deploys/`. `scripts/changelog.test.ts` holds the loader that reads the archive |
@@ -52,6 +53,8 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
+**`PLAN.md` step 2 landed on 2026-09-11** and opened two items of its own: §41, a first-paint requirement no composition could reach, and §40, the write window a reload can beat. Six mutations were added with it and all six are caught, the sixth only after §41's arrangement was built.
+
 **Read cold on 2026-09-11, on the step 1 branch.** Twelve defects. Two are open and have numbers of their own — §38, a harness publishing into the operator's catalogue with no marker, and §39, `prod` frozen behind a removal. Ten were fixed on the branch:
 
 | What it was | What holds it now |
@@ -77,6 +80,32 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
+
+### 41. A first-paint requirement that no composition can reach
+
+**Measured on 2026-09-11.** `PlannerReport.state` starts at `unread` and `list` draws neither the list nor "No tasks yet" until it moves, so that a panel never tells a visitor with a full planner that it is empty. The mutation that removes that guard **stayed green**: `list` is a separately published bundle, fetched and imported after the shell paints, and IndexedDB opens in a few milliseconds - so the panel's first render always happens after the read. The state the requirement is about did not occur.
+
+The scenario now arranges it: `the planner is slow to open` delays the first `indexedDB.open` by 1500 ms. With that, 6 of 6 of step 2's mutations are caught. What is open is the general case, not this scenario.
+
+| | |
+| --- | --- |
+| The guard is not dead code | `PLAN.md` step 4 preloads a unit off the landing route, so a panel will mount sooner. Step 6 pulls a snapshot, which is a slower read than a local open. The margin closes on its own |
+| The arrangement is a harness fact, not a visitor's | 1500 ms is chosen to be longer than a bundle fetch, not measured from anything. A visitor on a slow disk or a cold profile is the real case and nothing here measures how often it happens |
+| The class is wider than the planner | Any "before X lands" requirement in this shell has the same shape: the panel that would show it is fetched after the shell paints. `data-api` has the same margin and no scenario about its first paint at all |
+
+### 40. A reload inside the commit window loses the last change
+
+**Measured on 2026-09-11 against `test-qa`.** A task is added, the write starts in the click handler, and the page is reloaded about ten milliseconds later: the task is gone. Three scenarios in `keeping-the-planner-in-the-browser.feature` failed on it and a fourth passed, and which one passed is the reading - `Tags survive a reload` spends 150 ms typing tags before it reloads and closes the window by accident. The browser aborts a transaction that is still open when it takes the page away, and the transaction needs a few milliseconds.
+
+Nothing available makes the window zero. IndexedDB has no synchronous commit; `pagehide` cannot flush a transaction, only start one that is aborted the same way; and `navigator.sendBeacon` sends bytes to a server, which is step 6 and a different claim. What is built instead is a reading: `PlannerReport.pending` is true while a change has not reached the database, and `they load the page again` waits for it to clear. **So no scenario measures this window, by construction** - the step that would have is the one that waits.
+
+| What would close it | What it costs |
+| --- | --- |
+| Say it on the page: draw "saving…" while `pending` is true | A visitor who is about to close a tab is told. Two lines in `list`, and `PlannerReport.pending` already carries the reading |
+| Hold the last change in `localStorage` as well, and reconcile on open | `localStorage` is synchronous, so the window really is zero. The cost is a second place a task can be, and a reconciliation rule when the two disagree - the merge `PLAN.md` refuses for import and pull, arriving by the back door |
+| Leave it | A task typed and a tab closed in the same instant is lost. A person who types and then reloads within ten milliseconds is doing something no visitor does on purpose |
+
+Not decided. The first row is cheap and is probably right; the second is the only one that removes the window and it contradicts a rule `PLAN.md` states.
 
 ### 34. What the deploy record does not reach
 

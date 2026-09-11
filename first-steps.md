@@ -88,6 +88,12 @@ after the load, and the answer is zero.
 32. A module with no function default export is rejected by name: "list has no default export, so it is not a sub-app".
 33. The panel renders inside the shell's tree with the store passed as a prop. A throw is caught by that panel's own boundary, which offers "Mount again". The frame is untouched.
 
+## 5b · The planner, in parallel with the panel
+
+33a. Right after `render()`, the shell opens IndexedDB `pointer-planner` at version 1 and reads the `tasks` store (`src/web/shell/planner.ts`). It does not block the paint.
+33b. Until that read lands, `PlannerReport.state` is `unread` and the panel draws neither the list nor "No tasks yet" - it says it is reading. A first visit reaches `stored` with an empty list a few milliseconds later; a browser that refuses IndexedDB reaches `unstored` and the panel says the tasks are kept in this page alone.
+33c. From then on every change to the tasks starts a write, and `PlannerReport.pending` is true until it commits. On a first visit the database is CREATED by this open, so the `onupgradeneeded` that builds `tasks` and `meta` runs exactly once per browser.
+
 ## 6 · The service, in parallel with all of the above
 
 34. Two reads start together, right after `render()`, and neither blocks the paint (`src/web/shell/index.tsx:57-66`).
@@ -107,6 +113,7 @@ after the load, and the answer is zero.
 | Nothing is fetched from the page's own origin after the HTML | Every script and style URL is the store; every `fetch` is the service |
 | No unit file is ever refetched | Content-hash paths, immutable for a year |
 | Nothing waits on the service | The paint happens first, and the planner is in this browser rather than in the service |
+| Nothing waits on the planner either | The paint happens before IndexedDB is open. What the page must not do is claim the planner is EMPTY before that read lands, which is why `unread` is a state rather than an absence |
 
 ## The shape
 

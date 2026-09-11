@@ -36,6 +36,67 @@ Given("this browser refuses IndexedDB", async function (this: PointerWorld) {
 });
 
 /**
+ * A planner that takes a moment to open, which is the only way the page's
+ * "reading" state can be seen at all.
+ *
+ * Measured on 2026-09-11: with no delay, the mutation that draws the empty
+ * message before the planner has been read stayed GREEN. `list` is a separately
+ * published bundle, fetched and imported after the shell paints, so IndexedDB
+ * is always open before the panel first renders - and a requirement about the
+ * first paint had no moment to be about. This arranges that moment.
+ *
+ * One open only. The steps below open the database themselves to read it, and
+ * delaying those as well would slow every scenario for nothing.
+ *
+ * The delay is a real open, made late, behind an object carrying the three
+ * handlers a caller assigns. `indexedDB.open` returns its request
+ * synchronously, so there is nothing to await and nothing to wrap.
+ */
+Given("the planner is slow to open", async function (this: PointerWorld) {
+  await this.browserPage.addInitScript(() => {
+    type Handler = ((event: Event) => void) | null;
+    const proto = IDBFactory.prototype;
+    const real = proto.open;
+    let delayed = false;
+
+    proto.open = function (this: IDBFactory, name: string, version?: number) {
+      if (delayed) return real.call(this, name, version);
+      delayed = true;
+
+      const pending = {
+        result: null as unknown,
+        error: null as DOMException | null,
+        onsuccess: null as Handler,
+        onerror: null as Handler,
+        onupgradeneeded: null as Handler,
+      };
+
+      setTimeout(() => {
+        const request = real.call(this, name, version);
+        request.onupgradeneeded = (event) => {
+          pending.result = request.result;
+          pending.onupgradeneeded?.(event);
+        };
+        request.onsuccess = (event) => {
+          pending.result = request.result;
+          pending.onsuccess?.(event);
+        };
+        request.onerror = (event) => {
+          pending.error = request.error;
+          pending.onerror?.(event);
+        };
+      }, 1_500);
+
+      return pending as unknown as IDBOpenDBRequest;
+    } as typeof proto.open;
+  });
+});
+
+Then("the panel says it is reading the planner", async function (this: PointerWorld) {
+  await this.browserPage.waitForSelector(`${PANEL} [data-planner-unread]`, { timeout: 10_000 });
+});
+
+/**
  * A second browser, which is what makes "in this browser alone" measurable.
  *
  * A new context rather than a new tab: IndexedDB is per origin per profile, and

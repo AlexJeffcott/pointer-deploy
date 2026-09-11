@@ -134,10 +134,19 @@ Feature: Keeping the planner in the browser
     that draws "No tasks yet" and then fills in has told the visitor something
     false, and a scenario that read the list at that moment would agree with it.
 
+    The open is slowed on purpose, and without that this rule measures nothing.
+    Measured on 2026-09-11: `list` is fetched and imported after the shell
+    paints, so IndexedDB is open before the panel first renders, and a mutation
+    that drew the empty message while the planner was unread stayed green. Step
+    4 preloads a unit off the landing route, which is where the margin starts to
+    close on its own.
+
     Background:
       Given the qa channel points at build "tasks"
+      And the planner is slow to open
 
     @browser @test-channel
     Scenario: The empty message waits for the planner to be read
       Given a visitor opens the tasks view
-      Then the panel said nothing about being empty before the planner was read
+      Then the panel says it is reading the planner
+      And the panel said nothing about being empty before the planner was read

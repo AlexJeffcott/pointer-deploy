@@ -128,9 +128,13 @@ async function startPlanner(store: ShellStore): Promise<void> {
     });
   stored(false);
 
-  // Started AFTER the read, and it skips its own first run. An effect created
-  // before the read would write the empty list it was created with over what is
-  // stored, which is the one way this feature can lose a visitor's tasks.
+  // Started AFTER the read, which is what stops this writing an empty list over
+  // a stored one: at this line `store.tasks()` already holds what came out of
+  // the database. The first run is skipped because it would rewrite exactly
+  // what was just read, which costs a transaction on every page load and buys
+  // nothing. It is not what protects the data - the ORDER is - and saying so
+  // matters, because a later edit that moves this above the read would be
+  // reading a comment that had promised the skip was the guard.
   //
   // `inFlight` is what `PlannerReport.pending` is drawn from. Counted rather
   // than set, because two changes made close together start two transactions
