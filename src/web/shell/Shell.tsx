@@ -118,6 +118,22 @@ function BackupView({ store }: { store: ShellStore }) {
   const tasks = store.tasks();
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
 
+  /**
+   * Neither door opens before the planner has been read, and no count is drawn.
+   *
+   * The same requirement `list` carries, and this view needs it MORE. `list` is
+   * a separately published bundle, fetched and imported after the shell paints,
+   * so IndexedDB is nearly always open before it first renders - which is TODO
+   * §41. This view is IN the shell bundle and `/backup` is landable directly,
+   * so it draws on the first paint, before the read.
+   *
+   * What that window would otherwise produce is a file: `tasks` is empty until
+   * the read lands, so an export taken here writes a valid, importable planner
+   * holding nothing. An import taken here is overwritten by the read that
+   * follows it.
+   */
+  const unread = planner.state === "unread";
+
   const save = (): void => {
     const doc = documentFrom(tasks, SCHEMA_VERSION);
     const url = URL.createObjectURL(
@@ -162,7 +178,7 @@ function BackupView({ store }: { store: ShellStore }) {
         <dt>Planner</dt>
         <dd data-planner-state>{planner.state}</dd>
         <dt>Tasks held</dt>
-        <dd data-planner-tasks>{tasks.length}</dd>
+        <dd data-planner-tasks>{unread ? "not read yet" : tasks.length}</dd>
         <dt>Schema</dt>
         <dd data-planner-version>{planner.schemaVersion ?? "nothing written"}</dd>
         <dt>Writing</dt>
@@ -175,10 +191,22 @@ function BackupView({ store }: { store: ShellStore }) {
         ) : null}
       </dl>
 
+      {unread ? (
+        <p class={styles.muted} data-backup-unread>
+          Reading the planner. Nothing is exported or imported until it has been read.
+        </p>
+      ) : null}
+
       <div class={styles.doors}>
         <div class={styles.door}>
           <h3 class={styles.doorTitle}>Export</h3>
-          <button type="button" class={styles.button} data-export onClick={save}>
+          <button
+            type="button"
+            class={styles.button}
+            data-export
+            disabled={unread}
+            onClick={save}
+          >
             Write a file
           </button>
           <p class={styles.muted}>
@@ -198,6 +226,7 @@ function BackupView({ store }: { store: ShellStore }) {
             type="file"
             accept="application/json,.json"
             data-import
+            disabled={unread}
             onChange={load}
           />
           <p class={styles.muted}>

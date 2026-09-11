@@ -189,8 +189,19 @@ Feature: Backing up the planner
 
     Two ways a write fails, and the browser reports them differently. A
     transaction that gives up is rolled back by the browser. A record the
-    browser refuses as it is QUEUED is not: the clear is already queued and the
-    transaction would commit it alone, so `Planner.write` aborts by hand.
+    browser refuses as it is QUEUED is not: the clear and every put before the
+    refusal are already queued, and the transaction commits those - which is
+    neither the planner that was there nor the one the file held. So
+    `Planner.write` aborts by hand.
+
+    The first of those is a failure a browser really produces: a quota that runs
+    out, a disk that fails. **The second is not reachable from any input this
+    shell has.** `readDocument` requires a non-empty string id and rebuilds
+    every field as a primitive, so neither a bad key nor a failed structured
+    clone can happen, and `addTask` mints its own ids. The second scenario
+    arranges a throw that nothing produces. What it holds is the second line if
+    that id rule ever loosens, which is why the id rule has a unit test of its
+    own.
 
     Background:
       Given the qa channel points at build "tasks"
@@ -207,9 +218,10 @@ Feature: Backing up the planner
 
     @browser @test-channel
     Scenario: A record the database refuses leaves every stored task where it was
-      The clear is queued before any task is. A write that stopped where the
-      refusal happened would leave the transaction holding nothing but the
-      clear, and the browser would commit it.
+      An arranged throw, and the Rule above says why: no file reaches this. The
+      clear is queued before any task is, so a write that simply stopped where
+      the refusal happened would leave the transaction holding the clear and
+      the two tasks queued before it, and the browser would commit that.
 
       Given the database refuses a record as it is written
       And a visitor opens the tasks view
@@ -218,3 +230,26 @@ Feature: Backing up the planner
       And they import a planner holding "Fix the gate, Mend the fence, Paint the shed"
       Then the backup view says the planner is unstored
       And the database holds only "Book the ferry"
+
+  Rule: The backup view does not say what it has not read
+
+    The requirement `list` carries, and this view needs it more. `list` is a
+    separately published bundle, fetched and imported after the shell paints, so
+    the planner is nearly always open before it first renders - which is TODO
+    §41. This view is IN the shell bundle and `/backup` is landable directly, so
+    it draws on the first paint.
+
+    What the window would otherwise produce is a FILE. The planner holds nothing
+    until the read lands, so an export taken here writes a valid, importable
+    planner holding no tasks, and an import taken here is overwritten by the
+    read that follows it.
+
+    Background:
+      Given the qa channel points at build "tasks"
+      And the planner is slow to open
+
+    @browser @test-channel
+    Scenario: A cold landing on the backup view neither counts nor exports
+      Given a visitor lands on the backup view
+      Then the backup view says it is reading the planner
+      And neither door is open

@@ -64,6 +64,37 @@ const chooseFile = (world: PointerWorld, name: string, text: string): Promise<vo
   });
 
 /**
+ * Straight to `/backup`, with nothing opened first.
+ *
+ * Not `openView`, and the difference is the whole scenario. `openView` waits
+ * for `data-api`, which is set when the service answers - a read that can take
+ * longer than the planner's, so a scenario that used it would race the thing it
+ * is measuring. This waits for the view and nothing else.
+ */
+Given("a visitor lands on the backup view", async function (this: PointerWorld) {
+  const page = this.browserPage;
+  await page.goto(`${this.originFor("qa")}/backup`);
+  await page.waitForSelector(BACKUP, { timeout: 20_000 });
+});
+
+Then("the backup view says it is reading the planner", async function (this: PointerWorld) {
+  await this.browserPage.waitForSelector(`${BACKUP} [data-backup-unread]`, { timeout: 10_000 });
+});
+
+/**
+ * Both controls refuse to be used.
+ *
+ * Read as `disabled`, because that is what a person meets. A guard that only
+ * hid the count would leave the button armed, and the file it wrote would be a
+ * valid planner holding nothing.
+ */
+Then("neither door is open", async function (this: PointerWorld) {
+  const page = this.browserPage;
+  expect(await page.isDisabled(`${BACKUP} [data-export]`)).toBe(true);
+  expect(await page.isDisabled(`${BACKUP} [data-import]`)).toBe(true);
+});
+
+/**
  * The file the export wrote, taken off the download rather than off the page.
  *
  * `page.click` and the download event are awaited together: Chrome starts the
