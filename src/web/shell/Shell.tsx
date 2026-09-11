@@ -189,7 +189,7 @@ function BackupView({ store }: { store: ShellStore }) {
 
         <div class={styles.door}>
           <h3 class={styles.doorTitle}>Import</h3>
-          <label class={styles.muted} for="import-file">
+          <label class={styles.fileLabel} for="import-file">
             Choose a file
           </label>
           <input

@@ -199,6 +199,14 @@
   cursor: pointer;
 }
 
+/* The label and the control read as one line of small print, the way the
+   paragraph under each door does. Left on `.muted` alone the label inherited
+   the frame's body size and stood taller than the input beneath it. */
+.fileLabel {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
 .file {
   font: inherit;
   font-size: 0.8125rem;
