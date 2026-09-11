@@ -14,20 +14,30 @@ describe("placement", () => {
 
   // Which unit is on which route, asserted rather than assumed. A unit that
   // moved route leaves both sets identical, so `placementProblems` cannot see
-  // it and this is the only check that says where `list` is.
-  it("places list on the landing route and nothing anywhere else", () => {
-    expect(placedApps(VIEWS)).toEqual(["list"]);
+  // it and this is the only check that says where each unit is.
+  it("places list on the landing route and board off it", () => {
+    expect(placedApps(VIEWS)).toEqual(["list", "board"]);
     expect(VIEWS["/"]!.apps).toEqual(["list"]);
+    expect(VIEWS["/board"]!.apps).toEqual(["board"]);
   });
 
-  // The claim `PLAN.md` step 0 exists for, and it keeps its subject at step 1
-  // on the four routes that place nothing. Two of them are waiting for a unit -
-  // `/board` at step 4, `/week` at step 5 - and two never get one.
-  it("keeps four views that name no unit at all", () => {
+  // `PLAN.md` step 4's other half, and the one the preload tags need: a unit
+  // that is NOT on the route a visitor lands on. Warming a file the landing
+  // page is about to import buys nothing, which is why nothing measured the
+  // warm while `list` was the only unit.
+  it("places one unit somewhere a visitor does not land", () => {
+    expect(VIEWS["/"]!.apps).not.toContain("board");
+    expect(placedApps(VIEWS).filter((app) => !VIEWS["/"]!.apps.includes(app))).toEqual(["board"]);
+  });
+
+  // The claim `PLAN.md` step 0 exists for, and it keeps its subject at step 4
+  // on the three routes that place nothing. One is waiting for a unit - `/week`
+  // at step 5 - and two never get one.
+  it("keeps three views that name no unit at all", () => {
     const empty = Object.entries(VIEWS)
       .filter(([, v]) => v.apps.length === 0)
       .map(([path]) => path);
-    expect(empty).toEqual(["/board", "/week", "/service", "/backup"]);
+    expect(empty).toEqual(["/week", "/service", "/backup"]);
   });
 
   it("names five routes, and the frame draws every one of them", () => {

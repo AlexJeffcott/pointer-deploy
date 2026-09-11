@@ -12,11 +12,15 @@ export type View = {
  * frame draws it, nothing is fetched for it, and it is how a page exists
  * before a unit has been built for it.
  *
- * `PLAN.md` step 1 places the first one. `/` names `list`; `/board` and `/week`
- * are still waiting, for `board` at step 4 and `week` at step 5; `/service` and
- * `/backup` never get one, because the frame draws them from its own state.
- * `placementProblems` below refuses the two ways placement and the build can
- * disagree.
+ * `PLAN.md` step 1 places the first one and step 4 the second. `/` names `list`
+ * and `/board` names `board`; `/week` is still waiting, for `week` at step 5;
+ * `/service` and `/backup` never get one, because the frame draws them from
+ * their own state. `placementProblems` below refuses the two ways placement and
+ * the build can disagree.
+ *
+ * `board` is the first unit placed OFF the landing route, which is what gives
+ * the shell's preload tags a subject: its bundle is warmed on every load and
+ * imported only when somebody opens the view.
  */
 export const VIEWS: Record<string, View> = {
   "/": {
@@ -30,8 +34,11 @@ export const VIEWS: Record<string, View> = {
   },
   "/board": {
     title: "Board",
-    apps: [],
-    note: "No unit is placed here yet. The frame drew this view, and nothing was fetched for it.",
+    apps: ["board"],
+    // Where the tasks are KEPT is not said here either - the same reason `/`
+    // gives. What this note can say is the placement fact, which is the one
+    // thing about this view that does not change when a panel changes.
+    note: "One panel per column, and a task moves between them.",
   },
   "/week": {
     title: "Week",

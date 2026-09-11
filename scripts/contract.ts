@@ -28,18 +28,19 @@ export const REGISTRY = join(CONTRACTS_DIR, "registry.json");
 /**
  * The units that are published and composed independently.
  *
- * Two, on this slate: the frame and `list`, which `PLAN.md` step 1 places on
- * `/`. Steps 4 and 5 add `board` and `week`, one per step.
+ * Three, on this slate: the frame, `list` on `/` from `PLAN.md` step 1, and
+ * `board` on `/board` from step 4. Step 5 adds `week`, and that is the last of
+ * them.
  *
  * The element type is derived rather than widened to `string`, deliberately: a
  * site that only compiles because an app MIGHT exist is a site that goes on
  * compiling after the list empties, which is how `PLAN.md` step 0 arrived at
  * `APPS: never[]` with every reading about a sub-app quietly measuring nothing.
  */
-export const UNITS = ["shell", "list"] as const;
+export const UNITS = ["shell", "list", "board"] as const;
 export type Unit = (typeof UNITS)[number];
 export type App = Exclude<Unit, "shell">;
-export const APPS: App[] = ["list"];
+export const APPS: App[] = ["list", "board"];
 
 /**
  * Bare specifiers the shell owns and every sub-app borrows.

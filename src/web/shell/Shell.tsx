@@ -163,7 +163,10 @@ function BackupView({ store }: { store: ShellStore }) {
     input.value = "";
     if (!file) return;
 
-    const read = readDocument(await file.text(), SCHEMA_VERSION);
+    // The columns as well as the version, `PLAN.md` step 4: a task in a column
+    // this shell does not draw would be in the planner and on no panel of the
+    // board, and the store is what knows which columns those are.
+    const read = readDocument(await file.text(), SCHEMA_VERSION, store.columns());
     // The write, and the whole of "a total overwrite in one transaction": one
     // assignment to the store, which the shell's effect turns into one
     // IndexedDB transaction that clears the object store and puts the

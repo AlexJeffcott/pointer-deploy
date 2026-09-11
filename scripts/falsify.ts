@@ -1484,9 +1484,9 @@ const MUTATIONS: Mutation[] = [
     // the page goes on saying nothing was changed.
     name: "the planner is emptied before the file has been read",
     file: "src/web/shell/Shell.tsx",
-    find: "    const read = readDocument(await file.text(), SCHEMA_VERSION);",
+    find: "    const read = readDocument(await file.text(), SCHEMA_VERSION, store.columns());",
     replace:
-      "    store.loadTasks([]);\n    const read = readDocument(await file.text(), SCHEMA_VERSION);",
+      "    store.loadTasks([]);\n    const read = readDocument(await file.text(), SCHEMA_VERSION, store.columns());",
     scenario: "A refused file leaves the database as it was",
     live: true,
     browser: true,

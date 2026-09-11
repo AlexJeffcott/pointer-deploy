@@ -1,4 +1,4 @@
-import type { Task } from "./api.ts";
+import type { Column, Task } from "./api.ts";
 
 /**
  * The planner as one document, `PLAN.md` step 3.
@@ -13,16 +13,26 @@ import type { Task } from "./api.ts";
  * therefore mints NO contract - a whole view arrived and the surface every unit
  * is built against did not move.
  *
- * It also cannot be contract surface. `scripts/contract.ts` emits `shell.d.ts`
- * with `allowImportingTsExtensions` off, so `api.ts` is a LEAF: a sibling
- * import from it fails the emit with TS5097. Putting these rules on
- * `ShellStore` would mean inlining them into `api.ts` and carrying the
- * DATABASE's schema version on the surface, where a bump at step 14 would mint
- * a contract for a number no sub-app can see.
+ * The reason it is not surface is the SCHEMA VERSION, and not the compiler
+ * error met first. `emitSurface` sets `allowImportingTsExtensions: false`, so
+ * `import { readDocument } from "./document.ts"` inside `api.ts` fails the emit
+ * with TS5097 - which is one line in `scripts/contract.ts` and not a property
+ * of this module, and an extensionless import resolves under `moduleResolution:
+ * bundler` anyway. What stands is that a member reading a document has to know
+ * which schema version this shell reads, and putting `SCHEMA_VERSION` on the
+ * surface means step 14's bump to 2 mints a contract for a number no sub-app
+ * can see. `PLAN.md` step 3 carries the whole reading.
  *
  * The frame writes what it read through `ShellStore.loadTasks`, which step 2
  * already put on the surface for the database's own read. One member, two
  * callers, one transaction.
+ *
+ * The columns arrive as an ARGUMENT from step 4 rather than being imported.
+ * `api.ts` is the contract surface, so a constant exported from it for this to
+ * read would be a member no sub-app calls - surface the member gate can refuse
+ * nothing for, which is what `greeting` was. The frame already holds a store,
+ * so it hands over `store.columns()` and the rule reads against the columns
+ * this shell actually draws.
  */
 
 /**
@@ -100,7 +110,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *
  * Returns the task, or the sentence naming the field that stopped it.
  */
-function readTask(value: unknown, at: string): Task | string {
+function readTask(value: unknown, at: string, columns: readonly Column[]): Task | string {
   if (!isRecord(value)) return `${at} is ${show(value)}, and a task was expected`;
 
   for (const field of ["id", "title", "column", "createdAt"] as const) {
@@ -108,6 +118,19 @@ function readTask(value: unknown, at: string): Task | string {
     if (typeof held !== "string" || held === "") {
       return `${at}.${field} is ${show(held)}, and a string was expected`;
     }
+  }
+  // `PLAN.md` step 4. Before the board existed, `column` was a string nothing
+  // read and any value was as good as another. Now one panel per column draws
+  // the tasks in it, so a task in a column no column names is in the planner,
+  // drawn by `list`, and on no panel of the board - reachable only by exporting
+  // the file again. The rebuild below is what makes this refusable rather than
+  // silently corrected: a shell that wrote such a task into the first column
+  // would change a document it was asked to read.
+  if (!columns.some((c) => c.id === value.column)) {
+    return (
+      `${at}.column is ${show(value.column)}, and this shell draws ` +
+      columns.map((c) => JSON.stringify(c.id)).join(", ")
+    );
   }
   if (value.due !== null && typeof value.due !== "string") {
     return `${at}.due is ${show(value.due)}, and a date or null was expected`;
@@ -137,7 +160,11 @@ function readTask(value: unknown, at: string): Task | string {
  * is untouched until it is handed the first of those - which is what makes
  * "refused, and nothing changed" a rule rather than an ordering.
  */
-export function readDocument(text: string, schemaVersion: number): ImportOutcome {
+export function readDocument(
+  text: string,
+  schemaVersion: number,
+  columns: readonly Column[],
+): ImportOutcome {
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -187,7 +214,7 @@ export function readDocument(text: string, schemaVersion: number): ImportOutcome
   const tasks: Task[] = [];
   const firstAt = new Map<string, number>();
   for (const [index, held] of value.tasks.entries()) {
-    const read = readTask(held, `tasks[${index}]`);
+    const read = readTask(held, `tasks[${index}]`, columns);
     if (typeof read === "string") return refuse(read);
 
     const first = firstAt.get(read.id);

@@ -4,10 +4,10 @@ import { signal } from "@preact/signals";
  * One task in the planner.
  *
  * The document shape the whole application is built on, declared here because
- * the shell owns it and every sub-app is handed it. `column` and `due` carry no
- * mover yet - `board` arrives at `PLAN.md` step 4 and `week` at step 5 - and
- * they are declared now because they are what a task IS, not what this step
- * draws. Step 2 writes this record into IndexedDB and step 3 exports it.
+ * the shell owns it and every sub-app is handed it. `column` has a mover from
+ * `PLAN.md` step 4 - `board`, through `moveTask` - and `due` waits for `week`
+ * at step 5, declared already because it is what a task IS rather than what a
+ * step draws. Step 2 writes this record into IndexedDB and step 3 exports it.
  *
  * There is no "done" flag. A task is done when it sits in the `done` column, so
  * the board and the list cannot disagree about what done means.
@@ -22,6 +22,17 @@ export type Task = {
   tags: readonly string[];
   createdAt: string;
 };
+
+/**
+ * One column of the board, `PLAN.md` step 4.
+ *
+ * The set is fixed and the shell owns it. A column is not a task's own string:
+ * `board` draws one panel per column and a task moves between them, so the
+ * columns have to be a list two units can agree on rather than whatever values
+ * happen to be in the planner. `id` is what a task carries and `label` is what
+ * a person reads, which is why this is a record and not a string.
+ */
+export type Column = { id: string; label: string };
 
 /** One route the service publishes, as it publishes it. */
 export type ServiceRoute = { method: string; path: string };
@@ -122,8 +133,26 @@ export type ServiceReport = {
  */
 export type ShellStore = {
   tasks(): readonly Task[];
+  /**
+   * The board's columns, in the order they are drawn. Fixed, `PLAN.md` step 4.
+   *
+   * `board` alone calls this, which is the design constraint `PLAN.md`'s
+   * contract table states: a unit holding no member of its own leaves the
+   * member gate with nothing to refuse for it. Step 10 drops `moveTask` and
+   * reads the refusal naming `board` and nothing else.
+   */
+  columns(): readonly Column[];
   /** Adds a task at the end of the list. Blank titles are refused, silently. */
   addTask(title: string): void;
+  /**
+   * Moves one task to a column, `PLAN.md` step 4.
+   *
+   * A column id, not a Column: the task carries the id and the label is the
+   * shell's to change. A column no `columns()` entry names is refused, because
+   * a task in one is in the planner, drawn by `list`, and on no panel of the
+   * board - which is a task a visitor can only reach by exporting the file.
+   */
+  moveTask(id: string, column: string): void;
   /** Replaces the tags on one task. The rest keep theirs. */
   setTags(id: string, tags: readonly string[]): void;
   removeTask(id: string): void;
@@ -152,13 +181,33 @@ export type ShellStore = {
 };
 
 /**
- * Where a task lands when nothing says otherwise.
+ * The board's columns, and the order `board` draws them in.
  *
- * Not exported, so it is not contract surface: no unit needs to name it until
- * `board` can move a task, and a member nothing calls is the surface this step
- * is removing rather than adding to.
+ * Three, and the last of them is what "done" means. There is no done flag on a
+ * task: a task is done when it is in the `done` column, so the board and the
+ * list cannot hold two readings of one fact.
+ *
+ * Not exported. `board` reads `store.columns()`, so the constant itself needs
+ * no name on the contract - and a second way to reach the same list is a second
+ * reading that can disagree with the first.
  */
-const DEFAULT_COLUMN = "todo";
+const COLUMNS: readonly Column[] = [
+  { id: "todo", label: "To do" },
+  { id: "doing", label: "Doing" },
+  { id: "done", label: "Done" },
+];
+
+/**
+ * Where a task lands when nothing says otherwise: the first column.
+ *
+ * Derived rather than written down again. A slate that reorders `COLUMNS` moves
+ * this with it, and a new task can never land in a column the board does not
+ * draw first.
+ */
+const DEFAULT_COLUMN = COLUMNS[0]!.id;
+
+/** Whether the columns name this one. What `moveTask` refuses on. */
+const isColumn = (id: string): boolean => COLUMNS.some((c) => c.id === id);
 
 /** A planner nothing has looked at yet. The value every page starts from. */
 export const NO_PLANNER: PlannerReport = {
@@ -211,6 +260,15 @@ export function createStore(initial: readonly Task[] = []): ShellStore {
         createdAt: new Date().toISOString(),
       };
       tasks.value = [...tasks.value, task];
+    },
+    columns: () => COLUMNS,
+    moveTask: (id, column) => {
+      // Refused silently, the way a blank title is. There is no visitor input
+      // that produces one - `board` draws its buttons from `columns()` - so a
+      // sentence here would be a sentence nothing can reach, and writing the
+      // column anyway would take the task off every panel of the board.
+      if (!isColumn(column)) return;
+      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column } : t));
     },
     setTags: (id, tags) => {
       tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, tags: [...tags] } : t));

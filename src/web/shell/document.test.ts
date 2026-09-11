@@ -13,7 +13,17 @@
 
 import { describe, expect, test } from "bun:test";
 import { DOCUMENT_FORMAT, documentFrom, readDocument } from "./document.ts";
-import type { Task } from "./api.ts";
+import { createStore } from "./api.ts";
+import type { Column, Task } from "./api.ts";
+
+/**
+ * The columns this shell draws, read off a real store rather than written down.
+ *
+ * `PLAN.md` step 4 reads a document against them, so a test naming its own list
+ * would go on passing after the shell's columns changed - and the rule is about
+ * the two agreeing.
+ */
+const COLUMNS: readonly Column[] = createStore().columns();
 
 const task = (over: Partial<Task> = {}): Task => ({
   id: "t1",
@@ -27,14 +37,14 @@ const task = (over: Partial<Task> = {}): Task => ({
 
 const file = (doc: unknown): string => JSON.stringify(doc);
 
-const held = (text: string, version = 1): readonly Task[] => {
-  const read = readDocument(text, version);
+const held = (text: string, version = 1, columns = COLUMNS): readonly Task[] => {
+  const read = readDocument(text, version, columns);
   if (!read.ok) throw new Error(`expected a document, and it was refused: ${read.problem}`);
   return read.tasks;
 };
 
-const refusal = (text: string, version = 1): string => {
-  const read = readDocument(text, version);
+const refusal = (text: string, version = 1, columns = COLUMNS): string => {
+  const read = readDocument(text, version, columns);
   if (read.ok) throw new Error(`expected a refusal, and ${read.tasks.length} tasks came back`);
   return read.problem;
 };
@@ -196,6 +206,24 @@ describe("the tasks", () => {
     expect(refusal(asFile([task({ id: "a" }), { ...task({ id: "b" }), column: 7 }]))).toContain(
       "tasks[1].column",
     );
+  });
+
+  // `PLAN.md` step 4. A column no column names puts the task in the planner,
+  // on the list, and on no panel of the board - and the only way back to it is
+  // to export the file again.
+  test("a task in a column this shell does not draw is refused", () => {
+    expect(refusal(asFile([task({ column: "someday" })]))).toContain("tasks[0].column");
+  });
+
+  test("the refusal names the columns this shell draws", () => {
+    const problem = refusal(asFile([task({ column: "someday" })]));
+    for (const column of COLUMNS) expect(problem).toContain(JSON.stringify(column.id));
+  });
+
+  test("every column the shell draws is accepted", () => {
+    for (const column of COLUMNS) {
+      expect(held(asFile([task({ column: column.id })]))[0]!.column).toBe(column.id);
+    }
   });
 
   test("a task whose due date is neither a date nor null is refused", () => {
