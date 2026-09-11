@@ -23,9 +23,10 @@ Open items and what is done. Read this first after a context clear.
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite. `prod` is still on step 0's composition and is refused every promote of this surface until `hello` is dropped — §39, and the runbook is in `PLAN.md` |
 | Units | two: `shell` and `list`, the second placed on `/` at `PLAN.md` step 1. `hello` is gone; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
-| Contract | `1c4a120` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it |
+| Contract | `1c4a120` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it. **Step 3 minted nothing**: `/backup` is the frame's, and the frame writes through `loadTasks` |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Planner | IndexedDB `pointer-planner`, version 1, owned by the shell: `tasks` keyed on `id`, `meta` keyed on `key`. Opened at a fixed version until `PLAN.md` step 16 - which is what gives step 15 a `VersionError` to show. §40 is the write window a reload can beat |
+| Document | `{ format: "pointer-planner", schemaVersion, exportedAt, tasks }`, `src/web/shell/document.ts`. Two of its four doors are built: `/backup` exports a file and imports one. Push and pull are `PLAN.md` steps 6 and 7. An import is a total overwrite in one transaction, and a file that fails `format`, `schemaVersion` or any task is refused by name |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |
 | Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog`, never written by hand and **gitignored** - every fact in it is already in `deploys/`. `scripts/changelog.test.ts` holds the loader that reads the archive |
@@ -52,6 +53,8 @@ bun run pr                               # the review URLs and both sets of shot
 ## Open
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
+
+**`PLAN.md` step 3 landed on 2026-09-11** and opened one item of its own: §43, one `unstored` state for three different facts, which is step 2's defect and was invisible until step 3 arranged a failing write. Thirteen mutations were added with it and **seven of them are `@local`**, so `bun run falsify` runs seven of the thirteen rather than reporting all thirteen as skipped.
 
 **`PLAN.md` step 2 landed on 2026-09-11** and opened two items of its own: §41, a first-paint requirement no composition could reach, and §40, the write window a reload can beat. Six mutations were added with it and all six are caught, the sixth only after §41's arrangement was built.
 
@@ -80,6 +83,19 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
+
+### 43. One `unstored` state for three different facts
+
+**Measured on 2026-09-11, by arranging a write failure for the first time.** `PlannerReport.state` is `unread | stored | unstored`, and three paths in `startPlanner` set the last of those: a browser with no IndexedDB, a database that would not open, and a **write that failed after a successful read**. `list` draws one sentence for all three - "These tasks are kept in this page alone. A reload starts again with none." - and in the third case it is false. A reload starts again with whatever was last written.
+
+`PLAN.md` step 3's two failing-write scenarios are what produced the state. Both read `/backup`, which draws `planner.error` beside `planner.state` and therefore says the true thing. The panel is the one that says the wrong thing, and the panel is a separately published unit.
+
+| | |
+| --- | --- |
+| Why it was invisible | Nothing had ever made a write fail. Step 2's `unstored` scenarios take IndexedDB away before the page loads, so the read never succeeds either and "a reload starts again with none" is true |
+| The fix | A fourth value, or `unstored` plus a reading of whether anything was ever read, and a second sentence in `list`. Additive on the contract, and it republishes `list` |
+| Why not at step 3 | Step 3 is a frame change with no unit rebuilt, which is the claim it exists to make. Republishing `list` to correct a sentence would have spent that claim |
+| Not a fix | Leaving the truth on `/backup` alone. The panel is where a person is standing when the write fails |
 
 ### 42. An interrupted live suite leaves a channel refusing every promote
 

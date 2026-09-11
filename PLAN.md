@@ -75,10 +75,12 @@ Which unit uses which member. This table is a design constraint and not a descri
 | `renameTask(id, title)` | ✓ | | | |
 | `goingAway(path)` | ✓ | | | |
 | `service()` | | | | `/service` |
-| `storage()` | | | | `/backup` |
-| `exportDocument()` | | | | `/backup` |
-| `importDocument(json)` | | | | `/backup` |
+| ~~`storage()`~~ | | | | **not built.** `planner()`, minted at step 2, is this row under another name |
+| ~~`exportDocument()`~~ | | | | **not built.** The frame calls `document.ts` |
+| ~~`importDocument(json)`~~ | | | | **not built.** The frame writes through `loadTasks` |
 | `push()` / `pull(address)` | | | | `/backup` |
+
+**Three rows were struck out at step 3, and two of them could not have been built as written.** `api.ts` is a LEAF: `emitSurface` compiles it with `allowImportingTsExtensions` off, so any sibling import fails with TS5097. A member that reads a document therefore means inlining the document rules into `api.ts` AND carrying the database's schema version on the surface, where step 14's bump would mint a contract for a number no sub-app can see. `storage()` is the third: step 2 already minted `planner()`, `/backup` draws it, and a second report of one fact is two readings that can disagree. Step 3's section below carries the whole reading.
 
 Dropping `moveTask` refuses `board` and nothing else. Dropping `setDue` refuses `week` and nothing else. That is the reading §31 row 1 lost when the slate went to one sub-app; step 1 restores the half that needs one sub-app, and step 10 the "and nothing else" half.
 
@@ -203,7 +205,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 0 | 2026-09-10 | The frame: five routes, three empty, `hello` removed | A view naming no unit is legitimate, and nothing is fetched for it | rewrite `serving-the-shell` |
 | 1 | 2026-09-11 | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
 | 2 | 2026-09-11 | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
-| 3 |  | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
+| 3 | 2026-09-11 | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
 | 4 |  | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
 | 5 |  | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
 | 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
@@ -217,6 +219,22 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 14 |  | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
 | 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
 | 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+
+### What step 3 settled, and what it cost
+
+**A whole view arrived and the contract did not move.** `/backup` writes the planner to a JSON file and reads one back over the top, and the surface at HEAD still hashes to `1c4a120`. The frame calls `src/web/shell/document.ts` itself and writes what it read through `ShellStore.loadTasks`, which step 2 had already minted for the database's own read. That member has three callers now and a fourth at step 7, and every one of them is a TOTAL replacement - which is why there is no member for adding some tasks to the ones already held, and why one assignment is one IndexedDB transaction rather than one per task. Step 0 settled that a view naming no unit is legitimate. This is the same claim one level down: a view naming no unit needs no surface either.
+
+**Three rows of the contract table were struck out, and the emit refused two of them.** `exportDocument()` and `importDocument(json)` were written into that table on 2026-09-10, before step 1 sharpened the rule that a member no unit calls is surface the member gate can refuse nothing for. They cannot be built as written. `emitSurface` compiles `api.ts` with `allowImportingTsExtensions` off, so that file is a LEAF and `import { readDocument } from "./document.ts"` fails with TS5097 - measured, not reasoned. Building them means inlining the document rules into the surface module AND putting `SCHEMA_VERSION` on the surface, where step 14's bump to 2 would mint a contract for a number no sub-app can see. The third row, `storage()`, is `planner()` under another name: step 2 minted it, `/backup` draws it, and a second report of one fact is two readings that can disagree.
+
+**The refusal names the field, and that is the whole of "a file that is refused".** `format`, then `schemaVersion`, then every task in order, and the sentence says which one stopped it: `tasks[1].column is 7, and a string was expected`. A refusal carries a sentence rather than a code because it has one reader - the page - and one job, which is to send a person somewhere in a file. A lower `schemaVersion` is refused too, and the table above says it should be MIGRATED: there is nothing to migrate from until step 14, and a branch falling through to accept would write a document built to rules this shell does not have.
+
+**A task is rebuilt field by field and never spread.** A document at this schema version may carry fields this shell has never heard of - hand-edited, or written by a tool - and spreading them would put them in IndexedDB, hand them back out of the next export, and leave a planner carrying data no version anywhere describes. One unit test holds it and one mutation removes the rebuild.
+
+**"One transaction" was reasoning until two arrangements made it a measurement, and the second found a defect.** The overwrite was already one transaction and nothing had ever seen one fail. Two scenarios now arrange the failure: a transaction the database gives up on, and a record the browser refuses as it is queued. The browser rolls the first back. **It does not roll the second back**: a `put` that throws as it is QUEUED leaves the `clear` queued and everything after it unqueued, and the transaction then commits the clear alone - which is the one outcome a single transaction exists to prevent. `Planner.write` aborts by hand now and tells the caller. Nothing a file can carry reaches that path, because `readDocument` requires a non-empty string id, so the scenario arranges the moment rather than waiting for one.
+
+**Thirteen mutations, and seven of them run on `bun run falsify`.** That is the difference from step 2, whose six were all `@browser` and all reported as skipped by the command in the checklist. Every rule about what a DOCUMENT is holds in a pure function and is measured by a unit test; the six that need a browser are the ones about the page, the file and the transaction. Measured on 2026-09-11: **7 of 7 `@local` caught**, and **6 of 6 `@browser` caught** under `FALSIFY_LIVE=1`. Two of the six are the transaction pair, and they are the reason the pair is a measurement: one moves the `clear` into a transaction of its own and one takes the hand-abort out, and each turns exactly one scenario red.
+
+**What it cost, and it is step 2's defect rather than step 3's.** `PlannerReport.state` has one value, `unstored`, for three different facts: a browser with no IndexedDB, a database that would not open, and a write that failed after a successful read. `list` draws "These tasks are kept in this page alone. A reload starts again with none." for all three, and after a failed write a reload starts again with what was last stored - so the sentence is false in exactly the case step 3 arranged. `/backup` says the true thing beside it, because it draws `planner.error` as well as `planner.state`. Closing it is a fourth state and a republished `list`, which is not what step 3 is for. TODO §43 carries it.
 
 ### What step 2 settled, and what it cost
 

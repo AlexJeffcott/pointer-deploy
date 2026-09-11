@@ -58,8 +58,9 @@ The page is a title, a fixed sidenav and five views. **One of them places a
 unit**: `/` draws `list`, which is every task the planner holds. `/board` and
 `/week` are waiting for one — `PLAN.md` steps 4 and 5 — and the frame says so on
 each of them. `/service` is drawn by the shell itself, from the one reading it
-took of the service, and `/backup` will be drawn by the shell too. Desktop only:
-there is no breakpoint anywhere in the stylesheet.
+took of the service, and `/backup` is drawn by the shell too: it writes the
+planner to a JSON file and reads one back over the top, `PLAN.md` step 3.
+Desktop only: there is no breakpoint anywhere in the stylesheet.
 
 A view naming no unit is a legitimate view and not a hole: the frame draws it,
 and nothing is fetched for it. `serving-the-shell.feature` is where that claim
