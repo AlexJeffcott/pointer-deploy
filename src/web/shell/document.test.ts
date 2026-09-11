@@ -160,6 +160,32 @@ describe("the tasks", () => {
     expect(refusal(asFile([{ id, column, due, tags, createdAt }]))).toContain("tasks[0].title");
   });
 
+  // The id rule has a test of its own because the `tx.abort()` guard in
+  // `planner.ts` rests on it: nothing reachable makes `IDBObjectStore.put`
+  // throw precisely because every task that reaches the database carries a
+  // non-empty string id. A rule an argument rests on is a rule to check.
+  test("a task with no id is refused, and the field is named", () => {
+    const { title, column, due, tags, createdAt } = task();
+    expect(refusal(asFile([{ title, column, due, tags, createdAt }]))).toContain("tasks[0].id");
+  });
+
+  test("a task whose id is blank is refused", () => {
+    expect(refusal(asFile([task({ id: "" })]))).toContain("tasks[0].id");
+  });
+
+  // `tasks` is keyed on `id`, so two tasks carrying one id become one row. The
+  // page would draw both and say every task was replaced, the database would
+  // hold one, and the disagreement would only show on the next visit.
+  test("two tasks carrying one id are refused, and both places are named", () => {
+    const problem = refusal(asFile([task({ id: "a" }), task({ id: "a", title: "two" })]));
+    expect(problem).toContain("tasks[1].id");
+    expect(problem).toContain("tasks[0]");
+  });
+
+  test("two tasks carrying different ids are accepted", () => {
+    expect(held(asFile([task({ id: "a" }), task({ id: "b", title: "two" })]))).toHaveLength(2);
+  });
+
   test("a task with a blank title is refused", () => {
     expect(refusal(asFile([task({ title: "" })]))).toContain("tasks[0].title");
   });

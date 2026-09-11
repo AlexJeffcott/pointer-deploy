@@ -179,10 +179,24 @@ export function readDocument(text: string, schemaVersion: number): ImportOutcome
     return refuse(`tasks is ${show(value.tasks)}, and a list was expected`);
   }
 
+  // The ids are read as a SET, not one at a time. `tasks` is keyed on `id` in
+  // IndexedDB, so two tasks carrying one id become one row: the page would draw
+  // both, say every task was replaced, and hold one fewer than it claimed - and
+  // the disagreement would only show on the next visit. Refusing is the only
+  // outcome that keeps the page and the database saying one thing.
   const tasks: Task[] = [];
+  const firstAt = new Map<string, number>();
   for (const [index, held] of value.tasks.entries()) {
     const read = readTask(held, `tasks[${index}]`);
     if (typeof read === "string") return refuse(read);
+
+    const first = firstAt.get(read.id);
+    if (first !== undefined) {
+      return refuse(
+        `tasks[${index}].id is ${JSON.stringify(read.id)}, and tasks[${first}] already carries it`,
+      );
+    }
+    firstAt.set(read.id, index);
     tasks.push(read);
   }
 
