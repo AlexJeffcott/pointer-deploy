@@ -99,12 +99,29 @@ export async function openPlanner(): Promise<Planner> {
      */
     write: async (tasks) => {
       const tx = db.transaction([TASKS, META], "readwrite");
-      const store = tx.objectStore(TASKS);
-      store.clear();
-      for (const task of tasks) store.put(task);
-      const meta = tx.objectStore(META);
-      meta.put({ key: "schemaVersion", value: SCHEMA_VERSION } satisfies MetaRow);
-      meta.put({ key: "writtenAt", value: new Date().toISOString() } satisfies MetaRow);
+      try {
+        const store = tx.objectStore(TASKS);
+        store.clear();
+        for (const task of tasks) store.put(task);
+        const meta = tx.objectStore(META);
+        meta.put({ key: "schemaVersion", value: SCHEMA_VERSION } satisfies MetaRow);
+        meta.put({ key: "writtenAt", value: new Date().toISOString() } satisfies MetaRow);
+      } catch (e) {
+        // A request that throws as it is QUEUED leaves the clear queued and
+        // everything after the throw unqueued, and the transaction then COMMITS
+        // what it holds: the clear, plus whatever was put before the throw.
+        // That is neither the planner that was there nor the one the caller
+        // asked for, which is the outcome one transaction exists to prevent.
+        //
+        // NOTHING REACHABLE THROWS HERE. `readDocument` requires a non-empty
+        // string id and rebuilds every field as a primitive, so neither a bad
+        // key nor a failed structured clone can happen, and `addTask` mints its
+        // own ids. This is the second line if that id rule ever loosens.
+        // `backing-up-the-planner.feature` arranges the throw to hold it and
+        // says in the Rule that the moment is arranged rather than met.
+        tx.abort();
+        throw e;
+      }
       await committed(tx);
     },
 

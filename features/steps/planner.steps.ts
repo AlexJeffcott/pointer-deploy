@@ -10,15 +10,8 @@
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { PointerWorld } from "../support/world.ts";
-import { VIEWS } from "../../src/web/shell/views.ts";
 
 const PANEL = '[data-app="list"]';
-
-const viewCalled = (name: string): { path: string; apps: string[] } => {
-  const found = Object.entries(VIEWS).find(([, v]) => v.title.toLowerCase() === name);
-  if (!found) throw new Error(`no view called ${JSON.stringify(name)}`);
-  return { path: found[0], apps: [...found[1].apps] };
-};
 
 /**
  * A browser with no IndexedDB at all.
@@ -104,7 +97,7 @@ Then("the panel says it is reading the planner", async function (this: PointerWo
  * the new page, and the context is closed when the scenario ends.
  */
 When("a second browser opens the {word} view", async function (this: PointerWorld, name: string) {
-  const v = viewCalled(name);
+  const v = this.viewCalled(name);
   await this.openSecondBrowser();
   await this.openView(v.path, v.apps);
 });
@@ -132,39 +125,16 @@ Then("the panel says the tasks are kept in this page alone", async function (thi
   await saysNote(this, "These tasks are kept in this page alone. A reload starts again with none.");
 });
 
-/**
- * The titles in the `tasks` object store, read from the page's own origin.
- *
- * Opened with no version, so this never upgrades anything and never blocks the
- * shell's own handle. A write is asynchronous and lands after the render that
- * triggered it, so the caller polls rather than reading once.
- */
-const storedTitles = (world: PointerWorld, db: string): Promise<string[]> =>
-  world.browserPage.evaluate(
-    (name) =>
-      new Promise<string[]>((resolve, reject) => {
-        const open = indexedDB.open(name);
-        open.onerror = () => reject(new Error(`could not open ${name}`));
-        open.onsuccess = () => {
-          const handle = open.result;
-          const all = handle.transaction("tasks", "readonly").objectStore("tasks").getAll();
-          all.onsuccess = () => {
-            resolve((all.result as Array<{ title: string }>).map((t) => t.title));
-            handle.close();
-          };
-          all.onerror = () => reject(new Error(`could not read tasks from ${name}`));
-        };
-      }),
-    db,
-  );
-
+// The titles in the `tasks` object store are read through the world, which
+// opens the database with no version so that nothing here upgrades anything or
+// blocks the shell's own handle. `backup.steps.ts` reads the same store.
 Then(
   "the database {string} holds the task {string}",
   async function (this: PointerWorld, db: string, title: string) {
     const deadline = Date.now() + 10_000;
     let seen: string[] = [];
     while (Date.now() < deadline) {
-      seen = await storedTitles(this, db);
+      seen = await this.storedTaskTitles(db);
       if (seen.includes(title)) return;
       await Bun.sleep(100);
     }

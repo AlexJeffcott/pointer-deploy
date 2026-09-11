@@ -5,6 +5,7 @@ import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
 import type { BuildInfo } from "@pointer/blocks";
 import type { ServedComposition, ServedReading } from "../../src/server/served.ts";
+import { VIEWS } from "../../src/web/shell/views.ts";
 
 export { curlGet, run };
 
@@ -165,6 +166,15 @@ export class PointerWorld {
    * only be measured from a second profile.
    */
   private extraContexts: BrowserContext[] = [];
+
+  /**
+   * The file the last export wrote, `PLAN.md` step 3.
+   *
+   * Held on the world because a round trip is two steps: one exports and a
+   * later one hands the same bytes back to the file input. Cleared with the
+   * world, so no scenario can import what another one exported.
+   */
+  exportedFile: { name: string; text: string } | null = null;
 
   lastResponse: Response | null = null;
   lastBody = "";
@@ -874,6 +884,40 @@ export class PointerWorld {
     await this.usePage(await context.newPage());
   }
 
+  /**
+   * The titles in the planner's `tasks` object store, read from the page's own
+   * origin. `PLAN.md` step 2.
+   *
+   * Opened with NO version, so this never upgrades anything and never blocks
+   * the shell's own handle. A write is asynchronous and lands after the render
+   * that triggered it, so a caller that is waiting for one polls rather than
+   * reading once.
+   */
+  storedTaskTitles(db: string): Promise<string[]> {
+    return this.browserPage.evaluate(
+      (name) =>
+        new Promise<string[]>((resolve, reject) => {
+          const open = indexedDB.open(name);
+          open.onerror = () => reject(new Error(`could not open ${name}`));
+          open.onsuccess = () => {
+            const handle = open.result;
+            const all = handle.transaction("tasks", "readonly").objectStore("tasks").getAll();
+            all.onsuccess = () => {
+              resolve(
+                (all.result as Array<{ title: string; createdAt: string }>)
+                  .slice()
+                  .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+                  .map((t) => t.title),
+              );
+              handle.close();
+            };
+            all.onerror = () => reject(new Error(`could not read tasks from ${name}`));
+          };
+        }),
+      db,
+    );
+  }
+
   /** Closes every context this world opened. Playwright closes only its own. */
   async closeExtraBrowsers(): Promise<void> {
     for (const context of this.extraContexts.splice(0)) await context.close();
@@ -883,6 +927,25 @@ export class PointerWorld {
   get browserPage(): Page {
     if (!this.page) throw new Error("no browser page; is the scenario tagged @browser?");
     return this.page;
+  }
+
+  /**
+   * The route and the units of the view whose sidenav label is `name`.
+   *
+   * `VIEWS` is the shell's own placement table, so a step naming a view by the
+   * label a visitor clicks reads the same record the frame draws from. A view
+   * that moved route moves the steps with it, which is what stops a scenario
+   * quietly testing a different page.
+   */
+  viewCalled(name: string): { path: string; apps: string[] } {
+    const found = Object.entries(VIEWS).find(([, v]) => v.title.toLowerCase() === name);
+    if (!found) {
+      throw new Error(
+        `no view called ${JSON.stringify(name)}. The shell draws ` +
+          `${Object.values(VIEWS).map((v) => v.title.toLowerCase()).join(", ")}.`,
+      );
+    }
+    return { path: found[0], apps: [...found[1].apps] };
   }
 
   async openView(path: string, apps: string[]): Promise<void> {

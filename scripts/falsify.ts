@@ -1319,6 +1319,205 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
 
+  // --- `PLAN.md` step 3, the planner as one file ----------------------------
+  //
+  // Nine of the sixteen are @local, which is the difference from step 2. Every
+  // rule about what a DOCUMENT is holds in a pure function, so
+  // `bun run falsify` - the command in the checklist - runs nine of these on
+  // every run rather than reporting all sixteen as skipped. The seven that need
+  // a browser are the ones about the page and the transaction: a file written
+  // to disk, a file chosen from disk, a view drawn before the planner is read,
+  // and a write the database gives up on.
+
+  {
+    // A file from another application is read as a planner. `schemaVersion` and
+    // the tasks still have to be right, so a document that happens to look like
+    // one is accepted whole and the name on it means nothing.
+    name: "the format field is not read",
+    file: "src/web/shell/document.ts",
+    find: "  if (value.format !== DOCUMENT_FORMAT) {",
+    replace: "  if (false) {",
+    unitTest: "a file naming another format is refused, and both names are given",
+  },
+  {
+    // What a rollback produces, let in. The shell reads a document written to
+    // rules it does not have and writes whatever it can make of it into the
+    // planner, which is the one thing `PLAN.md`'s table forbids at every door.
+    name: "a file a newer shell wrote is read anyway",
+    file: "src/web/shell/document.ts",
+    find: "  if (version > schemaVersion) {",
+    replace: "  if (false) {",
+    unitTest: "a file a newer shell wrote is refused, and both versions are named",
+  },
+  {
+    // The other side of the same table, and the one that is not obviously
+    // wrong: an older document IS meant to be migrated forward. Nothing
+    // migrates one until `PLAN.md` step 14, so accepting it silently is
+    // accepting a document at a schema this shell never wrote.
+    name: "a file an older shell wrote is read with no migration",
+    file: "src/web/shell/document.ts",
+    find: "  if (version < schemaVersion) {",
+    replace: "  if (false) {",
+    unitTest: "a file an older shell wrote is refused while nothing migrates it",
+  },
+  {
+    // A task the file got wrong vanishes instead of stopping the import. The
+    // planner is then a SUBSET of the file, the page says every task was
+    // replaced, and nothing anywhere says one was lost.
+    name: "a task the file got wrong is dropped rather than refused",
+    file: "src/web/shell/document.ts",
+    find: '    if (typeof read === "string") return refuse(read);',
+    replace: '    if (typeof read === "string") continue;',
+    unitTest: "a task with no title is refused, and the field is named",
+  },
+  {
+    // The rebuild removed. A field this schema does not have reaches IndexedDB,
+    // comes back out of the next export, and is carried by a planner no version
+    // describes - and every check passes on the way through.
+    name: "an imported task is stored as the file wrote it",
+    file: "src/web/shell/document.ts",
+    find: `  return {
+    id: value.id as string,
+    title: value.title as string,
+    column: value.column as string,
+    due: value.due as string | null,
+    tags: [...(value.tags as string[])],
+    createdAt: value.createdAt as string,
+  };`,
+    replace: "  return value as unknown as Task;",
+    unitTest: "a field this schema does not have is dropped rather than stored",
+  },
+  {
+    // Every refusal names the first task. The rule still holds and the file is
+    // still refused; what is lost is the only thing that makes the sentence
+    // useful, which is where in a file of forty tasks to look.
+    name: "the refusal names the first task whatever went wrong",
+    file: "src/web/shell/document.ts",
+    find: "    const read = readTask(held, `tasks[${index}]`);",
+    replace: "    const read = readTask(held, `tasks[${index * 0}]`);",
+    unitTest: "the refusal names the task that stopped it and not the first one",
+  },
+  {
+    // The document hands out the store's own task objects. Nothing on the page
+    // goes wrong today; step 6 pushes this same document to a service, and a
+    // caller that held one would be holding the planner.
+    name: "the document holds the store's own task objects",
+    file: "src/web/shell/document.ts",
+    find: "    tasks: tasks.map((t) => ({ ...t, tags: [...t.tags] })),",
+    replace: "    tasks,",
+    unitTest: "the tags are copied rather than held",
+  },
+
+  {
+    // The id stops being read. Every other field is still checked, so a file is
+    // still refused for a missing title - and the rule the `tx.abort()` guard
+    // in `planner.ts` rests on is gone: a task with no id reaches
+    // `IDBObjectStore.put`, which is keyed on it.
+    name: "a task with no id is read as a task",
+    file: "src/web/shell/document.ts",
+    find: '  for (const field of ["id", "title", "column", "createdAt"] as const) {',
+    replace: '  for (const field of ["title", "column", "createdAt"] as const) {',
+    unitTest: "a task with no id is refused, and the field is named",
+  },
+  {
+    // One id twice, accepted. The page draws both tasks and says every task was
+    // replaced; `tasks` is keyed on `id`, so the database holds one. Nothing
+    // reports the difference and it only shows on the next visit.
+    name: "one id twice is read as two tasks",
+    file: "src/web/shell/document.ts",
+    find: "    if (first !== undefined) {",
+    replace: "    if (false) {",
+    unitTest: "two tasks carrying one id are refused, and both places are named",
+  },
+  {
+    // The view counts and exports a planner it has not read. `/backup` is in
+    // the shell bundle and is landable directly, so it draws on the first
+    // paint, and the file an export writes there is a valid planner holding
+    // nothing.
+    name: "the backup view counts a planner it has not read",
+    file: "src/web/shell/Shell.tsx",
+    find: '  const unread = planner.state === "unread";',
+    replace: "  const unread = false;",
+    scenario: "A cold landing on the backup view neither counts nor exports",
+    live: true,
+    browser: true,
+  },
+  {
+    // The file is written, downloaded and empty. A scenario that only checked
+    // that a download happened would pass, which is why the step reads the
+    // bytes off the file the browser kept.
+    name: "the exported file holds no tasks",
+    file: "src/web/shell/Shell.tsx",
+    find: "    const doc = documentFrom(tasks, SCHEMA_VERSION);",
+    replace: "    const doc = documentFrom([], SCHEMA_VERSION);",
+    scenario: "The exported file holds every task on the list",
+    live: true,
+    browser: true,
+  },
+  {
+    // A merge, which is the thing `PLAN.md` refuses by name. Every scenario
+    // that imports a file holding MORE than the planner had passes under it -
+    // only the empty file can tell the two apart.
+    name: "an import adds to the planner instead of replacing it",
+    file: "src/web/shell/Shell.tsx",
+    find: "    if (read.ok) store.loadTasks(read.tasks);",
+    replace: "    if (read.ok) store.loadTasks([...store.tasks(), ...read.tasks]);",
+    scenario: "Importing a planner with nothing in it empties the list",
+    live: true,
+    browser: true,
+  },
+  {
+    // The refusal happens and is never said. The planner is correct and the
+    // person who chose the file is told nothing at all, which is the failure a
+    // page has that a pure function cannot.
+    name: "a file that was refused is not said to have been",
+    file: "src/web/shell/Shell.tsx",
+    find: "    setOutcome(read);",
+    replace: "    setOutcome(read.ok ? read : null);",
+    scenario: "A file that is not a planner at all is refused",
+    live: true,
+    browser: true,
+  },
+  {
+    // The planner is emptied before the file has been read at all. Every
+    // accepted import still works; a refused one takes the planner with it, and
+    // the page goes on saying nothing was changed.
+    name: "the planner is emptied before the file has been read",
+    file: "src/web/shell/Shell.tsx",
+    find: "    const read = readDocument(await file.text(), SCHEMA_VERSION);",
+    replace:
+      "    store.loadTasks([]);\n    const read = readDocument(await file.text(), SCHEMA_VERSION);",
+    scenario: "A refused file leaves the database as it was",
+    live: true,
+    browser: true,
+  },
+  {
+    // The clear in a transaction of its own. The write still replaces, and a
+    // transaction the database gives up on now rolls back the tasks and NOT the
+    // clear - so the planner is neither what it was nor what the file held.
+    name: "the clear is not in the transaction the tasks are written in",
+    file: "src/web/shell/planner.ts",
+    find: "        const store = tx.objectStore(TASKS);\n        store.clear();",
+    replace:
+      '        const store = tx.objectStore(TASKS);\n' +
+      '        db.transaction(TASKS, "readwrite").objectStore(TASKS).clear();',
+    scenario: "An import the database gives up on leaves every stored task where it was",
+    live: true,
+    browser: true,
+  },
+  {
+    // A record the browser refuses as it is queued, left to commit. The clear
+    // is already queued and everything after the refusal is not, so the
+    // transaction commits an emptier planner than either side wanted.
+    name: "a write the browser refuses part-way is left to commit",
+    file: "src/web/shell/planner.ts",
+    find: "        tx.abort();\n        throw e;",
+    replace: "        throw e;",
+    scenario: "A record the database refuses leaves every stored task where it was",
+    live: true,
+    browser: true,
+  },
+
   {
     name: "the service accepts a greeting no page can draw",
     file: "api/service.ts",
