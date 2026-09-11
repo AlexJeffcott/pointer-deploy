@@ -143,7 +143,7 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
-| The frame and the panel agree about what the page holds, though the bundles were built separately | Visitor | `keeping-a-list-of-tasks.feature`, 8 scenarios, in a real browser |
+| The frame and the panel agree about what the page holds, though the bundles were built separately | Visitor | `keeping-a-list-of-tasks.feature`, 9 scenarios, in a real browser, run by `bun run verify:browser` alone |
 | One panel failing costs me that panel alone | Visitor | `recovering-from-an-error.feature`, 3 scenarios |
 | I see the version live now, never one frozen into the server image | Visitor | `serving-the-shell.feature`, 7 scenarios |
 

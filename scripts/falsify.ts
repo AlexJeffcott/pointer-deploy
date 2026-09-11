@@ -413,13 +413,21 @@ const MUTATIONS: Mutation[] = [
     // composition, and "deploy list" silently rolls the frame back to whatever
     // the operator last had on disk. With ONE unit a merge and a replace write
     // identical bytes, which is why this had nothing to hold it at step 0.
+    // The mutation drops a CARRIED SUB-APP from the manifests a promote reads,
+    // so the scenario it names has to be one in which a sub-app is carried.
+    // "Deploying a sub-app leaves the frame where it was" is not: there the
+    // sub-app is the unit being named and the SHELL is what is carried, so the
+    // mutation was a no-op and the scenario could never have gone red for it.
+    // Measured on 2026-09-11 with FALSIFY_LIVE=1 - which is why nobody had seen
+    // it: this mutation is @live, `bun run falsify` skips every @live mutation,
+    // and the entry had been in the array since step 1 proving nothing.
     name: "promote replaces the composition instead of merging into it",
     file: "scripts/promote.ts",
     find: "  const kept = unit === \"shell\" ? current!.shell : current!.apps[unit]!;",
     replace:
       "  const kept = unit === \"shell\" ? current!.shell : current!.apps[unit]!;\n" +
       "  if (unit !== \"shell\") { continue; }",
-    scenario: "Deploying a sub-app leaves the frame where it was",
+    scenario: "Deploying the frame leaves the sub-app at its new version",
     live: true,
   },
   {
@@ -1195,11 +1203,20 @@ const MUTATIONS: Mutation[] = [
     // mounted - which is exactly what a sub-app carrying its own signals
     // runtime would do. The scenario's Background builds and promotes from this
     // tree, so the edit reaches the bundle under test.
+    //
+    // REMOVAL, not addition, and that took measuring. This named "A task added
+    // through the panel is drawn by the list" until 2026-09-11 and stayed green
+    // under `peek`: `add` calls `setTitle("")` in the same handler, so the panel
+    // re-renders from its OWN state whether or not it subscribed to the store,
+    // and reads the new task on the way through. Removing is the one write in
+    // this panel with no local state change beside it, so it is the only one
+    // where a lost subscription is visible. The adding scenario is not wrong -
+    // it says the write reaches the frame - it just cannot say this.
     name: "the task accessor reads the store without subscribing to it",
     file: "src/web/shell/api.ts",
     find: "    tasks: () => tasks.value,",
     replace: "    tasks: () => tasks.peek(),",
-    scenario: "A task added through the panel is drawn by the list",
+    scenario: "A task taken off the list leaves, and the rest stay",
     live: true,
     browser: true,
   },
@@ -1209,10 +1226,15 @@ const MUTATIONS: Mutation[] = [
     // `tagsFrom` and Preact wrote the text back without it. `page.fill` sets the
     // whole string in one event and cannot see it; only a scenario that types
     // one key at a time can, which is what the two tagging scenarios now do.
+    // Aimed at the WRITE and not at the `value`, because cutting the `value`
+    // expression leaves `drafts` unused and `noUnusedLocals` fails the build -
+    // which §35's guard correctly refuses to read as a caught mutation. Stopping
+    // the draft from being recorded gives the same behaviour and compiles: the
+    // box falls back to the store on every keystroke, exactly as it shipped.
     name: "the tag box is drawn from the store between keystrokes",
     file: "src/web/apps/list/index.tsx",
-    find: 'value={drafts[task.id] ?? task.tags.join(", ")}',
-    replace: 'value={task.tags.join(", ")}',
+    find: "                  setDrafts((d) => ({ ...d, [task.id]: text }));",
+    replace: "                  setDrafts((d) => ({ ...d }));",
     scenario: "A second tag is typed onto a task that already has one",
     live: true,
     browser: true,

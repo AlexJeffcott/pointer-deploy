@@ -92,7 +92,7 @@ after the load, and the answer is zero.
 
 34. Two reads start together, right after `render()`, and neither blocks the paint (`src/web/shell/index.tsx:57-66`).
 35. `readService` → `GET /versions` on `pointer-deploy-api.fly.dev`. Not under a version prefix, because asking at a version needs the answer first.
-36. `readData` → `GET /v1/greeting`. The body is not kept — no unit draws it since step 0 — and the RESPONSE is the point: whether the version this shell calls answers, which goes on `data-api`, and the `Sunset` header it carried.
+36. `readData` → `GET /v1/greeting`. The body is not kept OR PARSED — no unit draws it since step 0 — and the RESPONSE is the point: whether the version this shell calls answers, which goes on `data-api`, and the `Sunset` header it carried. It went through a parser requiring `greeting.text` until 2026-09-11, which made a service answering `v1` correctly report a parse error on `data-api`.
 37. Every response's `Sunset` header is remembered and folded into the report. It arrives only because the service sends `access-control-expose-headers`.
 38. `data-api` on `<html>` becomes `ok` or the error text.
 39. Client timeout is 5 s per call.

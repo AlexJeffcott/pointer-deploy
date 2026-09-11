@@ -67,6 +67,17 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 | `readData` called `client.greeting()` behind a parser requiring `greeting.text`, so a service answering `v1` correctly put a parse error on `data-api` — under a doc comment saying the reading is whether the version answers | `ServiceClient.data()`: the status and the `Sunset` header, nothing out of the body. `setGreeting`, `parseGreeting` and `ApiGreeting` are gone, which `PLAN.md` had already claimed |
 | Four documents contradicted the code: `TODO.md` called the `build failed` guard unbuilt, `README.md` presented a pair as breaking on both halves, `build.ts` said `APPS` was empty, `members.ts` said `ShellStore` had eight members | Each corrected against a reading taken the same day |
 
+**And running the skipped mutations found three more.** `FALSIFY_LIVE=1 bun run falsify --only ...` over the thirteen mutations step 1 added, measured on 2026-09-11: **ten caught, two not caught, one refused.** Every one of the three had been in the array since step 1 and none had ever run.
+
+| Mutation | What it did instead |
+| --- | --- |
+| `promote replaces the composition instead of merging into it` | It drops a CARRIED sub-app from the manifests a promote reads, and it named `Deploying a sub-app leaves the frame where it was` — where the sub-app is the unit being NAMED and the SHELL is what is carried. A no-op in that scenario. Re-aimed at `Deploying the frame leaves the sub-app at its new version` |
+| `the task accessor reads the store without subscribing to it` | `tasks.peek()` and `A task added through the panel is drawn by the list` stayed green: `add` calls `setTitle("")` in the same handler, so the panel re-renders from its own state whether or not it subscribed and reads the new task on the way through. Re-aimed at `A task taken off the list leaves, and the rest stay`, the one write in the panel with no local state change beside it |
+| `the tag box is drawn from the store between keystrokes` | Cutting the `value` expression left `drafts` unused, `noUnusedLocals` failed the build, and §35's guard refused the reading rather than counting it — which is that guard's first real use. Re-aimed at the WRITE: the draft is not recorded, the box falls back to the store, and the behaviour is identical |
+
+Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
+
+
 ### 34. What the deploy record does not reach
 
 `bun run promote` opens `deploys/<composedAt>-<channel>/` on a real channel and writes the act and the pointer bytes into it; `bun run shoot --out <dir>` fills in the pictures, gated so that no shot can be filed under a composition it is not a picture of; `bun run changelog` gathers the archive into a gitignored `CHANGELOG.md`; `bun run pr` puts two links and two columns of pictures in a pull request body. What is not built, and what each gap costs.
@@ -121,7 +132,7 @@ and printed `bun run promote qa --shell 5569c9df` underneath it. Thirty-one memb
 bun run sweep --only units/shell/5569c9df --floor-days 0 --delete
 ```
 
-removed 24 objects and two `test-qa` history entries. `bun run units --rebuild` then read four published shells, the newest being `e27ad5ff`, which is what `qa` serves.
+removed 24 objects and two `test-qa` history entries. The same run had published a second unmarked unit nobody had named - `list 654bde56`, `de60d9eb+dirty`, 13 members used, its `goingAway` call rewritten - and four more objects went the same way. `bun run units --rebuild` then read seven published units, the newest shell being `e27ad5ff`, which is what `qa` serves. Two `+dirty` rows remain and are staying: `shell ca633985` and `hello 29dac25b` came from an operator publishing during the 2026-09-10 recovery, not from a harness, and the `+dirty` column plus the suggestion rule is what the table owes a reader about them.
 
 ### 37. A scenario measures machine state it does not arrange
 
@@ -187,7 +198,7 @@ Clearing the slate to one sub-app took the subject away from four readings, and 
 | --- | --- |
 | One unit deploys and rolls back without moving the other, read off the rendered page | `bun run e2e`, green on 2026-09-11: `list` deployed, the frame deployed, `list` rolled back, each leaving the other where it was |
 | A dropped member refuses the app that used it | `bun run e2e:members`, green on 2026-09-11. The refusal reads `list uses ShellStore.goingAway, which this shell does not have`. Its builds carry a marker since §38, so what it publishes is hidden from `bun run units` and refused on a real channel |
-| `promote` merges into the composition instead of replacing it | `Deploying a sub-app leaves the frame where it was`, and the `promote replaces the composition instead of merging into it` mutation |
+| `promote` merges into the composition instead of replacing it | `Deploying a sub-app leaves the frame where it was`, and the `promote replaces the composition instead of merging into it` mutation — re-aimed on 2026-09-11 at `Deploying the frame leaves the sub-app at its new version`, which is the scenario where a sub-app is actually carried. Measured under `FALSIFY_LIVE=1`; the entry had been in the array since step 1 and `bun run falsify` had never run it |
 | A publish uploads only the unit that changed | `Publishing after a change to one unit uploads that unit alone`, the `unit id carries the commit` mutation, and a check inside `bun run e2e` |
 | A composition whose units share no contract is refused | `A composition with no contract in common is refused` and `A unit that cannot be composed with the rest is refused`, plus the `composition refusal is removed` mutation |
 | A sub-app needing a member the shell does not have is refused | `A sub-app needing a member the shell does not have is refused`, and the `a member the shell does not have is allowed through` mutation |

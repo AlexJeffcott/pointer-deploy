@@ -114,6 +114,17 @@ had five sub-apps. `falsify` keeps the reading alive here: an accessor that
 reads the store with `peek` instead of `value` is what a sub-app with its own
 runtime looks like from outside, and a named browser scenario goes red for it.
 
+**Which scenario, and why it is the removal one.** The mutation named `A task
+added through the panel is drawn by the list` until 2026-09-11, and under `peek`
+that scenario stayed green: adding calls `setTitle("")` in the same handler, so
+the panel re-renders from its OWN state whether or not it ever subscribed, and
+reads the new task on the way through. Removing a task is the one write in this
+panel with no local state change beside it, so `A task taken off the list leaves,
+and the rest stay` is the only place a lost subscription is visible. The adding
+scenario is not wrong — it says the write reaches the frame — it simply cannot
+say this, and a component with any state of its own will hide a lost
+subscription behind its own re-render.
+
 ### A sub-app is a component, and is handed the store
 
 A sub-app default-exports a Preact component taking one prop. It does not export
@@ -206,8 +217,14 @@ point at a half-uploaded unit.
 and writes the result. That merge is the feature: without it every promote
 replaces every unit, and "deploy list" silently rolls the shell back to
 whatever the operator last had on disk. `falsify.ts` breaks the merge and
-requires a scenario to go red - `Deploying a sub-app leaves the frame where it
-was`, which had nothing to hold it while the tree built one unit.
+requires a scenario to go red — `Deploying the frame leaves the sub-app at its
+new version`, because that is the scenario in which a sub-app is CARRIED. It
+named `Deploying a sub-app leaves the frame where it was` until 2026-09-11, where
+the sub-app is the unit being named and the shell is what is carried, so the
+mutation was a no-op and the scenario could not have gone red for it. The
+mutation is `@live`, `bun run falsify` skips every `@live` mutation, and it had
+been in the array since step 1 proving nothing. That is what `--only` and a
+`FALSIFY_LIVE=1` run are for.
 
 **The merge covers a unit this tree no longer builds.** It has to: the composed
 set is the channel's own apps, plus what this tree builds, plus what the
@@ -218,6 +235,16 @@ pointer that took a region down on 2026-09-10. **Removal is now said and never
 inferred:** `--drop <app>` is the only way a unit leaves a channel, it refuses a
 name the channel does not serve, and the terminal prints what left and the
 command that puts it back.
+
+Until 2026-09-11 the only `--drop` anybody had run named `hello`, a unit `UNITS`
+no longer held, and that takes a different branch through every loop in
+`promote`. On a unit this tree BUILDS, three loops read a manifest for the unit
+they had just excluded: `bun run promote qa --drop list` died on an uncaught
+`TypeError`, the history writer threw and left the region with no version
+history, and `--from-build --drop list` answered `list is named by both --app
+and --drop` on a command line where `--app` had named nothing. `bun run e2e`
+drops `list` from `test-qa`, reads the page with no panel on the landing route,
+refuses a second `--drop` by name, and puts the unit back.
 
 ### A unit id is a hash of that unit's output, and nothing else
 
@@ -510,9 +537,16 @@ and the sub-app left exactly as it was. Run on 2026-09-11:
 
 ```
 list uses ShellStore.goingAway, which this shell does not have. Nothing was changed.
-  shell 5569c9df  31 members provided
-  list  eecdb7c6  10 members used
+  shell d6436429  32 members provided
+  list  e93e0d9a  10 members used
 ```
+
+Every build that probe makes carries a `BUILD_MARKER`, and the probe reads the
+marker back off the published `unit.json` rather than trusting the environment
+it set. Without it the broken shell went into the production asset bucket as an
+ordinary build and came out at the top of `bun run units shell` with a promote
+command under it — a shell a real channel would have taken, caught only because
+`list` happened to use the member the probe cuts. TODO §38.
 
 With one sub-app the second half of the claim — *and nothing else* — is not
 measured there; `scripts/members.test.ts` holds it instead, by naming the set
@@ -1125,15 +1159,30 @@ bun run units --json          # the catalogue itself, for a script
 ```
 
 ```
-shell    c2601912  2026-09-11  83318092  31 members provided
-list     eecdb7c6  2026-09-11  83318092  10 members used
-hello    3bba892b  2026-09-10  83318092  10 members used
+shell  e27ad5ff  2026-09-11  28f2c2ca        32 members provided
+shell  5442c052  2026-09-10  b2c7e7e8        26 members provided
+shell  ca633985  2026-09-10  f7d2318c+dirty  25 members provided
+shell  c2601912  2026-09-10  83318092        26 members provided
+list   eecdb7c6  2026-09-11  28f2c2ca        10 members used
+hello  29dac25b  2026-09-10  f7d2318c+dirty  10 members used
+hello  3bba892b  2026-09-10  83318092        7 members used
+
+7 published units, 115 harness builds not shown (add --all), 2 built from a tree no commit holds. Promote one with:
+  bun run promote qa --shell e27ad5ff
 ```
 
 `hello` is still in that listing and is meant to be: the catalogue is every unit
 that has been PUBLISHED, and a unit this tree no longer builds is still one an
 operator can name in a promote. It is `scripts/contract.ts` that decides what
 `bun run units <name>` will accept, and it accepts `shell` and `list`.
+
+**The command it suggests is never a `+dirty` row.** A build from a dirty tree
+came from source no commit holds; `promote --from-build` refuses exactly that,
+and naming an id is the one promote that takes no source check at all. So the
+dirty rows stay listed — rolling a channel back onto what it once served is what
+this table is for, and a channel has served a dirty build — and the line an
+operator copies names the newest build that a commit holds. TODO §38 is why that
+rule is there.
 
 **It is derived, and rebuilt rather than appended to.** `publish` reads the store's own LIST and writes the file from scratch, so a write lost to a crash or to two publishers at once heals on the next publish. An appended file would carry that loss forever, and a file that can silently disagree with the store is what this exists to replace. Nothing here is the only record of anything: every entry restates what one `unit.json` already says.
 
@@ -1726,16 +1775,17 @@ under it reaches the delete set.
 ## Verifying
 
 ```sh
-bun test                   # 417 unit tests: src/server, src/web, scripts, api, features/support, ~21 s
-bun run verify             # 54 @local scenarios, stub store, ~8 s
+bun test                   # 684 unit tests: src/server, src/web, scripts, api, features/support, ~24 s
+bun run verify             # 55 @local scenarios, stub store, ~8 s
 bun run contract:matrix    # every unit x retained contracts, ~0.4 s
 bun run contract:members   # which member of the surface each sub-app uses, ~14 s
 bun run blocks:record      # what the server writes into its JSON blocks, ~4.5 s
-bun run verify:live        # 45 @live scenarios against Fly and Tigris
-bun run verify:browser     # 12 @browser scenarios in a real Chrome
-bun run falsify            # 92 architectural mutations, each must turn a check red. 65 run locally, all caught
-FALSIFY_LIVE=1 bun run falsify   # including the twenty-six that need the real store
-bun run e2e                # deploy the panel, deploy the frame, roll the panel back
+bun run verify:live        # 46 @live scenarios against Fly and Tigris
+bun run verify:browser     # 20 @browser scenarios in a real Chrome. The only command that runs a sub-app's own feature file
+bun run falsify            # 114 architectural mutations, each must turn a check red. 84 run locally, all caught
+FALSIFY_LIVE=1 bun run falsify   # including the thirty that need the real store or a browser
+bun run falsify --only <text>    # the mutations whose name contains <text>, so a claim about a few is measurable
+bun run e2e                # deploy the panel, deploy the frame, roll the panel back, drop the panel and put it back
 bun run e2e:members        # drop a member, and refuse only the app that used it
 bun run e2e:deprecation    # mint a successor, mark the old contract, read what both commands say
 bun run e2e:schema         # retire a field, write another, and read what the page does with no unit rebuilt
@@ -1864,8 +1914,11 @@ this tree, so the browser loads the bundles this edit produced.
 because each answers a question the other cannot; it is gone with the greeting,
 and `keeping-a-list-of-tasks.feature` makes the claim about the tasks instead,
 under `@test-channel`. Measured, not argued: making the store's accessor read
-`peek()` — the store still holds the value and subscribes nobody — reddens a
-@test-channel scenario and leaves a deployed one green.
+`peek()` — the store still holds the value and subscribes nobody — reddens the
+@test-channel scenario that TAKES a task off the list and leaves a deployed one
+green. It has to be the removal: every other write in the panel changes local
+state too, and a component re-rendering for its own reasons hides the lost
+subscription.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
 mutates operators and literals in the pure logic. It found a real gap: every entry in `FLY_TO_REGION`
@@ -2041,6 +2094,34 @@ API.
 
 `publishing-a-build.feature` now carries a scenario for it. It was confirmed to
 go red with the bucket restricted to another origin, and green again after.
+
+## The bug `page.fill` could not see
+
+The tag input on the list panel shipped, and no visitor could type a second tag.
+Its `value` was `task.tags.join(", ")` and every keystroke wrote through
+`tagsFrom`, which drops the empty field after a trailing comma. So typing `,`
+after `travel` put `["travel"]` into the store, the signal reassigned, and Preact
+wrote `travel` back over `travel,`. The separator was erased as it was typed.
+
+The scenario that covers tagging was green throughout, because it drove the
+control with `page.fill`. `fill` sets `value` and dispatches ONE `input` event,
+so a control that rewrites itself between keystrokes never gets the chance: the
+whole string arrives at once and the round-trip through the store gives it back
+unchanged. Every intermediate state a person types through — and this defect
+lives entirely in those states — is skipped.
+
+Two things changed. The panel keeps the in-progress TEXT as its own state and
+still writes the TAGS to the store on every keystroke, so the store stays the one
+truth about what a task holds and the box stays the truth about what somebody is
+writing. And the steps use `pressSequentially`, one key at a time, with a second
+scenario that appends `, summer` to a task that already carries `travel` —
+which is what a person does and what `fill` cannot express. A `falsify` mutation
+puts the old control back and that scenario must go red.
+
+The general rule this is an instance of: a step that sets a control's whole value
+in one event measures the STORE, not the control. It belongs in a unit test, and
+a `.feature` file that uses it is claiming something about a visitor it has not
+looked at. `~/projects/CLAUDE.md` names the class; this is it with a keyboard.
 
 ## The bug the clean tree found
 
