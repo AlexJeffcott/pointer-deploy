@@ -22,7 +22,11 @@ export const VIEWS: Record<string, View> = {
   "/": {
     title: "Tasks",
     apps: ["list"],
-    note: "Every task the planner holds. They are kept in this page alone until PLAN.md step 2.",
+    // Where the tasks are kept is the PANEL's sentence, drawn from what the
+    // frame reports, because it is one of two and this note cannot know which.
+    // It said "kept in this page alone until PLAN.md step 2" until step 2
+    // landed, and then contradicted the line directly beneath it.
+    note: "Every task the planner holds.",
   },
   "/board": {
     title: "Board",
