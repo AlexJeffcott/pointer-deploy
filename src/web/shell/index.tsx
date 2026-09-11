@@ -4,11 +4,10 @@ import { createStore } from "./api.ts";
 import {
   awaiting,
   createClient,
-  hydrate,
   noteSunset,
   readApiBase,
+  readData,
   readService,
-  serviceBacked,
 } from "./service.ts";
 import { Shell } from "./Shell.tsx";
 
@@ -49,17 +48,19 @@ if (client) store.setService(awaiting(base));
 
 render(
   <ShellBoundary>
-    <Shell store={client ? serviceBacked(store, client, reportApi) : store} />
+    <Shell store={store} />
   </ShellBoundary>,
   root,
 );
 
 if (client) {
   // Two reads, started together and settled apart. The document says what the
-  // service holds; hydrate fills the page from it. Neither waits for the other,
-  // and a page whose schema read fails still shows the greeting.
+  // service holds; the data call says whether the version this shell calls
+  // answers, and carries the `Sunset` header a document cannot. Neither waits
+  // for the other, and a page whose document read fails still draws its tasks:
+  // the planner is in this browser and the service holds none of it.
   void readService(store, client);
-  void hydrate(store, client).then((state) => {
+  void readData(client).then((state) => {
     noteSunset(store, client);
     reportApi(state);
   });

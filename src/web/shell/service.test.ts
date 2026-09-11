@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { createStore, DEFAULT_GREETING } from "./api.ts";
+import { createStore } from "./api.ts";
 import {
   API_VERSION,
   awaiting,
   createClient,
-  hydrate,
   noteSunset,
   parseDiscovery,
   parseGreeting,
+  readData,
   readService,
-  serviceBacked,
   type ServiceClient,
 } from "./service.ts";
 
@@ -112,17 +111,17 @@ const stub = (over: Partial<ServiceClient> = {}): ServiceClient => ({
   ...over,
 });
 
-describe("filling the store from the service", () => {
-  test("the page shows what the service holds", async () => {
-    const store = createStore();
-    expect(await hydrate(store, stub({ greeting: async () => BONJOUR }))).toBe("ok");
-    expect(store.greeting()).toEqual(BONJOUR);
+// The body is not kept: since `PLAN.md` step 0 no unit draws the service's
+// greeting. What the call is for is the response - whether the version this
+// shell CALLS answers, which `/versions` cannot say, and the `Sunset` header
+// only a data response carries.
+describe("the one data call the page makes", () => {
+  test("a service that answers reports ok", async () => {
+    expect(await readData(stub({ greeting: async () => BONJOUR }))).toBe("ok");
   });
 
-  test("a service that cannot be reached leaves the defaults and names the fault", async () => {
-    const store = createStore();
-    const said = await hydrate(
-      store,
+  test("a service that cannot be reached names the fault rather than throwing", async () => {
+    const said = await readData(
       stub({
         greeting: async () => {
           throw new Error("Unable to connect");
@@ -130,71 +129,26 @@ describe("filling the store from the service", () => {
       }),
     );
     expect(said).toBe("Unable to connect");
-    expect(store.greeting()).toEqual(DEFAULT_GREETING);
   });
 
   test("a response this shell cannot read names the field, not the service", async () => {
-    const store = createStore();
-    const said = await hydrate(store, stub({ greeting: async () => parseGreeting({ text: 7 }) }));
+    const said = await readData(stub({ greeting: async () => parseGreeting({ text: 7 }) }));
     expect(said).toMatch(/^api field greeting\.text /);
   });
-});
 
-describe("the store, with every write sent on", () => {
-  const record = () => {
-    const sent: string[] = [];
-    const client = stub({
-      setGreeting: async (patch) => {
-        sent.push(JSON.stringify(patch));
-        return { ...HELLO, ...patch };
-      },
-    });
-    return { sent, client };
-  };
-
-  test("a write lands locally at once and is sent on", async () => {
-    const { sent, client } = record();
-    const store = serviceBacked(createStore(), client, () => {});
-
-    store.setGreeting({ audience: "Berlin" });
-    expect(store.greeting()).toEqual({ text: "Hello", audience: "Berlin" });
-    await Promise.resolve();
-    expect(sent).toEqual([JSON.stringify({ audience: "Berlin" })]);
-  });
-
-  test("reads go to the store and nowhere else", async () => {
-    let asked = 0;
-    const store = serviceBacked(
-      createStore({ text: "Hei" }),
+  // The page's tasks are in this browser and the service holds none of them, so
+  // a service that is not there costs the page a reading and not its contents.
+  test("a service that is not there costs the planner nothing", async () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    await readData(
       stub({
         greeting: async () => {
-          asked++;
-          return HELLO;
+          throw new Error("Unable to connect");
         },
       }),
-      () => {},
     );
-    expect(store.greeting().text).toBe("Hei");
-    expect(asked).toBe(0);
-  });
-
-  test("a write the service refuses is reported, and the page keeps the value", async () => {
-    const faults: string[] = [];
-    const store = serviceBacked(
-      createStore(),
-      stub({
-        setGreeting: async () => {
-          throw new Error("POST /greeting responded 400");
-        },
-      }),
-      (message) => faults.push(message),
-    );
-
-    store.setGreeting({ audience: "Berlin" });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(faults).toEqual(["POST /greeting responded 400"]);
-    expect(store.greeting().audience).toBe("Berlin");
+    expect(store.tasks().map((t) => t.title)).toEqual(["Book the ferry"]);
   });
 });
 
@@ -301,7 +255,6 @@ describe("what the service says it holds, §26", () => {
     expect(store.service().state).toBe("failed");
     expect(store.service().error).toBe("Unable to connect");
     expect(store.service().base).toBe("https://api.test");
-    expect(store.greeting()).toEqual(DEFAULT_GREETING);
   });
 
   test("a version this shell calls that the service does not publish leaves the fields empty", async () => {

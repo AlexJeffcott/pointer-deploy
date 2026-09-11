@@ -1,8 +1,17 @@
 import type { BuildInfo } from "@pointer/blocks";
-import type { Greeting, ServiceField, ServiceReport, ServiceRoute, ShellStore } from "./api.ts";
+import type { ServiceField, ServiceReport, ServiceRoute, ShellStore } from "./api.ts";
 import { NO_SERVICE } from "./api.ts";
 
-export type ApiGreeting = Greeting;
+/**
+ * The one resource this service holds, as it holds it.
+ *
+ * Declared HERE and no longer in `api.ts`, and the move is the point. No unit
+ * draws the service's greeting - `PLAN.md` step 0 removed the panel that did -
+ * so it stopped being something the shell provides to a sub-app and became
+ * something the shell reads at a boundary. `PLAN.md` step 6 is where the
+ * resource itself goes and snapshots take its place.
+ */
+export type ApiGreeting = { text: string; audience: string };
 
 /**
  * The service's own account of what it holds, §26.
@@ -183,26 +192,6 @@ export function createClient(base: string, options: ClientOptions = {}): Service
   };
 }
 
-export function serviceBacked(
-  store: ShellStore,
-  client: ServiceClient,
-  onError: (message: string) => void,
-): ShellStore {
-  const send = (p: Promise<unknown>) =>
-    void p.catch((e: unknown) => onError(e instanceof Error ? e.message : String(e)));
-
-  return {
-    greeting: () => store.greeting(),
-    service: () => store.service(),
-    setService: (report) => store.setService(report),
-    goingAway: (path) => store.goingAway(path),
-    setGreeting: (patch) => {
-      store.setGreeting(patch);
-      send(client.setGreeting(patch));
-    },
-  };
-}
-
 /**
  * The report a page starts with, before anything has been read.
  *
@@ -249,15 +238,26 @@ export function noteSunset(store: ShellStore, client: ServiceClient): void {
 }
 
 /**
- * Reads the greeting into the store, and keeps the defaults if it cannot.
+ * The one DATA call this page makes, at the version it was built against.
+ *
+ * Nothing is stored from the body, and that is not an oversight. Since
+ * `PLAN.md` step 0 no unit draws the service's greeting, so what the call is
+ * for is the RESPONSE, and two readings depend on having made one:
+ *
+ *   - whether the version this shell calls answers at all. The discovery
+ *     document is served from `/versions`, outside any version prefix, so
+ *     reading it says nothing about `API_VERSION`. `index.tsx` puts the answer
+ *     on the page as `data-api`;
+ *   - the `Sunset` header a data response carried, RFC 8594, which
+ *     `noteSunset` folds into the report and `/service` draws. A document and a
+ *     response can disagree, which is the whole reason the report keeps both.
  *
  * Never throws, and returns "ok" or what went wrong. A service that is not
- * there costs the page the service's greeting and not the page: the store was
- * built with one already.
+ * there costs the page the reading and not the page.
  */
-export async function hydrate(store: ShellStore, client: ServiceClient): Promise<string> {
+export async function readData(client: ServiceClient): Promise<string> {
   try {
-    store.setGreeting(await client.greeting());
+    await client.greeting();
     return "ok";
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

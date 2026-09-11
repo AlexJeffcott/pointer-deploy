@@ -62,26 +62,47 @@ describe("readMembers, against the surface this repository ships", () => {
     async () => {
       const reading = await readMembers(await emitSurface(), [...APPS]);
 
-      // On this slate there is no app to measure. `PLAN.md` step 0 is the frame
-      // alone, so `uses` is empty by construction and the half of §9 that says
-      // "a dropped member refuses exactly the apps that called it" has nothing
-      // to call it - TODO §31 carries that. What is still measured here is the
-      // other half, which `promote` gates on just as hard: what the shell
-      // PROVIDES, and which members cannot be asked about at all.
-      expect(APPS).toEqual([]);
-      expect(Object.values(reading.uses).flatMap((u) => Object.keys(u))).toEqual([]);
+      // §9's first half, and it has a subject again at `PLAN.md` step 1: use is
+      // measured by REMOVAL, so this is the list of declarations whose absence
+      // stops `list` compiling. The set is exactly what `PLAN.md`'s contract
+      // table gives the unit, which is the point of that table being a
+      // constraint rather than a description.
+      expect(APPS).toEqual(["list"]);
+      expect(Object.keys(reading.uses.list ?? {}).sort()).toEqual([
+        "FieldSunset.instead",
+        "FieldSunset.sunset",
+        "ShellStore.addTask",
+        "ShellStore.goingAway",
+        "ShellStore.removeTask",
+        "ShellStore.setTags",
+        "ShellStore.tasks",
+        "Task.id",
+        "Task.tags",
+        "Task.title",
+      ]);
 
-      // Every member of the store the shell hands a sub-app, whether or not one
-      // exists to hand it to. A promote compares a published app's `uses`
-      // against this, so an empty reading here would admit any composition.
+      // The other half of §9, and the one `promote` refuses on just as hard: a
+      // member the shell PROVIDES that no app calls costs that app nothing.
+      // `service` and `setService` are the frame's own, so a shell that dropped
+      // them would refuse nothing here - which is the reading, not a gap.
+      for (const member of ["ShellStore.service", "ShellStore.setService"]) {
+        expect(Object.keys(reading.provides)).toContain(member);
+        expect(Object.keys(reading.uses.list ?? {})).not.toContain(member);
+      }
+
+      // Every member of the store the shell hands a sub-app. A promote compares
+      // a published app's `uses` against this, so an empty reading here would
+      // admit any composition.
       for (const member of [
-        "ShellStore.greeting",
-        "ShellStore.setGreeting",
+        "ShellStore.tasks",
+        "ShellStore.addTask",
+        "ShellStore.setTags",
+        "ShellStore.removeTask",
         "ShellStore.goingAway",
         "ShellStore.service",
         "ShellStore.setService",
-        "Greeting.text",
-        "Greeting.audience",
+        "Task.title",
+        "Task.tags",
         "FieldSunset.sunset",
         "FieldSunset.instead",
         "ServiceReport.serves",

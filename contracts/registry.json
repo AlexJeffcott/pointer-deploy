@@ -5,9 +5,16 @@
       "hash": "9d1b0a3",
       "firstSeenCommit": "b66ff7bd0aafa05a4bbc5ffc715ddfd91dde76ef",
       "firstSeenAt": "2026-09-10T11:07:18.243Z"
+    },
+    {
+      "name": "planner-2026-09",
+      "hash": "15ed669",
+      "firstSeenCommit": "de60d9eb845d61c4562a8a7d783292bc348df10d",
+      "firstSeenAt": "2026-09-11T09:01:29.869Z"
     }
   ],
   "retained": [
-    "9d1b0a3"
+    "9d1b0a3",
+    "15ed669"
   ]
 }

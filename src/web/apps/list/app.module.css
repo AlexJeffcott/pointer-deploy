@@ -1,0 +1,104 @@
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  border-top: 3px solid var(--accent);
+}
+
+.add {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 0 0 1.25rem;
+}
+
+.input {
+  font: inherit;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  flex: 1;
+  min-width: 8rem;
+}
+
+.button {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.task {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  flex: 1;
+  font-size: 0.9375rem;
+}
+
+.tagInput {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--fg);
+  width: 9rem;
+}
+
+.tags {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  min-width: 5rem;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.note {
+  margin: 1.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.going {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  color: #b4342a;
+}
+
+.throw {
+  font: inherit;
+  font-size: 0.8125rem;
+  margin-top: 1rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}

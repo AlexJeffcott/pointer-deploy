@@ -12,12 +12,22 @@ describe("placement", () => {
     expect(placementProblems(APPS)).toEqual([]);
   });
 
-  // Every view on this slate names no unit, which is what PLAN.md step 0 is.
-  // Asserted rather than assumed: a view that quietly gained a unit would make
-  // `placementProblems` refuse the build, and this says which of the two moved.
-  it("places nothing, because this slate builds nothing to place", () => {
-    expect(placedApps(VIEWS)).toEqual([]);
-    expect(Object.values(VIEWS).flatMap((v) => [...v.apps])).toEqual([]);
+  // Which unit is on which route, asserted rather than assumed. A unit that
+  // moved route leaves both sets identical, so `placementProblems` cannot see
+  // it and this is the only check that says where `list` is.
+  it("places list on the landing route and nothing anywhere else", () => {
+    expect(placedApps(VIEWS)).toEqual(["list"]);
+    expect(VIEWS["/"]!.apps).toEqual(["list"]);
+  });
+
+  // The claim `PLAN.md` step 0 exists for, and it keeps its subject at step 1
+  // on the four routes that place nothing. Two of them are waiting for a unit -
+  // `/board` at step 4, `/week` at step 5 - and two never get one.
+  it("keeps four views that name no unit at all", () => {
+    const empty = Object.entries(VIEWS)
+      .filter(([, v]) => v.apps.length === 0)
+      .map(([path]) => path);
+    expect(empty).toEqual(["/board", "/week", "/service", "/backup"]);
   });
 
   it("names five routes, and the frame draws every one of them", () => {
@@ -48,8 +58,8 @@ describe("placement", () => {
 
   // The direction the build-time check is blind to, stated so it stays stated.
   // Both sets are identical either way, so only a scenario catches a route
-  // change - and the units are named here rather than taken from APPS, which is
-  // empty on this slate and would make the reading vacuous.
+  // change. The units are named here rather than taken from APPS, so the
+  // reading stays the same whatever this slate happens to build.
   it("cannot see an app moved from one route to another", () => {
     const here = views({ "/": ["hello"], "/next": [] });
     const there = views({ "/": [], "/next": ["hello"] });

@@ -581,6 +581,13 @@ describe("a schema-3 manifest with no sub-app", () => {
     expect(html).not.toContain('rel="modulepreload"');
   });
 
+  // The tag the loader reads to decide what to import. A page carrying an empty
+  // one looks harmless and is the difference between "this composition has no
+  // sub-app" and "this composition's sub-apps could not be read".
+  test("no sub-app list is carried at all", () => {
+    expect(renderShell(empty, TARGET)).not.toContain('id="__APPS__"');
+  });
+
   // The policy still has to name the store the shell itself comes from, or the
   // page cannot load its own bundle.
   test("the policy still allows the shell's own origin", () => {

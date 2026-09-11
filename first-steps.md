@@ -1,11 +1,10 @@
 # What happens on a first visit
 
 **Read on 2026-09-10, against a composition with one sub-app in it.** `PLAN.md`
-step 0 took the application to the frame alone, so the sub-app half of this
-walkthrough describes a page nothing currently serves. It is kept rather than
-deleted, because steps 1, 4 and 5 put three sub-apps back and every step below
-is the mechanism they will use. Where a step is about a sub-app it says so, and
-the counts at the end carry both readings.
+step 0 then took the application to the frame alone and step 1 put `list` back
+on `/`, so the sub-app half of this walkthrough is live again — against `list`
+rather than `hello`. The counts below carry the frame-alone reading beside it,
+because that is the shape the four views placing no unit still have.
 
 | | With one sub-app, as measured | The frame alone, `PLAN.md` step 0 |
 | --- | --- | --- |
@@ -79,21 +78,21 @@ after the load, and the answer is zero.
 25. `store.setService(awaiting(base))` runs **before** the render, so the first paint says which service is being read and that it has not answered.
 26. `render()` mounts `<ShellBoundary><Shell/></ShellBoundary>`.
 27. `Shell.tsx` reads `__APPS__` at module scope, once.
-28. The route is `location.pathname` = `/`. That view names `hello`. The `/service` view names no unit at all: the frame draws it.
+28. The route is `location.pathname` = `/`. That view names `list`. The `/board`, `/week`, `/service` and `/backup` views name no unit at all: the frame draws them.
 29. First paint: the title, the fixed sidenav, the view's own heading and note, and one empty slot marked `data-app-loading`.
 
 ## 5 · The panel
 
 30. Each panel's effect calls `loadApp(name, assets)`.
 31. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle. Both are usually already in cache from the preload.
-32. A module with no function default export is rejected by name: "hello has no default export, so it is not a sub-app".
+32. A module with no function default export is rejected by name: "list has no default export, so it is not a sub-app".
 33. The panel renders inside the shell's tree with the store passed as a prop. A throw is caught by that panel's own boundary, which offers "Mount again". The frame is untouched.
 
 ## 6 · The service, in parallel with all of the above
 
 34. Two reads start together, right after `render()`, and neither blocks the paint (`src/web/shell/index.tsx:57-66`).
 35. `readService` → `GET /versions` on `pointer-deploy-api.fly.dev`. Not under a version prefix, because asking at a version needs the answer first.
-36. `hydrate` → `GET /v1/greeting`. What comes back is merged into the store's greeting; what does not is left at the default, and the reason goes on `data-api`.
+36. `readData` → `GET /v1/greeting`. The body is not kept — no unit draws it since step 0 — and the RESPONSE is the point: whether the version this shell calls answers, which goes on `data-api`, and the `Sunset` header it carried.
 37. Every response's `Sunset` header is remembered and folded into the report. It arrives only because the service sends `access-control-expose-headers`.
 38. `data-api` on `<html>` becomes `ok` or the error text.
 39. Client timeout is 5 s per call.
@@ -107,7 +106,7 @@ after the load, and the answer is zero.
 | The page never calls `GET /units` | The server judges an override itself, so the page needs no catalogue. `connect-src` forbids the page's own origin |
 | Nothing is fetched from the page's own origin after the HTML | Every script and style URL is the store; every `fetch` is the service |
 | No unit file is ever refetched | Content-hash paths, immutable for a year |
-| Nothing waits on the service | The paint happens first, from defaults |
+| Nothing waits on the service | The paint happens first, and the planner is in this browser rather than in the service |
 
 ## The shape
 
@@ -119,7 +118,7 @@ Three request fans in sequence, not one chain: the server, then the store, then 
 | Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 11 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files |
 | Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1/greeting` |
 
-Only the shell's own files are needed to paint — 9 of them here. On this slate the panel files are fetched and also run, because the one sub-app is on the route a visitor lands on. A unit placed on a route nobody opens is fetched and never imported, which is what the preload tags are for.
+Only the shell's own files are needed to paint — 9 of them here. On this slate the panel files are fetched and also run, because the one sub-app is on the route a visitor lands on. A unit placed on a route nobody opens is fetched and never imported, which is what the preload tags are for, and `PLAN.md` step 4 is the first to have one.
 
 Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
 

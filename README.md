@@ -32,17 +32,15 @@ So a deploy is this, and nothing else:
 bun run promote qa --shell c2601912
 ```
 
-That moves the shell and nothing else. When there is a sub-app the same command
-names it — `--app hello=3bba892b` — and the shell stays exactly where it was;
-rolling that sub-app back afterwards leaves alone whatever was deployed in
-between.
+That moves the shell and nothing else. The same command names a sub-app —
+`--app list=eecdb7c6` — and the shell stays exactly where it was; rolling that
+sub-app back afterwards leaves alone whatever was deployed in between.
 
-**One unit, today.** `PLAN.md` step 0 is the frame on its own: the shell draws
-five views and none of them places a sub-app, so `scripts/contract.ts` names one
-unit and `build.ts` builds one. Every two-unit example in this document is the
-mechanism rather than the tree — the readings are real, and they were taken when
-`hello` existed. `PLAN.md` steps 1, 4 and 5 put three sub-apps back, one per
-step, and each says what it restores.
+**Two units, today.** `PLAN.md` step 1 places `list` on `/`, so
+`scripts/contract.ts` names two units and `build.ts` builds two. Examples
+naming `hello` are from the slate before step 0 and are kept where the reading
+they illustrate was taken against it; the tree builds `shell` and `list`.
+`PLAN.md` steps 4 and 5 add `board` and `week`, one per step.
 
 **And one change in this project's history was not one JSON write.** Going to
 zero sub-apps means a pointer whose `apps` is `{}`, and the image running at the
@@ -56,18 +54,21 @@ was a deploy of the server, in the rarer schedule the design already has.
 
 ### The application is deliberately almost nothing
 
-The page is a title, a fixed sidenav and five views, and **not one of them
-places a unit**. `/`, `/board` and `/week` are waiting for one — `PLAN.md` steps
-1, 4 and 5 — and the frame says so on each of them. `/service` is drawn by the
-shell itself, from the one reading it took of the service, and `/backup` will be
-drawn by the shell too. Desktop only: there is no breakpoint anywhere in the
-stylesheet.
+The page is a title, a fixed sidenav and five views. **One of them places a
+unit**: `/` draws `list`, which is every task the planner holds. `/board` and
+`/week` are waiting for one — `PLAN.md` steps 4 and 5 — and the frame says so on
+each of them. `/service` is drawn by the shell itself, from the one reading it
+took of the service, and `/backup` will be drawn by the shell too. Desktop only:
+there is no breakpoint anywhere in the stylesheet.
 
 A view naming no unit is a legitimate view and not a hole: the frame draws it,
 and nothing is fetched for it. `serving-the-shell.feature` is where that claim
-is written down and where it is measured — the served page names no bundle
-beyond the frame's own and asks the browser to warm nothing, and walking the
-whole sidenav in a browser costs no request at all.
+is written down and where it is measured — the served page names exactly the
+units its views place and warms exactly those, and a browser walking from `/` to
+the four views that place nothing issues no request at all. That second half had
+no teeth at step 0, when there was no bundle a mutation could make the page
+fetch; it has them now, because `/` fetching `list` and `/board` fetching
+nothing is a difference rather than a property of an empty build.
 
 That is the whole application, and it is the point. Everything else in this
 repository is the machinery for shipping it — publishing, composing, promoting,
@@ -77,11 +78,16 @@ because the process is what the project is for.
 
 ### The page is bundles that agree with each other
 
-The shell owns the state — a greeting of two fields, and what the service says
-it holds. A sub-app reads it and writes to it, and holds nothing of its own.
-There is no sub-app on this slate, so the greeting is currently read from the
-service and drawn by nothing; the frame draws the service report, and that is
-the reading `/service` shows.
+The shell owns the state — the planner's tasks, and what the service says it
+holds. A sub-app reads it and writes to it, and holds nothing of its own. `list`
+adds a task, tags one and removes one, all through the store the frame handed
+it; the frame draws the service report, and that is the reading `/service`
+shows.
+
+The tasks are in memory and nowhere else, which is `PLAN.md` step 1 rather than
+an omission. IndexedDB is step 2, so a reload starts the planner empty and the
+panel says so on the page. `keeping-a-list-of-tasks.feature` is where that is
+written down, in a scenario step 2 has to change rather than fill in.
 
 Each sub-app is its own **unit**: its own bundle, its own stylesheet, its own id,
 published and promoted on its own and fetched when its view first needs it. That
@@ -142,7 +148,7 @@ sequenceDiagram
     S-->>B: HTML naming each unit's own files
     B->>T: GET units/shell/c2601912/index-b2nncsqx.js
     B->>T: GET units/shell/c2601912/index-t1mb1e5f.css
-    B->>T: GET units/hello/3bba892b/hello-0kn9vs2b.js
+    B->>T: GET units/list/eecdb7c6/list-sjctpjpa.js
 ```
 
 The server never holds a script or a stylesheet. It is asked which units are
@@ -150,10 +156,10 @@ live, and it writes an HTML page pointing at each of them. Promoting a different
 unit changes one answer to that question, so the next visitor gets a different
 app from the same running machine — and only the part that moved is different.
 
-The third fetch is what a page with a sub-app makes. This slate has none, so a
-visitor makes the first two and stops — the same mechanism with one unit in it.
+The third fetch is what a view placing a sub-app makes. A visitor who lands on
+`/board` makes the first two and stops, because that view places none.
 
-Note the last two lines. The shell and `hello` come from different directories,
+Note the last two lines. The shell and `list` come from different directories,
 written at different times. **One `assetBase` per unit is the whole feature.**
 Schema 2 had one base for the entire page, so every file had to come from one
 build directory, which is what made every bundle deploy and roll back together.
@@ -182,7 +188,7 @@ bun run build                                 # every unit into dist/units/
 bun run publish                               # uploads only what changed. Affects nobody
 bun run promote qa --shell c2601912           # the deploy, on this slate
 bun run promote qa --shell 5442c052           # the rollback. Same command
-bun run promote qa --app hello=3bba892b       # one sub-app, when there is one
+bun run promote qa --app list=eecdb7c6        # one sub-app
 bun run promote qa --from-build               # everything just built
 bun run units                                 # which ids there are to name
 ```
@@ -198,9 +204,10 @@ point at a half-uploaded unit.
 
 `promote` reads the channel's current composition, applies only what you named,
 and writes the result. That merge is the feature: without it every promote
-replaces every unit, and "deploy hello" silently rolls the shell back to
+replaces every unit, and "deploy list" silently rolls the shell back to
 whatever the operator last had on disk. `falsify.ts` breaks the merge and
-requires a scenario to go red.
+requires a scenario to go red - `Deploying a sub-app leaves the frame where it
+was`, which had nothing to hold it while the tree built one unit.
 
 **The merge covers a unit this tree no longer builds.** It has to: the composed
 set is the channel's own apps, plus what this tree builds, plus what the
@@ -215,7 +222,7 @@ command that puts it back.
 ### A unit id is a hash of that unit's output, and nothing else
 
 The commit is deliberately not in it. It used to be — `<source>-<content>` — and
-under per-unit publishing that is wrong: one commit touching only `hello` would
+under per-unit publishing that is wrong: one commit touching only `list` would
 change every id and republish every unit, which removes the point. The commit
 identifies the source, not the artefact, so it lives in `unit.json` as
 provenance and reaches the served page in the `__BUILD__` block.
@@ -225,18 +232,19 @@ The consequence is that publishing is idempotent per unit:
 ```
 $ bun run publish
   shell c2601912  unchanged
-  hello 3bba892b  uploaded 3 files
+  list  3bba892b  uploaded 3 files
 ```
 
-(That reading was taken when there were two units. With one, the second line is
-not printed and the first is the whole report.)
+`Publishing after a change to one unit uploads that unit alone` is the scenario
+that reads it, and `bun run e2e` reads the same line while driving the
+documented commands end to end.
 
 ## What stops a rollback breaking the page
 
 Composing units means composing combinations that nothing has ever typechecked.
 `tsc --noEmit` at HEAD proves the HEAD combination; rolling one unit back is
 precisely how you get one it never saw. A shell that renamed an export, put in
-front of a six-week-old `hello`, is a page where one panel renders an error.
+front of a six-week-old `list`, is a page where one panel renders an error.
 
 So each unit declares **which contracts it compiles against**, and `promote`
 refuses a composition whose sets do not intersect. That was the whole rule until
@@ -260,21 +268,17 @@ The sets are generated, never written:
 
 ```
 $ bun run contract:matrix
-       9d1b0a3
-shell     pass
+       9d1b0a3  15ed669
+shell     fail     pass
+list      fail     pass
 ```
 
-One contract, because the slate minted one, and one row, because the slate
-builds one unit. The table earns its keep the moment
-there is a second, and the shape below is what it looked like on the previous
-slate when a breaking change was tried:
-
-```
-         9e79879  571be5c
-shell       fail     pass
-alpha       pass     fail
-bravo       pass     fail
-```
+Two contracts and two units, on 2026-09-11. Every cell against `9d1b0a3` fails
+and that is the reading: `PLAN.md` step 1 removed the greeting from the surface,
+so a unit built here no longer satisfies the contract the previous slate was
+built against. Nothing is refused for it — the intersection is non-empty, both
+units share `15ed669` — and `9d1b0a3` stays retained, because a rollback onto a
+unit published against it is exactly what retaining is for.
 
 That is one `tsc` per cell, with `@pointer/shell` and `@pointer/subapp`
 re-pointed at that contract's `.d.ts` files — the same `paths` mechanism
@@ -387,19 +391,15 @@ question an operator actually has is different — does this sub-app need
 anything this shell does not have — and the two come apart the moment the shell
 drops a member nothing in the composition ever called.
 
-`bun run contract:members`, taken on 2026-09-10, when `hello` was the one
-sub-app. With none the command prints the member count and says there is nothing
-to ask — the column below is what the reading looks like when there is something
-to ask it of:
+`bun run contract:members`, taken on 2026-09-11 against the surface `PLAN.md`
+step 1 minted:
 
 ```
-member                      hello
+member                      list
 FieldSunset.instead         uses
 FieldSunset.reason
 FieldSunset.since
 FieldSunset.sunset          uses
-Greeting.audience           uses
-Greeting.text               uses
 ServiceField.going
 ServiceField.path
 ServiceField.type
@@ -414,16 +414,25 @@ ServiceReport.serves
 ServiceReport.state
 ServiceRoute.method
 ServiceRoute.path
+ShellStore.addTask          uses
 ShellStore.goingAway        uses
-ShellStore.greeting         uses
+ShellStore.removeTask       uses
 ShellStore.service
-ShellStore.setGreeting      uses
 ShellStore.setService
+ShellStore.setTags          uses
+ShellStore.tasks            uses
+Task.column
+Task.createdAt
+Task.due
+Task.id                     uses
+Task.tags                   uses
+Task.title                  uses
+createStore
 
-not removable on their own: FieldSunset, Greeting, ServiceField, ServiceReport, ServiceRoute, ShellStore
+not removable on their own: FieldSunset, ServiceField, ServiceReport, ServiceRoute, ShellStore, Task
 ```
 
-Fourteen of the surface's twenty-six members are called by no sub-app.
+Twenty-two of the surface's thirty-two members are called by no sub-app.
 `setService` is a writer the shell owns, `service` is a reader the frame keeps
 to itself for the `/service` view, and the fields under `ServiceReport` are read
 by the frame drawing that view. Under the set intersection, removing any of them
@@ -432,10 +441,17 @@ at its build time and cannot name a contract minted after it. `createStore` is
 used by nothing either: the shell reaches `api.ts` by relative path, so only the
 sub-apps are asked.
 
-Ownership comes out at the FIELD. `hello` reads two of the four members of a
+Ownership comes out at the FIELD. `list` reads two of the four members of a
 sunset — the day it goes and what to move to — so a service that retired
 `reason` would cost this panel nothing, and the reading says so without anybody
-declaring it.
+declaring it. `Task.column` and `Task.due` are the same reading the other way
+round: a task HAS them, and nothing on this slate moves either, so `board` at
+step 4 and `week` at step 5 are the units that will show as using them.
+
+The set `list` uses is exactly the row `PLAN.md`'s contract table gives it,
+which is why that table is written as a design constraint rather than as a
+description: a unit that held no member of its own would leave the gate with
+nothing to refuse.
 
 **Use is measured by removal, never parsed.** Cut one declaration out of the
 surface and recompile the consumers against the rest; if it still compiles, they
@@ -454,11 +470,11 @@ is set inclusion with matching digests, so `promote` needs no compiler.
 | --- | --- | --- |
 | a member added | allowed | allowed |
 | a member removed that no app uses | **refused** | allowed |
-| `goingAway` removed | refused | refused, naming `hello` and `ShellStore.goingAway` |
+| `goingAway` removed | refused | refused, naming `list` and `ShellStore.goingAway` |
 | a parameter narrowed | refused for every app | refused for the apps that use that member |
 
 The digest is what keeps the same-name signature change covered; a list of
-member *names* would call a narrowed `setGreeting` the same member.
+member *names* would call a narrowed `setTags` the same member.
 
 **The other half is gated whole.** `uses` reads `shell.d.ts`, which a sub-app
 consumes part of. `subapp.d.ts` is what a sub-app *produces* and the shell
@@ -475,26 +491,24 @@ refused too.
 
 **Proved end to end** by `bun run e2e:members`, against the real store and the
 real scripts: `goingAway` removed from `ShellStore`, the shell published alone,
-and the sub-app left exactly as it was. That command **refuses to run on this
-slate** and exits non-zero, because the gate is measured by what a sub-app uses
-and there is no sub-app; it comes back at `PLAN.md` step 1, and TODO §31 carries
-the loss.
+and the sub-app left exactly as it was. Run on 2026-09-11:
 
 ```
-hello uses ShellStore.goingAway, which this shell does not have. Nothing was changed.
-  shell   <id>  12 members provided
-  hello   <id>  10 members used
+list uses ShellStore.goingAway, which this shell does not have. Nothing was changed.
+  shell 5569c9df  31 members provided
+  list  eecdb7c6  10 members used
 ```
 
-With one sub-app the second half of the claim — *and nothing else* — was not
-measured there. With none, neither half is: `scripts/members.test.ts` now holds
-what the shell PROVIDES and nothing about use, because every member is used by
-nobody. Step 1 restores the first half and step 10 the second.
+With one sub-app the second half of the claim — *and nothing else* — is not
+measured there; `scripts/members.test.ts` holds it instead, by naming the set
+`list` uses and asserting that `service` and `setService` are not in it. Step 10
+is the first step with two sub-apps and a member only one of them calls, which
+is what the end-to-end half needs.
 
 The contract sets in such a run are disjoint — the shell satisfies only the
 contract just minted, and the published app only the one it was built against —
 so the rule this replaced refused the composition whole, whether or not the app
-had ever called the member. Publishing the rebuilt `hello` makes the same
+had ever called the member. Publishing the rebuilt `list` makes the same
 promote succeed, and `test-qa` comes back to its baseline.
 
 Five `falsify` mutations cover the new rule, and writing them found two faults
@@ -686,11 +700,11 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `scripts/members.ts` | The removal prober: what a surface provides, and which member each consumer uses |
 | `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__` and `__APPS__`, declared once |
 | `src/server/blocks.provides.json` | What this server writes, derived and committed. The image cannot work it out |
-| `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store. **Refuses to run while there is no sub-app** |
+| `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
 | `scripts/promote.ts` | Read the composition, merge what was named, test the member gate, write |
-| `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page. **Refuses to run while there is one unit**: independence needs a second |
+| `scripts/e2e-independent-deploy.ts` | The three behaviours, end to end, read off the rendered page. Refuses to run with one unit: independence needs a second |
 | `scripts/e2e-service-schema.ts` | Retires a field and writes another with nothing rebuilt, and reads what the page then paints |
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
 | `features/support/bdd.ts` | The bindings, and the one file that names the runner |
@@ -716,19 +730,20 @@ step definitions, with nothing tying the copies together.
 `src/web/shell/views.ts` decides which of them appear, on which route, in what
 order. **The manifest names bundles and chooses nothing.** Two consequences
 follow and both are accepted as the price of that answer: a layout change is a
-shell publish and a promote, so `hello` cannot be moved from one route to
+shell publish and a promote, so `list` cannot be moved from one route to
 another by pointing a channel somewhere else; and rolling the shell back rolls
 the layout back with it, because they are one unit.
 
 A view that names no app is a legitimate view: the frame draws it, nothing is
 fetched for it, and it is how a route exists before a unit has been built for
-it. On this slate every view is one of those, which is what `PLAN.md` step 0 is
-for — `serving-the-shell.feature` holds the claim, and it holds it in two
-places, because the two halves fail differently. The served page names no bundle
-beyond the frame's own and warms nothing, which is read off the HTML; and a
-browser walking the whole sidenav issues no request at all, which is read off
-the network. A link that navigated instead of routing would satisfy the first
-and break the second.
+it. Four of the five views are one of those — `PLAN.md` step 1 placed `list` on
+`/`, and `/board`, `/week`, `/service` and `/backup` place nothing.
+`serving-the-shell.feature` holds the claim in two places, because the two
+halves fail differently. The served page names exactly the units its views place
+and warms exactly those, which is read off the HTML; and a browser walking from
+`/` to those four issues no request at all, which is read off the network. A
+link that navigated instead of routing would satisfy the first and break the
+second.
 
 `views.ts` is imported by the shell, by `build.ts` and by the step definitions,
 so it holds no CSS, no JSX and nothing only a browser provides. `build.ts`
@@ -736,7 +751,7 @@ refuses a build where the two disagree:
 
 ```
 the shell's views and the units this build emits do not agree:
-  hello is built and published, and no view places it, so nothing ever fetches it
+  list is built and published, and no view places it, so nothing ever fetches it
 ```
 
 Both directions, and only one of them ever reported itself. An app a view places
@@ -760,12 +775,12 @@ caught even though a route that swapped its unit is not.
 
 ## Warming a sub-app's files before its view is opened
 
-Nothing is warmed on this slate, because there is no sub-app to warm and no view
-that places one. That is asserted rather than assumed: the served page is
-checked to carry no `modulepreload` and no `preload` at all, and `falsify` warms
-a file no view placed to prove the check has teeth. What follows is the
-mechanism, which returns with `PLAN.md` step 4 — the first step to put a unit on
-a route a visitor does not land on.
+One unit is warmed on this slate, and it is the unit on the view a visitor lands
+on — so the warming buys nothing measurable yet. That is asserted rather than
+assumed: the served page is checked to warm `list` and nothing else, and
+`falsify` warms a file no view placed to prove the check has teeth. The BENEFIT
+gets a subject at `PLAN.md` step 4, the first step to put a unit on a route a
+visitor does not land on; TODO §31 carries that until then.
 
 A sub-app's bundle is fetched when its view first appears, so a navigation used
 to wait on a network fetch that could have happened while the visitor was
@@ -874,7 +889,7 @@ An operator can run an older unit on a channel without promoting it, and see
 what a rollback would serve before anybody else does.
 
 ```
-https://qa.example.com/?hello=36226fb9
+https://qa.example.com/?list=36226fb9
 ```
 
 One parameter per unit, named by the unit and carrying the id. A unit the query
@@ -976,11 +991,11 @@ not make any id already in a channel's history unreachable: the shell goes on
 compiling against the retained contract, each published unit keeps the set it
 was built with, and the intersection stays non-empty.
 
-| Change to `api.ts` | shell x the old contract | `hello` x the old contract | Promote |
+| Change to `api.ts` | shell x the old contract | `list` x the old contract | Promote |
 | --- | --- | --- | --- |
 | baseline | pass | pass | allowed |
 | one export ADDED | pass | pass | allowed |
-| one export REMOVED | fail | pass | allowed since 2026-08-29, if `hello` never called it |
+| one export REMOVED | fail | pass | allowed since 2026-08-29, if `list` never called it |
 
 That last row used to read *refused, correctly*, and it was neither. See
 **Compatible, not identical**.
@@ -1020,7 +1035,7 @@ because the query string looks like one. A flag picks a branch for a visitor who
 did not choose it; this picks a bundle for a visitor who typed the URL. There is
 no cohort and no percentage, and adding one would put product state in the thing
 that serves the pointer. This repository already has a flag channel and it is
-the **service**: what a panel draws comes out of `GET /v1/greeting`, which an
+the **service**: what it holds comes out of `GET /v1/greeting`, which an
 operator changes with no unit rebuilt and no image deployed. The other kind of
 flag - the one that exists only because a release is all-or-nothing - is what
 the per-unit deploy replaces.
@@ -1095,14 +1110,15 @@ bun run units --json          # the catalogue itself, for a script
 ```
 
 ```
-shell    c2601912  2026-09-10  83318092  12 members provided
+shell    c2601912  2026-09-11  83318092  31 members provided
+list     eecdb7c6  2026-09-11  83318092  10 members used
 hello    3bba892b  2026-09-10  83318092  10 members used
 ```
 
 `hello` is still in that listing and is meant to be: the catalogue is every unit
 that has been PUBLISHED, and a unit this tree no longer builds is still one an
 operator can name in a promote. It is `scripts/contract.ts` that decides what
-`bun run units <name>` will accept, and it accepts `shell` alone.
+`bun run units <name>` will accept, and it accepts `shell` and `list`.
 
 **It is derived, and rebuilt rather than appended to.** `publish` reads the store's own LIST and writes the file from scratch, so a write lost to a crash or to two publishers at once heals on the next publish. An appended file would carry that loss forever, and a file that can silently disagree with the store is what this exists to replace. Nothing here is the only record of anything: every entry restates what one `unit.json` already says.
 
@@ -1121,10 +1137,10 @@ operator can name in a promote. It is `scripts/contract.ts` that decides what
 `bun run promote` writes `deploys/<composedAt>-<channel>/` when it writes a real channel, and prints the line that fills in the pictures.
 
 ```sh
-bun run promote qa --app hello=3bba892b
+bun run promote qa --app list=eecdb7c6
 #  qa (eu, us) at contract 9d1b0a3:
 #    shell c2601912  unchanged
-#    hello 3bba892b  <- 36226fb9
+#    list  eecdb7c6  <- 36226fb9
 #
 #  deploys/2026-09-10T16-33-38Z-qa
 #    bun run shoot --out deploys/2026-09-10T16-33-38Z-qa
@@ -1139,7 +1155,7 @@ bun run promote qa --app hello=3bba892b
 
 **And they outlive the files they name.** `retentionPlan` deletes a superseded unit 90 days after both floors pass, and `sweep-superseded.ts` builds what is still pointed at from the channel pointers alone - nothing reads `deploys/`. So a manifest kept in git eventually names `assetBase` URLs that 404, and the pictures are then the only artefact left. That is the durability argument running the other way, and it is not closed here: either the sweep learns to read the archive, or the archive is a record of what the composition WAS and not a way to serve it again. §34 carries the decision.
 
-**Which units were CARRIED is what no later reading can recover.** A pointer holds the whole composition however few units the operator named, so `promote qa --app hello=<id>` and `promote qa --from-build` write the same bytes when they happen to agree - and that merge is the feature this repository is about. `promote.json` is the only place the two are distinguishable.
+**Which units were CARRIED is what no later reading can recover.** A pointer holds the whole composition however few units the operator named, so `promote qa --app list=<id>` and `promote qa --from-build` write the same bytes when they happen to agree - and that merge is the feature this repository is about. `promote.json` is the only place the two are distinguishable.
 
 **Real channels only: `qa` and `prod`.** The live suite owns `test-qa` and `test-prod` and promotes to them several times per run, so recording those would fill the archive with compositions no visitor was ever served - each one indistinguishable, in a directory listing, from a deploy.
 
@@ -1160,7 +1176,7 @@ bun run promote qa --app hello=3bba892b
 ```sh
 bun run shoot                                      # qa, every view, a new record
 bun run shoot --note "step 4: board, preloaded off the landing route"
-bun run shoot --override hello=<id>                # a build nobody promoted
+bun run shoot --override list=<id>                 # a build nobody promoted
 ```
 
 | File | What it holds |
@@ -1443,28 +1459,39 @@ a member added there this afternoon has to reach a shell published last month.
 
 The frame draws `/service` from the reading: the state, the version it calls,
 the versions the service answers, every field with its type, what is going away
-and why, and the `Sunset` a data response carried. The sub-app draws its own
-half — the field it reads, the day that field goes, and what to move to — beside
-the greeting it paints.
+and why, and the `Sunset` a data response carried. A sub-app draws its own half —
+the field its own data comes from, the day that field goes, and what to move to.
 
 | Unit | What it shows | Members it records in `uses` |
 | --- | --- | --- |
 | shell | The document itself, on `/service` | reads `ShellStore.service`, and records nothing: the frame is not a sub-app |
-| `hello` | The field it reads, the day it goes, and what to move to | `ShellStore.goingAway`, `FieldSunset.sunset`, `FieldSunset.instead` |
+| `list` | The field its tasks come from, the day it goes, and what to move to | `ShellStore.goingAway`, `FieldSunset.sunset`, `FieldSunset.instead` |
 
-The member gate reads the difference. `hello` records no use of
+The member gate reads the difference. `list` records no use of
 `ShellStore.service`, so a change to the report's own shape cannot refuse it;
 and it records two of the four members of a sunset, so a service retiring
 `reason` costs it nothing.
 
+**`list` asks about `snapshot.tasks`, which the service does not answer yet.**
+The call is `store.goingAway("snapshot.tasks")` and it returns null on this
+slate, so nothing is drawn for it — the service holds a greeting until `PLAN.md`
+step 6 puts snapshots in it, and step 13 is where that field is retired with
+notice. What holds the call meanwhile is `bun run e2e:members`, which drops the
+member and reads the refusal naming `list`. That is stated here rather than left
+as plumbing a reader would have to infer.
+
 **Proved end to end by `bun run e2e:schema`**, in a real Chrome, against the real
 store and the real bundles. It builds and publishes both units, promotes them to
-`test-qa`, reads both views, then retires `greeting.audience` on the service
-alone — no build, no publish, no promote — and reads both views again. Two of
-its checks are the whole claim: the page changed, and **not one unit id moved
-between the two readings**. It finishes by taking the service away entirely,
-because a page that cannot reach it must be a different page and never a blank
-one.
+`test-qa`, reads `/service`, then retires `greeting.audience` on the service
+alone — no build, no publish, no promote — and reads it again. Two of its checks
+are the whole claim: the page changed, and **not one unit id moved between the
+two readings**. It finishes by taking the service away entirely, because a page
+that cannot reach it must be a different page and never a blank one.
+
+Its PANEL readings are skipped, and the run says so per reading rather than
+dropping them. No panel on this slate draws a field of the service: `list` draws
+the planner's tasks, which live in this browser and which the service holds none
+of. They get a subject at step 6.
 
 The service is a LOCAL process in that run, and that is the one thing it does not
 prove. Changing `API_DEPRECATED` twice in a run against the deployed service
@@ -1488,33 +1515,41 @@ worth having.
 Beside them, outside any version prefix: `GET /versions`, the discovery
 document, and `GET /healthz`, which depends on nothing.
 
+**No unit draws it.** The greeting was the panel's on the slate before
+`PLAN.md` step 0, and it has been read-and-drawn-by-nothing since. The shell
+still makes ONE data call at `/v1/greeting`, because the response is what says
+whether the version this shell CALLS answers - `/versions` sits outside any
+version prefix and cannot - and because only a data response carries the `Sunset`
+header `/service` draws. `readData` in `src/web/shell/service.ts` says so at the
+call. Step 6 is where the resource goes and snapshots take its place.
+
 ### Ownership comes out at the field, and nobody declared it
 
 `readMembers` cuts one declaration out of the surface and recompiles each unit
 against the rest. `FieldSunset` is a type with four named members, so it cuts
 `FieldSunset.reason` on its own — and the answer is the real output of
-`bun run contract:members`, taken while `hello` existed:
+`bun run contract:members`, taken on 2026-09-11:
 
 ```
-member                      hello
+member                      list
 FieldSunset.instead         uses
 FieldSunset.reason
 FieldSunset.since
 FieldSunset.sunset          uses
-Greeting.audience           uses
-Greeting.text               uses
 ServiceReport.base
 ServiceReport.calling
 ServiceReport.error
+ShellStore.addTask          uses
 ShellStore.goingAway        uses
-ShellStore.greeting         uses
+ShellStore.removeTask       uses
 ShellStore.service
-ShellStore.setGreeting      uses
 ShellStore.setService
+ShellStore.setTags          uses
+ShellStore.tasks            uses
 ```
 
 Nothing there is written down anywhere. It is measured, on the bytes being
-published, and it is what `promote` refuses on. Remove `Greeting.audience` from
+published, and it is what `promote` refuses on. Remove `ShellStore.setTags` from
 the surface and exactly one unit stops compiling. `ShellStore.service` is read
 by the frame alone, so no sub-app records it — a member `provides` holds and no
 `uses` names, which is a category §9 already had.
@@ -1527,26 +1562,28 @@ One `POST`, no build, no publish, no promote:
 curl -sX POST $API/v1/greeting -d '{"text":"Hei","audience":"Oslo"}'
 ```
 
-| The page, on the next load | Because |
+| What moves | Because |
 | --- | --- |
-| the panel reads `Hei, Oslo` | `greeting.text` and `greeting.audience` |
-| nothing else on the page moves | Each write lands where it is read and nowhere else |
+| the next `GET /v1/greeting` reads `Hei, Oslo` | `greeting.text` and `greeting.audience` |
+| nothing on the page moves | No unit draws the greeting on this slate |
 
 A write naming one field leaves the other where it was, which is the same merge
-rule `promote` follows one layer up.
+rule `promote` follows one layer up. That a page CHANGES for such a write is the
+claim step 6 restores, when the service holds the snapshots the planner pushes;
+`bun run e2e:schema` skips those readings and says so per reading rather than
+counting them.
 
 ### Three rules the boundary keeps
 
 | | |
 | --- | --- |
 | **Strict about what the page cannot draw without, tolerant about the rest** | `greeting.text` is required. `audience` was added later, so absent means an OLDER deploy and not a fault — while an `audience` that IS present and wrong is still refused, by field |
-| **A route that does not answer costs that route** | The reads are separate: a service that does not answer `/v1/greeting` yet costs the page the greeting and not the discovery document. Losing a working resource because another is not deployed would make every addition to the service a breaking change for every shell already published |
-| **Every default is a value a panel can draw** | `{ text: "Hello", audience: "world" }`. A service that never answers costs a DIFFERENT page, never a blank one |
+| **A route that does not answer costs that route** | The reads are separate: a service that does not answer `/v1/greeting` yet costs the page that reading and not the discovery document. Losing a working resource because another is not deployed would make every addition to the service a breaking change for every shell already published |
+| **A service that is not there costs a reading and never the page** | The planner is in this browser. A service that never answers leaves `/service` saying `failed` with the reason, and the tasks exactly where they were |
 
 A value the service cannot act on is refused rather than accepted: a `text` of
-`""` leaves the page with no greeting at all, which looks broken rather than
-empty. An `audience` of `""` is accepted, because a greeting addressed to nobody
-in particular is a thing a page can draw.
+`""` is a greeting no page could draw. An `audience` of `""` is accepted,
+because a greeting addressed to nobody in particular is a thing a page can draw.
 
 ## A second region
 
@@ -1565,7 +1602,7 @@ which is exactly why nothing else would catch it. `--region us` writes one
 region on purpose, and that is the only way to make the regions differ.
 
 **Two regions that already differ stop a promote.** The merge that makes "deploy
-`hello`, leave the shell where it was" possible reads ONE region, so writing both
+`list`, leave the shell where it was" possible reads ONE region, so writing both
 would replace the other with a composition nobody chose for it. The refusal
 names the units that differ and the flag that resolves it. A region with no
 pointer at all is not a difference - it is what a first promote is for, and
@@ -1760,7 +1797,7 @@ and it is the only one that can. The unit tests construct compositions by hand.
 The `@live` scenarios read unit ids out of the served HTML, which is the
 manifest talking about itself. `e2e` drives the documented commands and then
 reads the **rendered DOM** — the marker each unit painted — because that is
-the only place "`hello` moved and the shell did not" is a fact about the
+the only place "`list` moved and the shell did not" is a fact about the
 application rather than a fact about a JSON file. It writes only `test-*`
 channels.
 
@@ -1806,10 +1843,12 @@ two that look the same.** Without `@test-channel` it loads the live address and
 reads what is DEPLOYED, which is a check on the deploy and cannot be falsified
 by an edit here. With `@test-channel` its Background builds and promotes from
 this tree, so the browser loads the bundles this edit produced.
-`shared-state.feature` carries the same scenario under both, as two Rules,
-because each answers a question the other cannot. Measured, not argued: making
-`greeting()` read `peek()` — the store still holds the value and subscribes
-nobody — reddens the @test-channel copy and leaves the deployed one green.
+`shared-state.feature` carried the same scenario under both, as two Rules,
+because each answers a question the other cannot; it is gone with the greeting,
+and `keeping-a-list-of-tasks.feature` makes the claim about the tasks instead,
+under `@test-channel`. Measured, not argued: making the store's accessor read
+`peek()` — the store still holds the value and subscribes nobody — reddens a
+@test-channel scenario and leaves a deployed one green.
 
 Two kinds of mutation testing, and they cover different things. **Stryker**
 mutates operators and literals in the pure logic. It found a real gap: every entry in `FLY_TO_REGION`
@@ -1959,13 +1998,12 @@ refuses any live target not prefixed `test-`, and the run records what `qa` and
 The second repairs nothing on purpose: a restore hook that fails leaves the
 channel wrong and reports success.
 
-Three of the twelve `@browser` scenarios load `pointer-deploy.fly.dev`, so they
-read the real `qa` channel — no browser can be made to send a `Host` header.
-One of them writes the greeting and puts it back; the rest write nothing.
-Promote a build to `qa` before running them, or they check whatever was last
-deployed.
+A `@browser` scenario without `@test-channel` loads `pointer-deploy.fly.dev`, so
+it reads the real `qa` channel — no browser can be made to send a `Host` header.
+None of them writes anything now that no panel writes to the service. Promote a
+build to `qa` before running them, or they check whatever was last deployed.
 
-The fifteen `@test-channel` scenarios do write, because what they are about is a
+The `@test-channel` scenarios do write, because what they are about is a
 channel pointing somewhere no promote would put it. They take the same way out
 `e2e` does — `bun src/server/index.ts` locally against the real store, reached
 at `test-qa.localhost` — write `test-qa`, and put the exact bytes back
@@ -2107,7 +2145,7 @@ neither is sufficient alone.
 records it in `dist/build.json`; `publish.ts` writes it into the unit's
 `unit.json`; `promote.ts` copies it into the composition. So the digests travel
 with the **unit**, not with the composition — a channel rolled back to an older
-`hello` gets that `hello`'s digests, and the check keeps working across a
+`list` gets that `list`'s digests, and the check keeps working across a
 rollback.
 
 `BuildArtifact.hash` is **not** this, despite what an earlier version of this
@@ -2194,7 +2232,7 @@ Do not rediscover these.
 | Bun's `S3Client` cannot set `Cache-Control` | `scripts/store.ts` signs SigV4 directly. The manifest's 5 s cache is what sets the propagation window |
 | A build id keyed on the commit alone | Two builds from one commit collide and one silently overwrites the other |
 | A *unit* id with the commit in it | One commit touching one sub-app changes every id and republishes every unit, so independence survives only in the pointer. A unit id is the content hash alone |
-| A promote that writes what it was given | It replaces every unit, so "deploy `hello`" silently rolls the shell back to whatever was last on disk. `promote` reads, merges, then writes |
+| A promote that writes what it was given | It replaces every unit, so "deploy `list`" silently rolls the shell back to whatever was last on disk. `promote` reads, merges, then writes |
 | One `assetBase` for the whole page | Every unit id in the manifest is right and every sub-app 404s, because they are fetched from the shell's directory. One base per unit |
 | A hand-bumped contract version | Somebody has to remember, and an edit to a published contract breaks every unit that claimed it, silently. The identity is the hash of the surface |
 | Folding vendor versions into the contract hash | Every Preact patch bump invalidates every app and forces a republish of each. Versions are recorded and warned about, not enforced |
