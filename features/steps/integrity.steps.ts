@@ -1,17 +1,6 @@
-import { Given, Then, When } from "../support/bdd.ts";
+import { Then } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
-import { PointerWorld, PROPAGATION_WINDOW_MS } from "../support/world.ts";
-import { configFromEnv, getObjectText } from "../../scripts/store.ts";
-
-const WRONG = `sha384-${btoa("not the bytes that were published".padEnd(48, "!")).slice(0, 64)}`;
-
-type Composed = {
-  js: string;
-  css: string | null;
-  assetBase: string;
-  integrity?: Record<string, string>;
-};
-type Pointer = { shell: Composed; apps: Record<string, Composed> };
+import { PointerWorld } from "../support/world.ts";
 
 const directive = (header: string, name: string): string =>
   header
@@ -69,88 +58,48 @@ Then(
   },
 );
 
-Then("every sub-app the shell can import carries one too", function (this: PointerWorld) {
+/**
+ * The digests on everything BEHIND the entry tag.
+ *
+ * A digest on `<script src>` covers that one file. The shared chunks the entry
+ * imports resolve through the import map, and the map's own `integrity` block
+ * is the only place their digests can be declared - so a map that carries none
+ * leaves every chunk on the page unchecked while the page still renders.
+ *
+ * This used to read the sub-app list as well. `PLAN.md` step 0 builds none, and
+ * the import-map half is the half that survives a slate with one unit on it.
+ */
+Then("every module the import map names carries one too", function (this: PointerWorld) {
   const map = importMapIn(this.lastBody);
-  const apps = JSON.parse(/id="__APPS__">(.*?)<\/script>/s.exec(this.lastBody)![1]!) as Record<
-    string,
-    { js: string; css?: string; cssIntegrity?: string }
-  >;
+  const named = Object.values(map.imports);
+  expect(named.length).toBeGreaterThan(0);
 
-  expect(Object.keys(apps).length).toBeGreaterThan(0);
-  const digested: string[] = [];
-  for (const a of Object.values(apps)) {
-    digested.push(map.integrity?.[a.js] ?? "none");
-    if (a.css) digested.push(a.cssIntegrity ?? "none");
-  }
-  for (const url of Object.values(map.imports)) digested.push(map.integrity?.[url] ?? "none");
-
-  expect(digested.filter((d) => !d.startsWith("sha384-"))).toEqual([]);
-});
-
-Given(
-  "the digest recorded for the {word} of {string} is wrong",
-  async function (this: PointerWorld, kind: string, app: string) {
-    const cfg = configFromEnv();
-    const key = this.pointerKey("qa");
-    const text = await getObjectText(cfg, key);
-    if (text === null) throw new Error(`${key} does not exist`);
-
-    const doc = JSON.parse(text) as Pointer;
-    const unit = doc.apps[app];
-    if (!unit) throw new Error(`the ${key} composition names no ${app}`);
-
-    const file = kind === "script" ? unit.js : unit.css;
-    if (!file) throw new Error(`${app} publishes no ${kind}`);
-    if (!unit.integrity?.[file]) {
-      throw new Error(
-        `${app} ${file} carries no digest in ${key}, so replacing one proves nothing. ` +
-          `Publish and promote a current build first.`,
-      );
-    }
-    unit.integrity[file] = WRONG;
-
-    await this.pointChannelAtDocument("qa", doc);
-    await this.awaitShellContaining("qa", WRONG, PROPAGATION_WINDOW_MS + 15_000);
-  },
-);
-
-When("a visitor navigates to the hello view", async function (this: PointerWorld) {
-  await this.browserPage.goto(`${this.originFor("qa")}/`);
-  await this.browserPage.waitForSelector("[data-app] section, [data-app-error]", {
-    timeout: 20_000,
-  });
-});
-
-Then("the {string} panel is on the page", async function (this: PointerWorld, app: string) {
-  await this.browserPage.waitForSelector(`[data-app="${app}"] section`, { timeout: 20_000 });
+  const digested = named.map((url) => `${url} ${map.integrity?.[url] ?? "none"}`);
+  expect(digested.filter((d) => !/ sha384-/.test(d))).toEqual([]);
 });
 
 Then(
-  "the {string} panel is refused rather than rendered",
-  async function (this: PointerWorld, app: string) {
+  "the frame is styled by the stylesheet its own unit published",
+  async function (this: PointerWorld) {
     const page = this.browserPage;
-    await page.waitForSelector(`[data-app-error="${app}"]`, { timeout: 20_000 });
-    expect(await page.$$eval(`[data-app="${app}"]`, (n) => n.length)).toBe(0);
+
+    // From theme.css, which the shell's entry imports and its stylesheet
+    // carries. Empty means the stylesheet never applied.
+    const accent = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
+    );
+    expect(accent).not.toBe("");
+
+    // And from Shell.module.css, so the reading is of the frame's own rules
+    // rather than of a variable anything could have set. A refused stylesheet
+    // leaves the sidenav statically positioned and the width unset.
+    const nav = await page.$eval("nav", (n) => {
+      const s = getComputedStyle(n);
+      return { position: s.position, borderRight: s.borderRightWidth };
+    });
+    expect(nav).toEqual({ position: "fixed", borderRight: "1px" });
   },
 );
-
-Then("every panel on the page is styled by its own stylesheet", async function (this: PointerWorld) {
-  const page = this.browserPage;
-
-  const accent = await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
-  );
-  expect(accent).not.toBe("");
-
-  const borders = await page.$$eval("[data-app] section", (nodes) =>
-    nodes.map((n) => getComputedStyle(n).borderTopWidth),
-  );
-  // Every panel the view placed, and the count is the view's rather than this
-  // step's: the claim is that each panel got its own stylesheet, not that there
-  // are several of them.
-  expect(borders.length).toBeGreaterThan(0);
-  expect(borders).toEqual(borders.map(() => "3px"));
-});
 
 Then("the browser refused nothing the page asked for", async function (this: PointerWorld) {
   expect(await this.policyRefusals()).toEqual([]);

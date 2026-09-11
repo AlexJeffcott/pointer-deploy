@@ -140,8 +140,8 @@ Database `pointer-planner`, owned by the shell.
 
 | Version | Object stores |
 | --- | --- |
-| 1 | `tasks`, keyPath `id`. `meta`, keyPath `key` — holds `schemaVersion` and `writtenAt` |
-| 2 | adds index `by-due` on `tasks`; every task gains `tags` |
+| 1 |  | `tasks`, keyPath `id`. `meta`, keyPath `key` — holds `schemaVersion` and `writtenAt` |
+| 2 |  | adds index `by-due` on `tasks`; every task gains `tags` |
 
 ### Opening it
 
@@ -191,25 +191,45 @@ Neither import nor pull merges. A merge needs conflict rules, and manual sync be
 
 Each step is one publish and one promote. Each names the one thing it demonstrates.
 
-| Step | Ships | Demonstrates | Feature file |
-| --- | --- | --- | --- |
-| 0 | The frame: five routes, three empty, `hello` removed | A view naming no unit is legitimate, and nothing is fetched for it | rewrite `serving-the-shell` |
-| 1 | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
-| 2 | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
-| 3 | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
-| 4 | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
-| 5 | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
-| 6 | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
-| 7 | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
-| 8 | Slot history and restore | Data rollback, by the same mechanism as the pointer | `restoring-an-older-snapshot` |
-| 9 | Additive contract change: `setTags` | Nothing republishes. `contract:matrix` stays green | `contract:matrix`, not a scenario |
-| 10 | Breaking change: drop `moveTask` | `promote` refuses `board` and names it. `list` and `week` are untouched | restores `bun run e2e:members` |
-| 11 | A new `board` alone | The unit of release is a panel | `deploying-a-unit` |
-| 12 | `promote --app board=<older id>` | The code rollback is the deploy command. Put beside step 8 | `deploying-a-unit` |
-| 13 | Service deprecation: `snapshot.tasks` → `snapshot.document` | A field retires with notice. No unit rebuilt, no id moved | rewrite `reading-what-the-service-holds` |
-| 14 | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
-| 15 | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
-| 16 | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+| Step | Done | Ships | Demonstrates | Feature file |
+| --- | --- | --- | --- | --- |
+| 0 | 2026-09-10 | The frame: five routes, three empty, `hello` removed | A view naming no unit is legitimate, and nothing is fetched for it | rewrite `serving-the-shell` |
+| 1 |  | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
+| 2 |  | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
+| 3 |  | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
+| 4 |  | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
+| 5 |  | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
+| 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
+| 7 |  | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
+| 8 |  | Slot history and restore | Data rollback, by the same mechanism as the pointer | `restoring-an-older-snapshot` |
+| 9 |  | Additive contract change: `setTags` | Nothing republishes. `contract:matrix` stays green | `contract:matrix`, not a scenario |
+| 10 |  | Breaking change: drop `moveTask` | `promote` refuses `board` and names it. `list` and `week` are untouched | restores `bun run e2e:members` |
+| 11 |  | A new `board` alone | The unit of release is a panel | `deploying-a-unit` |
+| 12 |  | `promote --app board=<older id>` | The code rollback is the deploy command. Put beside step 8 | `deploying-a-unit` |
+| 13 |  | Service deprecation: `snapshot.tasks` → `snapshot.document` | A field retires with notice. No unit rebuilt, no id moved | rewrite `reading-what-the-service-holds` |
+| 14 |  | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
+| 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
+| 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+
+### What step 0 settled, and what it cost
+
+**Five routes, and which three are "empty".** The units table above names five: `/`, `/board`, `/week`, `/service`, `/backup`. It also says two of them name no unit — `/service` and `/backup` — which is the finished application. At step 0 none of the five names a unit, because the tree builds none, so "three empty" is read as the three that are **waiting for one**: `/` at step 1, `/board` at step 4, `/week` at step 5. The frame draws all five and says on each of the three which it is. That is the reading that makes step 1 the smallest next step: build `list`, place it on `/`, and move nothing else.
+
+**That reading is prose and nothing checks it.** `views.test.ts` asserts five routes and zero placed apps, which is true under either reading, so a check that appeared to settle it settles only the count. The other reading — `/backup` is also waiting, for the shell code that draws it at step 3, so four of five are waiting for something — is not refuted here. It is named so that step 1 does not inherit a settled-looking assumption.
+
+**No contract was minted.** Step 0 changes no declaration in `src/web/shell/api.ts` or `src/web/shell/subapp.ts`, so the surface at HEAD still hashes to `9d1b0a3`. That is checked rather than asserted: `build.ts` refuses a build whose HEAD surface the registry does not hold.
+
+**A composition naming no sub-app is now legitimate.** `src/server/manifest.ts` used to refuse one at schema 3, which made the whole application a 503. Schema 2 still refuses one, and the file says why the two differ. `src/server/html.test.ts` now renders a schema-3 manifest with no app — the page every visitor gets from here on, and the one shape `bun test` did not touch: it was covered only through schema 1, which returns `{}` from a different branch.
+
+**What lost its subject.** Going to zero units cost eight checks their subject, on top of the four the previous slate cost. TODO §31 lists every one of them, where it was, and which step brings it back. `bun run e2e` and `bun run e2e:members` exit non-zero rather than passing: a green check that measured nothing is the failure mode `~/projects/CLAUDE.md` exists to name.
+
+**It is not one publish and one promote, and that is the finding.** Every other step in this table is. This one changes what a MANIFEST may say, which is the surface between the pointer and the running image, and that surface has no gate and no version. The first promote wrote a pointer with `apps: {}`, the deployed image threw `manifest names no apps` on it, `ams` kept serving what it had, and `iad` answered 503 to every request for `us` until the pointer was put back. TODO §36 carries it, with the readings.
+
+**`iad` did not fail because it was suspended. It failed because it had nothing cached.** `prime` puts `checkedAt` back when a read yields nothing, so a cold entry's first `get` awaits, gets null, and the origin answers 503. `ams` survived by holding a value, not by being in `eu` — and any restart of it would have taken `eu` down the same way. `qa` was one machine restart from 503 in both regions. `src/server/manifest.test.ts` holds that state now; the suite had both halves of it and never the product.
+
+**And the way back was not a command.** `--app hello=<id>` exited 1, because `--app` checked its name against what this tree builds. The recovery was an edit to `scripts/contract.ts` and a promote from a dirty tree, which `deploys/2026-09-10T21-15-37Z-qa/promote.json` records. That is fixed: a promote composes from the channel's own apps as well as this tree's units, so a unit the tree stopped building is carried and can be named, and `--drop <app>` is the only way one leaves. Verified live on 2026-09-10 — `--app hello=3bba892b` from a tree that builds no sub-app, twice, with a record for each.
+
+**So step 0 is deployed as far as the running image allows.** `qa` serves the frame with five views, and the composition still names a `hello` unit that no view places: the page warms two files it never imports. Finishing it is a `fly deploy` of the server, and then `bun run promote qa --from-build`. Until that happens the `@live` scenario `The page names no bundle beyond the frame's own` passes against `test-qa` and would fail against the real `qa`, and `bun run verify:live` cannot pass at all: the suite promotes to `test-qa` from this tree, so it writes the pointer the image refuses.
 
 Steps 1 and 2 are deliberately separate. A planner that forgets everything on reload is not a product, and shipping it first makes persistence a visible increment rather than an assumption nobody watched arrive.
 

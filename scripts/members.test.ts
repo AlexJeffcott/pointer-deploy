@@ -62,33 +62,33 @@ describe("readMembers, against the surface this repository ships", () => {
     async () => {
       const reading = await readMembers(await emitSurface(), [...APPS]);
 
-      // The claim the whole gate rests on: members of ShellStore that no
-      // sub-app calls, so removing any of them costs a sub-app nothing.
-      for (const member of ["ShellStore.service", "ShellStore.setService"]) {
-        expect(APPS.filter((a) => member in (reading.uses[a] ?? {}))).toEqual([]);
+      // On this slate there is no app to measure. `PLAN.md` step 0 is the frame
+      // alone, so `uses` is empty by construction and the half of §9 that says
+      // "a dropped member refuses exactly the apps that called it" has nothing
+      // to call it - TODO §31 carries that. What is still measured here is the
+      // other half, which `promote` gates on just as hard: what the shell
+      // PROVIDES, and which members cannot be asked about at all.
+      expect(APPS).toEqual([]);
+      expect(Object.values(reading.uses).flatMap((u) => Object.keys(u))).toEqual([]);
+
+      // Every member of the store the shell hands a sub-app, whether or not one
+      // exists to hand it to. A promote compares a published app's `uses`
+      // against this, so an empty reading here would admit any composition.
+      for (const member of [
+        "ShellStore.greeting",
+        "ShellStore.setGreeting",
+        "ShellStore.goingAway",
+        "ShellStore.service",
+        "ShellStore.setService",
+        "Greeting.text",
+        "Greeting.audience",
+        "FieldSunset.sunset",
+        "FieldSunset.instead",
+        "ServiceReport.serves",
+        "ServiceReport.readAt",
+        "ServiceReport.error",
+      ]) {
         expect(Object.keys(reading.provides)).toContain(member);
-      }
-
-      // And what the one app there is does call.
-      for (const member of ["ShellStore.greeting", "ShellStore.setGreeting", "ShellStore.goingAway"]) {
-        expect(Object.keys(reading.uses.hello!)).toContain(member);
-      }
-
-      // Ownership comes out at the FIELD and not at the type. The panel draws
-      // both halves of the greeting, and reads two of the four dates and names
-      // on a sunset - so a service retiring `reason` costs this panel nothing
-      // and `readMembers` says so.
-      const owner: Record<string, string[]> = {
-        "Greeting.text": ["hello"],
-        "Greeting.audience": ["hello"],
-        "FieldSunset.sunset": ["hello"],
-        "FieldSunset.instead": ["hello"],
-        "FieldSunset.since": [],
-        "FieldSunset.reason": [],
-      };
-      for (const [member, expected] of Object.entries(owner)) {
-        const actual = APPS.filter((a) => member in (reading.uses[a] ?? {}));
-        expect(`${member}: ${actual.join(",")}`).toBe(`${member}: ${expected.join(",")}`);
       }
 
       // Two members of this surface hold the SAME TEXT, so they hold the same
@@ -102,27 +102,10 @@ describe("readMembers, against the surface this repository ships", () => {
       // passing quietly.
       expect(reading.provides["ServiceField.path"]).toBe(reading.provides["ServiceRoute.path"]!);
 
-      // Read by the frame alone, so no sub-app records them. They are still
-      // provided, and a removal would still be refused by the compiler where
-      // the shell reads them - which is a different check, in a different file.
-      for (const member of ["ServiceReport.serves", "ServiceReport.readAt", "ServiceReport.error"]) {
-        expect(APPS.filter((a) => member in (reading.uses[a] ?? {}))).toEqual([]);
-        expect(Object.keys(reading.provides)).toContain(member);
-      }
-
       // A member nothing can be asked about, because cutting it stops the
       // surface being a surface. Reported, never counted as provided.
       expect(reading.structural).toContain("ShellStore");
       expect(Object.keys(reading.provides)).not.toContain("ShellStore");
-      expect(Object.keys(reading.provides)).toContain("ShellStore.greeting");
-
-      // Every member an app uses must be one the shell provides, or the gate
-      // would refuse the composition this repository builds.
-      for (const app of APPS) {
-        for (const path of Object.keys(reading.uses[app] ?? {})) {
-          expect(reading.provides[path]).toBe(reading.uses[app]![path]!);
-        }
-      }
     },
     SLOW,
   );

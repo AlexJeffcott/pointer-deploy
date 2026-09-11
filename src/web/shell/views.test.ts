@@ -12,8 +12,16 @@ describe("placement", () => {
     expect(placementProblems(APPS)).toEqual([]);
   });
 
-  it("lists each placed app once, in view order", () => {
-    expect(placedApps(VIEWS)).toEqual(["hello"]);
+  // Every view on this slate names no unit, which is what PLAN.md step 0 is.
+  // Asserted rather than assumed: a view that quietly gained a unit would make
+  // `placementProblems` refuse the build, and this says which of the two moved.
+  it("places nothing, because this slate builds nothing to place", () => {
+    expect(placedApps(VIEWS)).toEqual([]);
+    expect(Object.values(VIEWS).flatMap((v) => [...v.apps])).toEqual([]);
+  });
+
+  it("names five routes, and the frame draws every one of them", () => {
+    expect(Object.keys(VIEWS)).toEqual(["/", "/board", "/week", "/service", "/backup"]);
   });
 
   // A view the shell draws by itself places nothing, and that is not a fault.
@@ -38,10 +46,14 @@ describe("placement", () => {
     expect(problems[0]).toContain("placed on /, /next");
   });
 
+  // The direction the build-time check is blind to, stated so it stays stated.
+  // Both sets are identical either way, so only a scenario catches a route
+  // change - and the units are named here rather than taken from APPS, which is
+  // empty on this slate and would make the reading vacuous.
   it("cannot see an app moved from one route to another", () => {
     const here = views({ "/": ["hello"], "/next": [] });
     const there = views({ "/": [], "/next": ["hello"] });
-    expect(placementProblems(APPS, here)).toEqual([]);
-    expect(placementProblems(APPS, there)).toEqual([]);
+    expect(placementProblems(["hello"], here)).toEqual([]);
+    expect(placementProblems(["hello"], there)).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { expect, test, describe } from "bun:test";
 import {
   commandOf,
+  composedFrom,
   describeIds,
   filedUnderRefusal,
   fillBody,
@@ -25,6 +26,7 @@ import {
   unitMoves,
   type ShotEntry,
 } from "./record.ts";
+import { porcelainOf } from "./source.ts";
 import {
   carriedSummary,
   cell,
@@ -36,6 +38,7 @@ import {
   entryInstant,
   entryTitle,
   humanTime,
+  idsInPointer,
   movedSummary,
   noteHeadline,
   picturesCell,
@@ -346,6 +349,29 @@ describe("unitMoves", () => {
     });
   });
 
+  // The argument `unitMoves` has to be handed, and the one it was not. Reading
+  // a pointer through the units THIS TREE builds hides every unit it does not,
+  // which is how the first deploy that ever dropped one wrote a record saying
+  // nothing about it. TODO §31.
+  test("a pointer's ids are the pointer's, not the ones this tree builds", () => {
+    const pointer = {
+      shell: { unitId: "s1" },
+      apps: { hello: { unitId: "h1" }, gone: { unitId: "g1" } },
+    };
+    expect(idsInPointer(pointer)).toEqual({ shell: "s1", hello: "h1", gone: "g1" });
+    expect(idsInPointer({ shell: { unitId: "s1" }, apps: {} })).toEqual({ shell: "s1" });
+    expect(idsInPointer(null)).toBeNull();
+  });
+
+  test("a unit a pointer names and a composition does not reads as dropped", () => {
+    const before = idsInPointer({ shell: { unitId: "s1" }, apps: { hello: { unitId: "h1" } } });
+    const after = idsInPointer({ shell: { unitId: "s2" }, apps: {} })!;
+    expect(unitMoves(before, after)).toEqual({
+      shell: { unitId: "s2", from: "s1", state: "moved" },
+      hello: { unitId: null, from: "h1", state: "dropped" },
+    });
+  });
+
   test("a unit the channel has and the composition does not is dropped, not lost", () => {
     const moves = unitMoves({ shell: "s1", board: "b1" }, { shell: "s1" });
     expect(moves.board).toEqual({ unitId: null, from: "b1", state: "dropped" });
@@ -536,6 +562,27 @@ describe("servesWanted", () => {
 
   test("a stamp nobody asked for is not compared", () => {
     expect(servesWanted(block, { shell: "s1" }, null)).toBe(true);
+  });
+});
+
+describe("the porcelain a record reads its dirty paths from", () => {
+  // The bug this holds. `git status --porcelain` puts the path at column 3 and
+  // uses a SPACE as a status value, so " M a" means "modified, unstaged" - and
+  // trimming the whole reading eats that space on the first line only.
+  // `dirtyPaths` then slices one character into the path, and the archive says
+  // `cripts/contract.ts`.
+  test("keeps the leading status column and drops only the trailing newline", () => {
+    expect(porcelainOf(" M scripts/contract.ts\n?? deploys/x/\n")).toBe(
+      " M scripts/contract.ts\n?? deploys/x/",
+    );
+    expect(porcelainOf("")).toBe("");
+    expect(porcelainOf("\n")).toBe("");
+  });
+
+  test("and the path survives the round trip", () => {
+    expect(dirtyPaths(porcelainOf(" M scripts/contract.ts\n"))).toEqual([
+      "scripts/contract.ts",
+    ]);
   });
 });
 
@@ -1624,5 +1671,37 @@ describe("noteSentence", () => {
     const line = noteSentence(archived({ notes: `${NOTE_PLACEHOLDER}\n` }));
     expect(line).not.toContain("TODO:");
     expect(line).toContain("--note");
+  });
+});
+
+// The composition a promote writes is the channel's apps and the tree's units,
+// never one of them alone. Pure, because the reading is what broke and the
+// promote around it needs a store.
+describe("composedFrom", () => {
+  test("a unit the tree no longer builds is carried, not dropped", () => {
+    expect(composedFrom(["shell"], { hello: "h1" }, [])).toEqual(["shell", "hello"]);
+  });
+
+  test("a unit the tree builds and the channel has never served", () => {
+    expect(composedFrom(["shell", "list"], {}, [])).toEqual(["shell", "list"]);
+  });
+
+  // Removal is said, never inferred from what a build happens to emit. The
+  // inferred version wrote a pointer with no sub-app, which the running image
+  // refused, and a cold machine answered 503 for a whole region.
+  test("a dropped unit leaves, and only when it is named", () => {
+    expect(composedFrom(["shell"], { hello: "h1" }, ["hello"])).toEqual(["shell"]);
+  });
+
+  test("dropping something the channel does not serve changes nothing", () => {
+    expect(composedFrom(["shell"], { hello: "h1" }, ["nosuch"])).toEqual(["shell", "hello"]);
+  });
+
+  test("no duplicates when the tree and the channel agree", () => {
+    expect(composedFrom(["shell", "hello"], { hello: "h1" }, [])).toEqual(["shell", "hello"]);
+  });
+
+  test("the shell is never dropped, whatever is asked", () => {
+    expect(composedFrom(["shell"], {}, ["shell"])).toEqual(["shell"]);
   });
 });

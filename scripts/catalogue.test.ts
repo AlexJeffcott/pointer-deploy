@@ -110,13 +110,17 @@ describe("catalogueFrom", () => {
     expect(built.catalogue.units.hello).toHaveLength(1);
   });
 
+  // Units this tree knows first, in their own order, then whatever else the
+  // bucket holds in the order it was listed. On this slate the tree knows one,
+  // so `hello` and `fourth` are both units it has published and no longer
+  // builds - which is the case the catalogue exists for.
   test("puts the shell first, whatever order the store listed", () => {
     const built = catalogueFrom(reads([
       manifest({ unit: "fourth", id: "d1" }),
       manifest({ unit: "shell", id: "s1" }),
       manifest({ unit: "hello", id: "a1" }),
     ]));
-    expect(Object.keys(built.catalogue.units)).toEqual(["shell", "hello", "fourth"]);
+    expect(Object.keys(built.catalogue.units)).toEqual(["shell", "fourth", "hello"]);
   });
 
   test("is a history, so a channel-shaped reader parses it unchanged", () => {

@@ -43,5 +43,5 @@ Then("the page runs that build's {string} unit", function (this: PointerWorld, a
 
 Then("the {word} channel still points where it did", async function (this: PointerWorld, channel: string) {
   const served = await this.compositionOf(channel as Channel);
-  expect(`hello=${served.hello}`).not.toBe(`hello=${PUBLISHED}`);
+  expect(`shell=${served.shell}`).not.toBe(`shell=${PUBLISHED}`);
 });

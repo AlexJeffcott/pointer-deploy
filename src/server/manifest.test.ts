@@ -757,8 +757,17 @@ describe("parseManifest", () => {
     rejects(doc3, "shell.assetBase");
   });
 
-  test("rejects a composition naming no apps", () => {
-    expect(() => parseManifest({ ...composed("s1"), apps: {} })).toThrow("no apps");
+  // The shell owns placement and a view may place nothing, so a composition of
+  // the shell alone is the application rather than a broken write. Schema 2
+  // still refuses one, and manifest.ts says why the two differ.
+  test("accepts a composition naming no apps, and still refuses one with no shell", () => {
+    const alone = parseManifest({ ...composed("s1"), apps: {} });
+    expect(alone.schema).toBe(3);
+    expect(alone.schema === 3 ? alone.apps : null).toEqual({});
+    expect(alone.schema === 3 ? alone.shell.unitId : null).toBe("s1");
+
+    const { shell: _shell, ...noShell } = composed("s1") as Record<string, unknown>;
+    expect(() => parseManifest({ ...noShell, apps: {} })).toThrow("shell");
   });
 
   test("rejects a composition with no timestamp", () => {
@@ -870,5 +879,68 @@ describe("priming at boot", () => {
     await h.store.prime(URL_QA);
     await h.store.prime(URL_QA);
     expect(h.state.calls).toBe(1);
+  });
+});
+
+// THE STATE THAT TOOK A REGION DOWN ON 2026-09-10, and nothing here held it.
+//
+// `store-outage.feature` has both halves and never the product: one scenario
+// pairs a server that has read no manifest with a store that is UNREACHABLE,
+// and another pairs a document the server refuses with a server that is already
+// WARM. The state that answered 503 for a whole region was the third corner -
+// a cold cache, a store answering perfectly well, and a document THIS image
+// will not parse.
+//
+// A warm machine survives it: `get` returns the last good value and only
+// `x-manifest-refresh` says anything is wrong, which is `A running server keeps
+// serving the last build it read`. A cold one has nothing to fall back to, so
+// `get` resolves null and `src/server/index.ts` answers 503 to every request.
+//
+// So the region that went down did NOT go down because its machine was
+// suspended. It went down because it had nothing cached, and `ams` survived
+// only by not restarting during the window. Either machine restarting would
+// have taken its region with it, and `min_machines_running = 1` does not
+// change that.
+describe("a cold cache meeting a document this image refuses", () => {
+  // A valid schema-2 document in every respect except the one this image's
+  // parser refuses, so the test is about that guard and not about a typo.
+  const REFUSED = { ...doc("first"), apps: {} };
+
+  test("a cold read of a refused document yields null, which the server answers 503 on", async () => {
+    const h = harness();
+    h.state.respond = async () => Response.json(REFUSED);
+    expect(await h.store.get(URL_QA)).toBeNull();
+  });
+
+  test("the store was reachable, so this is not the outage case that was already covered", async () => {
+    const h = harness();
+    h.state.respond = async () => Response.json(REFUSED);
+    await h.store.get(URL_QA);
+    expect(h.state.calls).toBe(1);
+  });
+
+  // The warm half, beside it, because the difference between them IS the
+  // finding: the same pointer, two machines, one 200 and one 503.
+  test("a warm cache meeting the same document keeps serving what it had", async () => {
+    const h = harness();
+    const good = await h.store.get(URL_QA);
+    expect(good).not.toBeNull();
+
+    h.state.respond = async () => Response.json(REFUSED);
+    h.tick(20_000);
+    expect(await h.store.get(URL_QA)).toEqual(good!);
+  });
+
+  test("and it says so, rather than reporting a refresh that worked", async () => {
+    const warnings: string[] = [];
+    const store = createManifestStore({
+      ttlMs: 10_000,
+      timeoutMs: 1_000,
+      now: () => 1_000_000,
+      onWarn: (m) => warnings.push(m),
+      fetchImpl: (async () => Response.json(REFUSED)) as unknown as typeof fetch,
+    });
+    expect(await store.get(URL_QA)).toBeNull();
+    expect(warnings.join(" ")).toContain("apps");
   });
 });

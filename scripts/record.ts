@@ -262,8 +262,9 @@ export type UnitMove = {
  * deliberately re-deployed at the id it already had.
  *
  * A name on one side only is not an error here. `new` is a first promote, and
- * `dropped` is a unit that left the composition - which UNITS makes impossible
- * today and which a silent union would lose the day it stops being.
+ * `dropped` is a unit that left the composition. That was impossible while
+ * UNITS only ever grew; `PLAN.md` step 0 removed `hello`, so the first real
+ * `dropped` entry is in the archive and a silent union would have lost it.
  */
 export function unitMoves(
   before: Record<string, string> | null,
@@ -279,6 +280,34 @@ export function unitMoves(
     moves[name] = { unitId: now, from: was, state };
   }
   return moves;
+}
+
+/**
+ * Every unit id a pointer names, read off the pointer and not off `UNITS`.
+ *
+ * The distinction cost this repository a reading. `promote` used to build this
+ * by filtering the pointer's `apps` through `APPS` - the units THIS TREE builds
+ * - which is right until the two differ. `PLAN.md` step 0 made them differ:
+ * `hello` left the tree, the promote that removed it read a `before` with no
+ * `hello` in it, and the record for the first deploy that ever dropped a unit
+ * does not say a unit was dropped. `unitMoves` was ready for it and was handed
+ * the wrong argument.
+ *
+ * The same filter sat under the region drift check, where it is worse: two
+ * regions differing only in a unit this tree no longer builds read as agreeing,
+ * and the promote flattens one of them.
+ *
+ * So this reads what the pointer says. A pointer naming a unit nothing here
+ * builds is a fact about the channel, and every reader of it wants that fact.
+ */
+export function idsInPointer(
+  pointer: { shell: { unitId: string }; apps: Record<string, { unitId: string }> } | null,
+): Record<string, string> | null {
+  if (pointer === null) return null;
+  return {
+    shell: pointer.shell.unitId,
+    ...Object.fromEntries(Object.entries(pointer.apps).map(([name, u]) => [name, u.unitId])),
+  };
 }
 
 /** The ids a promote record names, for comparing against a pointer. */
@@ -547,6 +576,28 @@ export function unshotNote(dirs: readonly PendingDir[], channel: string): string
     `can no longer be shot: ${stranded.map((d) => d.dir).join(", ")}. The pointer moved past them. ` +
     `Their manifest bytes are complete; only the images are missing.`
   );
+}
+
+/**
+ * Every unit a promote's composition holds.
+ *
+ * `built` is what this working tree can emit, `served` is what the channel's
+ * pointer already names, and `drop` is what the operator asked to remove. The
+ * union of the first two is the point: they differ the moment a sub-app is
+ * taken out of the source, and composing from `built` alone removed such a unit
+ * from every channel at the next promote of anything - silently, because a unit
+ * nobody builds is a unit nothing iterates. That is the pointer that took a
+ * region down on 2026-09-10.
+ *
+ * The shell is never removable: a channel with no shell serves no page.
+ */
+export function composedFrom(
+  built: readonly string[],
+  served: Record<string, unknown>,
+  drop: readonly string[],
+): string[] {
+  const remove = new Set(drop.filter((u) => u !== "shell"));
+  return [...new Set([...built, ...Object.keys(served)])].filter((u) => !remove.has(u));
 }
 
 export function staleRefusal(

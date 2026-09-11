@@ -3,33 +3,68 @@ Feature: Serving the application shell from the live manifest
   I want the page to load the build the channel currently points at
   So that I see the version that is live now, not one frozen into the server image
 
-  Background:
-    Given the qa channel points at build "alpha"
+  Rule: The build the channel points at
 
-  @live
-  Scenario: A visitor receives the build the channel points at
-    When a visitor loads the qa origin
-    Then the shell identifies build "alpha"
-    And the shell loads the script and the stylesheet of build "alpha"
+    Background:
+      Given the qa channel points at build "alpha"
 
-  @live @local
-  Scenario: A shell is never stored by an intermediary
-    When a visitor loads the qa origin
-    Then no cache between the server and the visitor is permitted to store the shell
+    @live
+    Scenario: A visitor receives the build the channel points at
+      When a visitor loads the qa origin
+      Then the shell identifies build "alpha"
+      And the shell loads the script and the stylesheet of build "alpha"
 
-  @live @local
-  Scenario: A shell says how old the manifest it was rendered from is
-    When a visitor loads the qa origin
-    Then the shell reports the age of the manifest it was rendered from
-    And the shell reports that its last refresh worked
+    @live @local
+    Scenario: A shell is never stored by an intermediary
+      When a visitor loads the qa origin
+      Then no cache between the server and the visitor is permitted to store the shell
 
-  @live @local
-  Scenario: The server holds no application files of its own
-    When a visitor requests an application asset path from the qa origin
-    Then the request is refused as not found
+    @live @local
+    Scenario: A shell says how old the manifest it was rendered from is
+      When a visitor loads the qa origin
+      Then the shell reports the age of the manifest it was rendered from
+      And the shell reports that its last refresh worked
 
-  @live
-  Scenario: A visitor arriving at a suspended server receives the current build
-    Given no machine is running
-    When a visitor loads the qa origin
-    Then the shell identifies build "alpha"
+    @live @local
+    Scenario: The server holds no application files of its own
+      When a visitor requests an application asset path from the qa origin
+      Then the request is refused as not found
+
+    @live
+    Scenario: A visitor arriving at a suspended server receives the current build
+      Given no machine is running
+      When a visitor loads the qa origin
+      Then the shell identifies build "alpha"
+
+  Rule: A view that names no unit
+
+    The shell owns placement, and a view may place nothing. Such a view is not a
+    hole in the page: the frame draws it, and the browser is told to fetch
+    nothing for it. Every view this shell places is one of them, so the whole
+    application is the frame and the page a visitor gets names no other bundle.
+
+    Background:
+      Given the qa channel points at build "alpha"
+
+    @live @local
+    Scenario: The page names no bundle beyond the frame's own
+      When a visitor loads the qa origin
+      Then the page names no sub-app for the browser to import
+      And the page asks the browser to warm nothing
+
+  Rule: The frame drawing those views, in a browser
+
+    Every view this shell places names no unit, so walking the whole sidenav
+    must cost the browser no request at all. A count taken before the walk and
+    after it is what says so: a link that navigated instead of routing would
+    fetch the frame again and read as a page that works.
+
+    Background:
+      Given the qa channel points at build "tree"
+
+    @browser @test-channel
+    Scenario: Moving between views draws each one and fetches nothing
+      When a visitor opens the frame
+      And they open every other view in the sidenav
+      Then the frame drew each view under its own title
+      And the browser fetched nothing while they walked

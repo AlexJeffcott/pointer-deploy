@@ -5,15 +5,15 @@ Feature: Finding a build worth promoting
 
   @live
   Scenario: Publishing a unit records it where a promote can find it
-    Given an unpublished "hello" unit is published
-    Then the catalogue names that "hello" unit
+    Given an unpublished "shell" unit is published
+    Then the catalogue names that "shell" unit
 
   @live
   Scenario: A unit no channel has ever pointed at is in the catalogue all the same
     Given build "one" is published and promoted to the qa channel
-    And an unpublished "hello" unit is published
-    Then the qa channel's history does not name that "hello" unit
-    But the catalogue names that "hello" unit
+    And an unpublished "shell" unit is published
+    Then the qa channel's history does not name that "shell" unit
+    But the catalogue names that "shell" unit
 
   @live
   Scenario: The catalogue is derived, so a lost write costs nothing but a rebuild

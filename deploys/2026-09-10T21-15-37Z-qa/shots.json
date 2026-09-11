@@ -1,0 +1,86 @@
+{
+  "schema": 2,
+  "takenAt": "2026-09-10T21:17:41.717Z",
+  "kind": "deploy",
+  "channel": "qa",
+  "region": "eu",
+  "origin": "https://pointer-deploy.fly.dev",
+  "override": null,
+  "contract": "9d1b0a3",
+  "composedAt": "2026-09-10T21:15:37.773Z",
+  "units": {
+    "shell": "5442c052",
+    "hello": "3bba892b"
+  },
+  "gate": "pointer",
+  "unchecked": {
+    "apiBase": "https://pointer-deploy-api.fly.dev",
+    "renderer": "chrome 152.0.7977.84",
+    "note": "the panels draw what the service answered, and /service draws the time it read. Neither is a function of the unit ids."
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "manifests": {
+    "eu": "manifest.eu.json",
+    "us": "manifest.us.json"
+  },
+  "shots": [
+    {
+      "route": "/",
+      "file": "shots/root.png",
+      "title": "Tasks",
+      "units": {
+        "shell": "5442c052",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 145
+    },
+    {
+      "route": "/board",
+      "file": "shots/board.png",
+      "title": "Board",
+      "units": {
+        "shell": "5442c052",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 133
+    },
+    {
+      "route": "/week",
+      "file": "shots/week.png",
+      "title": "Week",
+      "units": {
+        "shell": "5442c052",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 133
+    },
+    {
+      "route": "/service",
+      "file": "shots/service.png",
+      "title": "Service",
+      "units": {
+        "shell": "5442c052",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 138
+    },
+    {
+      "route": "/backup",
+      "file": "shots/backup.png",
+      "title": "Backup",
+      "units": {
+        "shell": "5442c052",
+        "hello": "3bba892b"
+      },
+      "panelErrors": [],
+      "waitedMs": 130
+    }
+  ]
+}

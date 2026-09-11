@@ -11,7 +11,7 @@ Open items and what is done. Read this first after a context clear.
 
 **Cut back on 2026-09-10.** Every closed item's full text — its measurements, its refuted leads and its reasoning — is in git history, and `TODO.md` at `f7d2318` is the last version that carries it. The index at the bottom keeps every `§N` resolvable, because 119 references to those numbers live in `scripts/`, `src/`, `api/`, `README.md` and `PLAN.md`.
 
-**The slate was cleared on 2026-09-10.** Two units remain and the object store was rewritten from one build. A unit name in the index below is a name that was true at the time.
+**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`, so **one** unit remains: the shell draws five views and none of them places a sub-app. A unit name in the index below is a name that was true at the time.
 
 ## Where things are
 
@@ -21,12 +21,12 @@ Open items and what is done. Read this first after a context clear.
 | Fly app | `pointer-deploy`, two machines since §3: `ams` started, `iad` stopped under `auto_stop_machines`. `min_machines_running = 1` holds `ams` up, and the stopped machine's check reads `the machine hasn't started`, which is that and not a fault |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite |
-| Units | two: `shell` and `hello` |
+| Units | one: `shell`. `hello` is gone at `PLAN.md` step 0; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
 | Contract | `9d1b0a3` (`hello-2026-09`), and it is the only one the registry holds |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
-| Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line |
+| Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |
 | Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog`, never written by hand and **gitignored** - every fact in it is already in `deploys/`. `scripts/changelog.test.ts` holds the loader that reads the archive |
 | Pull requests | Every change goes through one. `CLAUDE.md` is the rule, `.github/pull_request_template.md` the questions, `bun run pr` the URLs and the two sets of shots |
 | Secrets | `.env.local`, gitignored |
@@ -36,15 +36,15 @@ Open items and what is done. Read this first after a context clear.
 ```sh
 bun run build && bun run publish
 bun run promote qa --from-build          # everything just built
-bun run promote qa --app hello=<id>      # one sub-app. Same command rolls it back
+bun run promote qa --shell <id>          # one unit. Same command rolls it back
 bun run units                            # which ids there are to name
-bun run e2e                              # the one that proves the feature works
+bun run e2e                              # REFUSES on this slate: independence needs a second unit
 bun run shoot --out <dir>                # the pictures, into the directory promote opened
 bun run changelog                        # the archive as CHANGELOG.md. Run it whenever a record is added
 bun run pr                               # the review URLs and both sets of shots
 ```
 
-`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two.
+`e2e`, `verify:live` and `falsify` all overwrite `dist/`, so build clean immediately before any real promote. A promote to `qa` or `prod` **with `--from-build`** refuses a build this tree did not make — a harness build, another commit, or an uncommitted tree — and `--no-source-check` overrides the last two. A promote naming ids (`--shell`, `--app`) takes none of those three checks, which is deliberate: naming an id is how a rollback is made, and the tree it is made from is not the tree that built the unit. The sentence used to claim all three commands were covered.
 
 ## Open
 
@@ -74,16 +74,87 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **What the changelog closed.** `CHANGELOG.md` is generated from `deploys/` by `bun run changelog`, never written by hand, and not committed: every fact in it is already in `deploys/`, so a copy in git buys nothing and costs staleness, a check for it, and a conflict on its counts whenever two branches each land a deploy. What has to be right is the archive and the readings, and `scripts/changelog.test.ts` holds the loader against fixtures - the half that had no test at all and had been wrong twice. The archive forced three readings the entry has to get right, each of them a state the records already hold: a promote every one of whose units is `carried` moved nothing and is not a deploy anybody asked for, a record written by `--region eu` names one region and keeps another promote's bytes under an as-served name, and the oldest record has no act at all, so `not recorded` and `nothing` are different cells. The fourth is a state the archive has never held: `warnings` is `[]` in all five records, so the block that lists them is written and tested against the case nobody has seen. Verified by hand on 2026-09-10 with a sixth record staged in the working tree - a moved unit, two warnings, no pictures - which made both tests red, rendered the entry it should, and was then removed.
 
+### 37. A scenario measures machine state it does not arrange
+
+`features/steps/shell.steps.ts:186` — "both origins are served by one machine" — reads `fly machine list` and asserts exactly one machine is `started`. Nothing in the scenario puts the other one to sleep. It passes only while `iad` happens to be suspended under `auto_stop_machines`, which is most of the time and is not a fact the scenario establishes.
+
+Seen on 2026-09-11: `bun run verify:live` was 37 of 38, and the failure was this. `iad` was `started` because a single `curl -H 'fly-prefer-region: iad'` — taken minutes earlier to check that `us` was healthy after the step 0 deploy — woke it. Reading the deployment made the suite red.
+
+**The assertion is not wrong.** The claim is that ONE server answers two origins, and with two machines up a request can reach either, so the scenario cannot prove it. What is missing is the arrangement: the suite already stops a machine elsewhere (`shell.steps.ts:46`, one per run, §6), so a `Given` that suspends every machine but one is the same mechanism applied where the reading needs it.
+
+Until then a live run is order-dependent on whether anybody has touched `us` recently, which is the §32 shape: a check that reports a different answer depending on what else happened, rather than failing.
+
+### 36. A promote can write a pointer the running image cannot parse
+
+`PLAN.md` step 0 took the application to one unit, so `promote qa --from-build` wrote a pointer whose `apps` is `{}`. The image deployed at the time threw `manifest names no apps` on it. Nothing refused the write; the refusal happened later, in every machine, one at a time.
+
+**What it cost, measured on 2026-09-10.** `ams` was already up: it kept the last manifest it could read, went on serving the previous composition, and put the reason in `x-manifest-refresh` — the degradation working exactly as designed. `iad` was suspended. Waking it primed its cache against a pointer it could not parse, and it answered **503** to every request for `us` until the pointer was put back. Three requests with `fly-prefer-region: iad`, all 503. `deploys/2026-09-10T21-07-27Z-qa/notes.md` is the record.
+
+**It was not a property of the suspended machine, and the first account of it said it was.** `prime` puts `checkedAt` back when a read yields nothing (`manifest.ts:318`), so a COLD entry's first `get` awaits, gets null, and `index.ts` answers 503. `ams` survived by having a value cached, not by being in `eu`. Any restart of it — a `fly deploy`, a host migration, an out-of-memory kill — would have taken `eu` down the same way, and `min_machines_running = 1` does not protect against that. So the true reading is that `qa` was one machine restart from 503 in both regions, which is worse than what was first written here.
+
+`src/server/manifest.test.ts` now holds the state: a cold cache, a store answering perfectly well, and a document this image refuses. `features/store-outage.feature` had both halves and never the product — one scenario pairs a server that has read no manifest with a store that is *unreachable*, another pairs a refused document with a *warm* server. The corner that took a region down was neither.
+
+**Why nothing caught it.** The shell-to-server surface has a gate: the server publishes `blocks.provides.json`, the shell records what it reads, and the origin refuses a shell it cannot feed (§11). The **pointer**-to-server surface has neither. `parseManifest` is the only thing that knows which manifests an image accepts, it lives inside the image, and `promote` runs on a laptop.
+
+| | Gated | By what |
+| --- | --- | --- |
+| sub-app needs a member the shell has | yes | `uses` vs `provides`, at promote and at the origin |
+| shell reads a block the server writes | yes | `blocks` vs `blocks.provides.json`, at the origin |
+| **pointer says something the image parses** | **no** | nothing |
+
+**The headline claim does not hold for this change, and that is worth saying plainly.** "A deploy is one JSON write" is true of every change to a unit. This was not a change to a unit: it was a change to what a manifest may say, and it needed a `fly deploy` as well. The project has never had one of those before.
+
+**`bun run verify:live` cannot pass until the image is deployed, and that is measured too.** The `@live` suite promotes to `test-qa` and `test-prod` from this tree, so it writes pointers with `apps: {}` and the deployed image refuses those the same way. Read on 2026-09-10: `test-qa`'s pointer names `shell 5b4b3f51` and no app, and the origin answers it with `x-manifest-refresh: manifest names no apps` over a manifest 15,536 s old. Three scenarios failed in 2 minutes before the run was stopped; the rest would have failed the same way.
+
+**What the recovery actually was, which is the part worth being plain about.** The way back from that pointer was not a command. `--app hello=<id>` exited 1, because `--app` validated its name against `APPS` and this tree no longer built `hello`; `--shell <older id>` writes the same `apps: {}` that caused it. The recovery was **an edit to `scripts/contract.ts` and a promote from a dirty tree** — `deploys/2026-09-10T21-15-37Z-qa/promote.json` records `argv: ["qa","--app","hello=3bba892b"]` with `dirty: true`. In the repository whose front page says a rollback is writing the older JSON back, that is not a runbook.
+
+**Fixed.** A promote composes from the channel's own apps as well as this tree's `UNITS`, so a unit the tree no longer builds is carried and can be named; and removal is now said rather than inferred — `--drop <app>` is the only way a unit leaves a channel, it refuses a name the channel does not serve, and the terminal prints what left and the command that puts it back. Composing from `UNITS` alone was also what made the removal silent: `unitMoves` saw `dropped`, `promote.json` recorded it, and the operator's terminal never said a word.
+
+**Three ways out of the parse gap itself, none built.**
+
+- The origin publishes what it accepts, the way the server publishes its blocks: a `schemas` field on `/healthz` or `/compositions`, and `promote` reads it before writing a real channel and refuses. Costs `promote` a network read of the origin it is about to change, which it does not currently make.
+- `promote` re-reads the pointer through the origin after writing it, and rolls back on a refusal. Catches everything, and only after every visitor in one region has seen it.
+- The parser accepts strictly more, forever, and a manifest field is never removed. That is the rule already; what broke is that a field's ALLOWED VALUES narrowed in the image and widened in the tree, which no version number would have caught either.
+
+### 35. `falsify` cannot tell a red scenario from a build that failed
+
+A mutation is reported as caught when the scenario's process exits non-zero. Several scenarios build and publish from this working tree in their Background, so a mutation that does not COMPILE makes that build fail, the scenario go red, and `falsify` print `✓ caught by scenario X` — for a reading in which the scenario never ran a step of its own.
+
+Seen on 2026-09-10 while writing the step 0 mutations. `Shell.tsx`'s `const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE` was mutated to `const path = DEFAULT_ROUTE`, which narrows `path` to the literal `"/"`; `path === "/service"` two lines down then stops compiling, `bun run build` fails inside the Background, and the scenario is red on `build failed:`. The mutation now in `scripts/falsify.ts` moves the same behaviour into `router.ts`, where it compiles, and says so in a comment.
+
+**What it costs.** Every mutation of a file the matrix compiles is suspect in the same way, and the report gives a reader no way to tell. The ones aimed at `src/server/` are safe — the server is not rebuilt by a scenario — and the ones aimed at `src/web/` are not.
+
+**The fix is small.** `runScenario` already reads the runner's output to count how many scenarios matched; it can read it again for `build failed:` and `publish failed:` and refuse the reading rather than counting it, the same way a `--grep` matching nothing is refused today. Not built: it wants a fixture that produces the state on purpose, and the state is a compile error, which no committed source can hold.
+
 ### 31. Claims that need a second unit
 
-Clearing the slate to one sub-app took the subject away from four readings. None is wrong; each has nothing to measure. `PLAN.md` steps 1, 4 and 5 restore the first three, and step 9 restores the fourth.
+Clearing the slate to one sub-app took the subject away from four readings. `PLAN.md` step 0 then removed that sub-app, and the losses below are what going from one to none cost on top. None of these claims is wrong; each has nothing to measure. `PLAN.md` steps 1, 4, 5, 9 and 10 restore them.
+
+**What was already lost at one sub-app**, and what has happened to it since:
 
 | Claim | Where it was | What holds it now |
 | --- | --- | --- |
-| A dropped member refuses the app that used it **and nothing else** | `scripts/e2e-member-gate.ts` | `scripts/members.test.ts`, which asserts a member no app calls shows as used by none |
-| Warming an off-screen unit's files buys something | two `@browser` scenarios, one `falsify` mutation, `scripts/measure-preload.ts` | `html.test.ts` holds the tags' shape. Nothing measures the benefit; every unit is on the route a visitor lands on |
-| Two independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | The frame and the panel share it, held by the same feature and by the `peek` mutation in `falsify` |
+| A dropped member refuses the app that used it **and nothing else** | `scripts/e2e-member-gate.ts` | **Nothing.** `members.test.ts` used to assert that a member no app calls shows as used by none; with no app that is true of every member, so the test now asserts what the shell PROVIDES and says nothing about use. `bun run e2e:members` refuses to run |
+| Warming an off-screen unit's files buys something | two `@browser` scenarios, one `falsify` mutation, `scripts/measure-preload.ts` | `html.test.ts` holds the tags' shape. Nothing measures the benefit. What IS now measured is the opposite: the page warms nothing at all, and `falsify` warms a file no view placed to prove that check has teeth |
+| Two independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | **Nothing.** `shared-state.feature` is deleted: every scenario in it was a frame and a separately deployed panel agreeing. What survives is one bundle short of the claim — the frame subscribes to its own store, held by `The frame redraws when the reading it took of the service arrives` and by the `peek` mutation, now aimed at `service()` rather than `greeting()` |
 | A published pair reads as not additive | `scripts/contract.test.ts` | Nothing. The registry holds one contract, and the reading needs two |
+
+**What removing `hello` cost on top.** Each row is a check that was deleted or turned off, and where it comes back:
+
+| Claim | Where it was | Comes back |
+| --- | --- | --- |
+| One unit deploys and rolls back without moving the other, read off the rendered page | `bun run e2e` | Step 1. The script now exits non-zero and names the commit holding the full version (`ff196d5`) |
+| `promote` merges into the composition instead of replacing it | `Deploying a sub-app leaves the frame where it was`, and a `falsify` mutation | Step 1. Nothing holds it: with one unit a replace and a merge write the same bytes |
+| A publish uploads only the unit that changed | `Publishing after a change to one unit uploads that unit alone`, and the `unit id carries the commit` mutation | Step 1. With one unit "only that unit" is true whatever the id rule is |
+| A composition whose units share no contract is refused | a `@live` scenario and a `@live` `falsify` mutation | Step 1. `src/server/composition.test.ts` still holds the rule; nothing holds the wiring through a real promote |
+| A sub-app needing a member the shell does not have is refused | a `@live` scenario and a `@live` `falsify` mutation | Step 1, and step 10 for the "and nothing else" half. `composition.test.ts` holds the rule |
+| A panel that throws costs its panel and not the frame, and can be mounted again | two `@browser` scenarios and two `falsify` mutations | Step 1. `AsyncAppLoader.tsx` is unexercised until then; the frame's own boundary is still held by `The frame throwing replaces the page and offers a reload` |
+| A sub-app whose script or stylesheet does not match its digest does not run | a `@browser` Scenario Outline and two `falsify` mutations | Step 1. One of the two mutations — the import map carrying no digests — was re-aimed at a `@local` scenario and is now run on every `bun run falsify` rather than skipped |
+| Each sub-app is fetched from its own unit's directory | a `@live` scenario | Step 1. `html.test.ts` holds `loads each sub-app from its own unit's base` |
+
+**Two records this could not keep.** The promote that removed `hello` reads its `before` through `idsInPointer` now, but that fix came after the pointer had moved, so `deploys/2026-09-10T21-07-27Z-qa` does not name `hello` as dropped. And that promote was never served at all — §36 — so the composition live on `qa` still carries a `hello` unit no view places, and will until the server image is deployed. The `@live` scenario `The page names no bundle beyond the frame's own` passes against `test-qa`, which is what `verify:live` uses, and would fail against the real `qa` today. That is the shape `~/projects/CLAUDE.md` warns about and it is named here rather than left to be found.
+
+**One thing closed itself, and by accident rather than by the fix §29 names.** No scenario in the suite now writes to the deployed service: the only `POST` was a panel's audience input, and the panel is gone. §29 stays open, because what closes it is the service changing its subject at step 6 — not a writer losing its keyboard.
 
 ### 33. 42 mutants survive in `api/service.ts`
 
@@ -141,6 +212,8 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 The channels are already handled — the suite owns `test-qa` and `test-prod`, and a tripwire fails a run that moved a real one. The service has no equivalent.
 
 **`PLAN.md` step 6 chooses the way out.** The service stops holding a greeting and starts holding snapshots and slots in a bucket, and the suite's snapshots and slots go under a `test-` key prefix that the existing tripwire pattern covers. The item closes when that lands, not before.
+
+**Nothing writes to it today, and that is not the fix.** `PLAN.md` step 0 removed the panel whose input was the only `POST` in the suite, so the window is currently zero scenarios long. The service is still writable by anything that can reach it, and the suite still reads production; the item is open until the service holds something the suite owns.
 
 ### 21. Pin the vendor types the contract references, or stop claiming to
 

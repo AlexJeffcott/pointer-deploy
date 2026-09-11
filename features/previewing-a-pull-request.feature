@@ -15,15 +15,15 @@ Feature: Previewing a build a pull request made
   @local
   Scenario: A build a pull request made can be asked for on qa
     Given a build marked "pr-42" is published and promoted nowhere
-    When a visitor asks the qa origin for that build's "hello" unit
-    Then the page runs that build's "hello" unit
+    When a visitor asks the qa origin for that build's "shell" unit
+    Then the page runs that build's "shell" unit
     And the qa channel still points where it did
 
   @local
   Scenario: A build nobody marked can be asked for on qa
     Given an unmarked build is published and promoted nowhere
-    When a visitor asks the qa origin for that build's "hello" unit
-    Then the page runs that build's "hello" unit
+    When a visitor asks the qa origin for that build's "shell" unit
+    Then the page runs that build's "shell" unit
 
   @local
   Scenario Outline: A marker qa does not admit is refused
@@ -32,7 +32,7 @@ Feature: Previewing a build a pull request made
     through if the pattern were loose.
 
     Given a build marked "<marker>" is published and promoted nowhere
-    When a visitor asks the qa origin for that build's "hello" unit
+    When a visitor asks the qa origin for that build's "shell" unit
     Then the request is refused as a bad request
 
     Examples:
@@ -50,13 +50,13 @@ Feature: Previewing a build a pull request made
     under either.
 
     Given a build marked "xpr-42" is published and promoted nowhere
-    When a visitor asks the qa origin for that build's "hello" unit
+    When a visitor asks the qa origin for that build's "shell" unit
     Then the request is refused as a bad request
 
   @local
   Scenario: A marker with something after a pull request's is refused
     Given a build marked "pr-42x" is published and promoted nowhere
-    When a visitor asks the qa origin for that build's "hello" unit
+    When a visitor asks the qa origin for that build's "shell" unit
     Then the request is refused as a bad request
 
   @local
@@ -64,7 +64,7 @@ Feature: Previewing a build a pull request made
     Given the prod channel points at build "alpha"
     And the prod channel has served an earlier build
     And a build marked "pr-42" is published and promoted nowhere
-    When a visitor asks the prod origin for that build's "hello" unit
+    When a visitor asks the prod origin for that build's "shell" unit
     Then the request is refused as a bad request
 
   @local
@@ -72,5 +72,5 @@ Feature: Previewing a build a pull request made
     Given the prod channel points at build "alpha"
     And the prod channel has served an earlier build
     And an unmarked build is published and promoted nowhere
-    When a visitor asks the prod origin for that build's "hello" unit
-    Then the page runs that build's "hello" unit
+    When a visitor asks the prod origin for that build's "shell" unit
+    Then the page runs that build's "shell" unit
