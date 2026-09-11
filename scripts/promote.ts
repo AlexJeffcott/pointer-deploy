@@ -327,8 +327,16 @@ if (fromBuild) {
 
   // Explicit flags win, so --from-build --app hello=<older> is a rollback of
   // one unit inside an otherwise current composition.
+  //
+  // A DROPPED unit is skipped here, and that is not a detail. Filling `wanted`
+  // from the build put a unit this tree builds into both sets at once, and the
+  // check below then said "list is named by both --app and --drop" for a
+  // command line on which --app named nothing at all. What the operator asked
+  // for is what they typed; --from-build fills in the rest.
   for (const unit of UNITS) {
-    if (!wanted.has(unit) && built.units[unit]) wanted.set(unit, built.units[unit]!.id);
+    if (!wanted.has(unit) && !dropped.has(unit) && built.units[unit]) {
+      wanted.set(unit, built.units[unit]!.id);
+    }
   }
 }
 
@@ -511,7 +519,14 @@ if (refusal !== null) {
   console.error(`${refusal}. Nothing was changed.`);
   const width = Math.max(...composedNames.map((u) => u.length));
   for (const unit of composedNames as Unit[]) {
-    const m = manifests.get(unit)!;
+    const m = manifests.get(unit);
+    // A unit this promote drops has no manifest here and is not in the
+    // composition being judged. It is still printed, because the operator
+    // reading a refusal has to see that their --drop was taken account of.
+    if (!m) {
+      console.error(`  ${unit.padEnd(width)} dropped by --drop, and not judged`);
+      continue;
+    }
     const gate = decidesMembers(surfacesByUnit.shell, surfacesByUnit[unit])
       ? `${Object.keys(m.uses ?? {}).length} members used`
       : (m.contracts.join(", ") || "no contract");
@@ -529,9 +544,15 @@ const contract = chooseContract(contractsByUnit) ?? "none";
 // mismatch is reported rather than refused. Refusing would force every app to
 // republish on a patch bump, and folding versions into the contract hash would
 // do the same thing more quietly.
+//
+// `composedApps`, not `UNITS`. The two differ in both directions: a channel can
+// carry a sub-app this tree no longer builds, and this promote can DROP one it
+// does. Iterating what the tree builds read a manifest for a unit that was
+// dropped - there is none, because the loops above skip it - and
+// `bun run promote qa --drop list` died on an uncaught TypeError instead of
+// doing what it was asked.
 const shellShared = manifests.get("shell")!.shared ?? {};
-for (const unit of UNITS) {
-  if (unit === "shell") continue;
+for (const unit of composedApps as Unit[]) {
   const theirs = manifests.get(unit)!.shared ?? {};
   for (const [pkg, version] of Object.entries(theirs)) {
     const shellVersion = shellShared[pkg];
@@ -710,7 +731,14 @@ for (const r of regions) {
       units: {},
     };
     const supersededAt = composition.composedAt;
-    for (const unit of UNITS) {
+    // The units this promote actually composed, which is neither `UNITS` nor
+    // the channel's previous set. `UNITS` misses a sub-app the channel carries
+    // that this tree stopped building - and writing a history without it would
+    // retire every older id of that unit, which is the one thing an override
+    // exists to reach - and it includes a sub-app this promote DROPPED, whose
+    // `composition.apps` entry is gone, which threw into the catch below and
+    // left the region with no history written at all.
+    for (const unit of composedApps.concat("shell") as Unit[]) {
       const served = unit === "shell" ? composition.shell : composition.apps[unit]!;
       // §5. The entry that WAS the head stops being served at this promote, and
       // this is the only moment anything knows that. An entry that already

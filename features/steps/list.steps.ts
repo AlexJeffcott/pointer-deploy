@@ -44,10 +44,37 @@ When("they add the task {string}", async function (this: PointerWorld, title: st
   await page.waitForSelector(`${PANEL} [data-task="${title}"]`, { timeout: 10_000 });
 });
 
+/**
+ * Typed, one key at a time, and never filled.
+ *
+ * `page.fill` sets the whole string in a single `input` event, so a control
+ * that rewrites its own value between keystrokes passes it. That is exactly
+ * what this input did: `value` was `task.tags.join(", ")`, and typing `,` after
+ * `travel` made the store round-trip `["travel"]` and Preact write `travel`
+ * back over `travel,`. The comma was erased as it was typed, no visitor could
+ * reach a second tag, and this step was green throughout.
+ *
+ * `pressSequentially` sends a key per character, which is the only way this
+ * step measures what a person does. The clear is separate because typing into
+ * a field that already holds text appends to it.
+ */
 When(
   "they tag {string} with {string}",
   async function (this: PointerWorld, title: string, tags: string) {
-    await this.browserPage.fill(`${PANEL} [data-tag-input="${title}"]`, tags);
+    const input = this.browserPage.locator(`${PANEL} [data-tag-input="${title}"]`);
+    await input.clear();
+    await input.pressSequentially(tags, { delay: 10 });
+  },
+);
+
+/** The same keyboard, continuing where the store left the text. */
+When(
+  "they go on typing {string} after the tags on {string}",
+  async function (this: PointerWorld, more: string, title: string) {
+    const input = this.browserPage.locator(`${PANEL} [data-tag-input="${title}"]`);
+    await input.click();
+    await this.browserPage.keyboard.press("End");
+    await input.pressSequentially(more, { delay: 10 });
   },
 );
 
@@ -115,6 +142,22 @@ Then(
 Then("{string} carries no tags", async function (this: PointerWorld, title: string) {
   expect(await tagsOn(this, title)).toBe("");
 });
+
+/**
+ * What the CONTROL shows, which is the other half of the reading above.
+ *
+ * The store is the truth about tags and this is the truth about typing: a
+ * control that drops a character cannot be seen in `store.tasks()`, because the
+ * store never held the separator in the first place.
+ */
+Then(
+  "the tag box for {string} reads {string}",
+  async function (this: PointerWorld, title: string, text: string) {
+    expect(
+      await this.browserPage.inputValue(`${PANEL} [data-tag-input="${title}"]`),
+    ).toBe(text);
+  },
+);
 
 Then(
   "the panel says the tasks are kept in this page alone",

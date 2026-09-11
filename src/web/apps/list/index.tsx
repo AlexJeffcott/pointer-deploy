@@ -24,6 +24,23 @@ const tagsFrom = (text: string): string[] =>
 export default function List({ store }: SubAppProps) {
   const tasks = store.tasks();
   const [title, setTitle] = useState("");
+  /**
+   * What somebody is part-way through typing into a tag input, by task id.
+   *
+   * The store holds TAGS and the input holds TEXT, and the two are not the same
+   * thing while a comma is being typed. Driving the input straight off
+   * `task.tags.join(", ")` erased the separator as it was typed: `tagsFrom`
+   * drops the empty field after a trailing comma, the signal reassigns, and
+   * Preact writes `travel` back over `travel,`. A visitor could never reach a
+   * second tag. `page.fill` sets the whole string in one event and never met it,
+   * which is why the scenario was green on a control nobody could use.
+   *
+   * So the draft is this panel's own state, the store is still written on every
+   * keystroke, and the text beside the input - rendered from `store.tasks()` -
+   * stays the reading of what the frame holds. A task with no draft falls back
+   * to the store, which is what a remount and a reload both give.
+   */
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [boom, setBoom] = useState(false);
 
   // §26, and the reading `PLAN.md` step 13 is written for: the tasks this panel
@@ -80,10 +97,12 @@ export default function List({ store }: SubAppProps) {
                 placeholder="tags"
                 aria-label={`Tags for ${task.title}`}
                 data-tag-input={task.title}
-                value={task.tags.join(", ")}
-                onInput={(e: Event) =>
-                  store.setTags(task.id, tagsFrom((e.currentTarget as HTMLInputElement).value))
-                }
+                value={drafts[task.id] ?? task.tags.join(", ")}
+                onInput={(e: Event) => {
+                  const text = (e.currentTarget as HTMLInputElement).value;
+                  setDrafts((d) => ({ ...d, [task.id]: text }));
+                  store.setTags(task.id, tagsFrom(text));
+                }}
               />
               <span class={styles.tags} data-tags={task.title}>
                 {task.tags.join(", ")}

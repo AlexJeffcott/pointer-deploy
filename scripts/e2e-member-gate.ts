@@ -25,11 +25,32 @@
 // It writes to `test-qa` and NEVER to a real channel. It edits `api.ts`, the
 // sub-app and the contract registry, and restores all three - including after a
 // failure, which is what the `finally` is for. `dist/` is left holding a
-// restored build.
+// restored build, MARKED - so a `--from-build` to a real channel straight after
+// a run is refused rather than served.
+//
+// Every build it makes carries BUILD_MARKER, and that is not decoration. A
+// marked unit is offered on a `test-*` channel and nowhere else, `promote`
+// refuses a marked `--from-build` on a real channel, and `bun run units` hides
+// it from the table an operator reads to decide what to deploy. Without the
+// marker this probe published a DELIBERATELY BROKEN shell - `ShellStore` with
+// `goingAway` cut out, from a dirty tree - to the production asset bucket as an
+// ordinary build, and on 2026-09-11 it was the first row of `bun run units
+// shell` with `bun run promote qa --shell 5569c9df` printed under it. A promote
+// naming an id takes no source check, so the only thing that refused it was the
+// member gate happening to fire, because `list` used the member this probe cut.
+// A probe aimed at a member no unit uses would have been promotable.
 
 import { rm } from "node:fs/promises";
 
 const CHANNEL = "test-qa";
+/**
+ * The marker every build here carries.
+ *
+ * Fixed rather than per-run: this probe's builds are only ever promoted to
+ * `test-qa` by this probe, so two runs producing the same unit id is a publish
+ * correctly skipping an upload rather than a reading going wrong.
+ */
+const MARKER = "member-gate-probe";
 
 const API = "src/web/shell/api.ts";
 const LIST = "src/web/apps/list/index.tsx";
@@ -54,9 +75,12 @@ const check = (claim: string, pass: boolean, saw: string) => {
  * scripts print their machine-readable ids on stdout and everything a person
  * reads on stderr, so a concatenation of the two cannot be parsed as either.
  */
-async function run(args: string[]): Promise<{ code: number; out: string; said: string }> {
+async function run(
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<{ code: number; out: string; said: string }> {
   const proc = Bun.spawn(args, {
-    env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+    env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -77,6 +101,18 @@ const idsOf = (out: string): Record<string, string> => {
   }
 };
 
+/** One published unit's own manifest, read back out of the store. */
+const unitDoc = async (
+  unit: string,
+  id: string,
+): Promise<{ contracts?: string[]; marker?: string }> => {
+  const base = "https://pointer-deploy-assets.fly.storage.tigris.dev";
+  return (await fetch(`${base}/units/${unit}/${id}/unit.json`).then((r) => r.json())) as {
+    contracts?: string[];
+    marker?: string;
+  };
+};
+
 const saved = new Map<string, string>();
 const save = async (path: string) => saved.set(path, await Bun.file(path).text());
 const restore = async () => {
@@ -91,7 +127,7 @@ try {
   await save(REGISTRY);
 
   console.log(`${CHANNEL} - a baseline every unit was built together for`);
-  const built = await run(["bun", "run", "build"]);
+  const built = await run(["bun", "run", "build"], { BUILD_MARKER: MARKER });
   if (built.code !== 0) throw new Error(`the baseline build failed:\n${built.said}`);
   await run(["bun", "run", "publish"]);
   const promoted = await run(["bun", "run", "promote", CHANNEL, "--from-build"]);
@@ -126,7 +162,7 @@ try {
   );
 
   // Build with `list` still calling goingAway: the reading must refuse to guess.
-  const blocked = await run(["bun", "run", "build"]);
+  const blocked = await run(["bun", "run", "build"], { BUILD_MARKER: MARKER });
   check(
     "a build refuses while a sub-app still calls the member",
     blocked.code !== 0 && blocked.said.includes("do not compile against the surface at HEAD"),
@@ -142,7 +178,7 @@ try {
       'store.service().fields.find((f) => f.path === "snapshot.tasks")?.going ?? null',
     ),
   );
-  const rebuilt = await run(["bun", "run", "build"]);
+  const rebuilt = await run(["bun", "run", "build"], { BUILD_MARKER: MARKER });
   if (rebuilt.code !== 0) throw new Error(`the smaller build failed:\n${rebuilt.said}`);
   check(
     "with the call gone, the build reads list as no longer using it",
@@ -155,6 +191,25 @@ try {
   const publishedShell = await run(["bun", "run", "publish", "shell"]);
   const newShell = idsOf(publishedShell.out).shell;
   check("a new shell is published alone", Boolean(newShell), publishedShell.said.slice(-200));
+
+  // The shell just published is the broken one, and it is now in the production
+  // asset bucket for good: nothing deletes a published unit before the 90-day
+  // floor. What keeps it out of an operator's way is the marker, so the marker
+  // is READ BACK from the store rather than assumed from the environment this
+  // script set. Without it, `bun run units shell` lists this build first and
+  // prints a promote command naming it.
+  const published = await unitDoc("shell", newShell!);
+  check(
+    "the broken shell is published as a harness build, so nothing lists it as deployable",
+    (published.marker ?? "") === MARKER,
+    `marker ${JSON.stringify(published.marker ?? "")}`,
+  );
+  const listed = await run(["bun", "run", "units", "shell"]);
+  check(
+    "and `bun run units shell` does not show it",
+    !listed.said.includes(newShell!),
+    "it is in the table an operator reads",
+  );
 
   // --- the reading ---------------------------------------------------------
 
@@ -172,15 +227,8 @@ try {
   // the contract at HEAD and the smaller shell satisfies only the contract just
   // minted, so the sets are disjoint: the old rule refused the composition
   // whole, whether or not the app had ever called the member.
-  const setOf = async (unit: string, id: string): Promise<string[]> => {
-    const base = "https://pointer-deploy-assets.fly.storage.tigris.dev";
-    const doc = (await fetch(`${base}/units/${unit}/${id}/unit.json`).then((r) => r.json())) as {
-      contracts?: string[];
-    };
-    return doc.contracts ?? [];
-  };
-  const shellSet = await setOf("shell", newShell!);
-  const listSet = await setOf("list", baseline.list!);
+  const shellSet = (await unitDoc("shell", newShell!)).contracts ?? [];
+  const listSet = (await unitDoc("list", baseline.list!)).contracts ?? [];
   console.log(`  contract sets: shell ${shellSet.join(",")} / list ${listSet.join(",")}`);
   check(
     "the contract sets share nothing, so the old rule refused the composition whole",
@@ -206,7 +254,7 @@ try {
   console.log(`\nrestoring the tree and ${CHANNEL}`);
   await restore();
   await rm(`contracts/${MINT_NAME}`, { recursive: true, force: true });
-  const rebuilt = await run(["bun", "run", "build"]);
+  const rebuilt = await run(["bun", "run", "build"], { BUILD_MARKER: MARKER });
   if (rebuilt.code !== 0) console.log(`  the restoring build FAILED:\n${rebuilt.said}`);
   await run(["bun", "run", "publish"]);
   const back = await run(["bun", "run", "promote", CHANNEL, "--from-build"]);

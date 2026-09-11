@@ -348,8 +348,8 @@ do not intersect is what stops it reaching a channel. The reading is taken at
 `contract:mint` and nowhere else: that is the moment a surface change is
 recorded, and `build.ts` already refuses a surface no contract names.
 
-Measured on 2026-08-28, against generated pairs of surfaces and against the two
-contracts this repository has actually published:
+Measured on 2026-08-28 against generated pairs of surfaces, and on 2026-09-11
+against the two contracts this repository currently holds:
 
 | Change | shell half | sub-app half |
 | --- | --- | --- |
@@ -360,7 +360,14 @@ contracts this repository has actually published:
 | a parameter narrowed | `TS2322` | pass |
 | a required member added to `SubApp` | pass | `TS2322` |
 | a type export renamed | pass | `TS2305` |
-| `9e79879` → `e0160a6`, the change this repository made | `TS2740` | `TS2322` |
+| `9d1b0a3` → `15ed669`, the change `PLAN.md` step 1 made | `TS2741` | pass |
+
+The last row is the pair in `contracts/`, and `scripts/contract.test.ts` asserts
+it: only the **shell** half breaks, because step 1 removed declarations a
+sub-app consumes and added nothing the shell requires of a sub-app. An earlier
+version of this table had a row for `9e79879` → `e0160a6` reading
+`TS2740`/`TS2322` — two contracts from a slate that no longer exists, under a
+sentence calling them the pair this repository has published.
 
 Two traps. The first was predicted and reproduced; the second was not seen
 until the probes were run:
@@ -400,6 +407,7 @@ FieldSunset.instead         uses
 FieldSunset.reason
 FieldSunset.since
 FieldSunset.sunset          uses
+NO_SERVICE
 ServiceField.going
 ServiceField.path
 ServiceField.type
@@ -432,7 +440,7 @@ createStore
 not removable on their own: FieldSunset, ServiceField, ServiceReport, ServiceRoute, ShellStore, Task
 ```
 
-Twenty-two of the surface's thirty-two members are called by no sub-app.
+Twenty-three of the surface's thirty-three members are called by no sub-app.
 `setService` is a writer the shell owns, `service` is a reader the frame keeps
 to itself for the `/service` view, and the fields under `ServiceReport` are read
 by the frame drawing that view. Under the set intersection, removing any of them
@@ -440,6 +448,13 @@ refused every composition — because a **published** app's contract set was fix
 at its build time and cannot name a contract minted after it. `createStore` is
 used by nothing either: the shell reaches `api.ts` by relative path, so only the
 sub-apps are asked.
+
+`NO_SERVICE` is in that table from 2026-09-11 and was in no reading before it.
+A `const` statement carries its name on its declarator and has none of its own,
+so the reader skipped every exported constant in the surface — while `build.ts`
+documented `provides` as *every* removable member there is. `DEFAULT_GREETING`
+was one of the ones it missed, which is the declaration the direction reading
+names when it calls the published pair not additive.
 
 Ownership comes out at the FIELD. `list` reads two of the four members of a
 sunset — the day it goes and what to move to — so a service that retired
@@ -635,7 +650,7 @@ Three things replace the compiler.
 | --- | --- |
 | A shape checked at the boundary | `src/web/shell/service.ts` declares the response types and never imports them from `api/`. Importing them would put the compiler back in the loop and prove nothing: the shell would agree with the service's source at this commit, and the question is what the service sends |
 | A version set compared at serve time | The shell records `api: ["v1"]`, the service publishes `GET /versions`, and the running server intersects them |
-| A page that never waits | The store has defaults, the shell renders from them, and `hydrate()` fills in what the service holds afterwards. A service that is slow, unreachable or gone costs a DIFFERENT page, never a blank one |
+| A page that never waits | The store has defaults, the shell renders from them, and `readService()` fills in what the service says it holds afterwards. A service that is slow, unreachable or gone costs a DIFFERENT page, never a blank one |
 
 The comparison happens in the SERVER and not in `promote`, for §11's reason one
 step further out: a promote runs in a working tree and cannot see which service

@@ -43,6 +43,31 @@ export declare function createStore(): Store;
     expect(found.map((m) => m.path)).toContain("A.b.c");
   });
 
+  // A VariableStatement carries its names on its declarators and has none of
+  // its own, so the reader skipped every exported constant in the surface -
+  // `NO_SERVICE` today, `DEFAULT_GREETING` in the contract before it. A member
+  // nothing probes is a member the gate can never refuse anything for, while
+  // `build.ts` says `provides` is every removable member there is.
+  test("names an exported const, which has no name of its own to read", () => {
+    const found = membersOf(surface("export declare const NO_SERVICE: Report;\n"));
+    expect(found.map((m) => m.path)).toEqual(["NO_SERVICE"]);
+  });
+
+  // The cut has to leave a file that still parses. One declarator is the whole
+  // statement; several means taking a separating comma with the one being cut,
+  // or the surface stops being a surface and every unit reads as using it.
+  test("cutting one of several declarators leaves the rest parseable", () => {
+    const text = "export declare const A: X, B: Y;\n";
+    const found = membersOf(surface(text));
+    expect(found.map((m) => m.path)).toEqual(["A", "B"]);
+    const cutOf = (path: string) => {
+      const m = found.find((f) => f.path === path)!;
+      return text.slice(0, m.start) + text.slice(m.end);
+    };
+    expect(cutOf("A")).toBe("export declare const B: Y;\n");
+    expect(cutOf("B")).toBe("export declare const A: X;\n");
+  });
+
   // The digest is what promote compares. The text it covers is what tsc EMITS,
   // so its formatting is already canonical; indentation and line endings are
   // all a surface can differ by, and those are normalised away.
@@ -89,6 +114,13 @@ describe("readMembers, against the surface this repository ships", () => {
         expect(Object.keys(reading.provides)).toContain(member);
         expect(Object.keys(reading.uses.list ?? {})).not.toContain(member);
       }
+
+      // The exported constant, which no reading saw until 2026-09-11 because a
+      // `const` statement has no name of its own. It is removable - nothing in
+      // either declaration file names it - so it belongs in `provides`, and no
+      // sub-app calls it, so it belongs in nobody's `uses`.
+      expect(Object.keys(reading.provides)).toContain("NO_SERVICE");
+      expect(Object.keys(reading.uses.list ?? {})).not.toContain("NO_SERVICE");
 
       // Every member of the store the shell hands a sub-app. A promote compares
       // a published app's `uses` against this, so an empty reading here would

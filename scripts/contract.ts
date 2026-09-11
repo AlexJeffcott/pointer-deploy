@@ -70,7 +70,32 @@ export type ContractRecord = {
   /** Directory name. For people. The hash is the identity. */
   name: string;
   hash: string;
+  /**
+   * The commit whose surface hashes to `hash`, or the mint's own HEAD when
+   * nothing can say yet.
+   *
+   * A mint happens with the new surface in the WORKING TREE and HEAD still at
+   * the commit before it, so `git rev-parse HEAD` names the last commit that
+   * did NOT have this surface. Both records in this repository were written
+   * that way and both are off by one: `planner-2026-09` named `de60d9eb`, whose
+   * surface hashes to `9d1b0a3`, the previous contract. `promote` refuses a
+   * build for exactly this reason and the mint did it to itself.
+   *
+   * So the reading is honest about what it can see. A clean tree at HEAD is the
+   * commit; a dirty one is recorded with `mintedDirty`, and the commit named is
+   * where the work started rather than what it contains. `contract:mint
+   * --at <commit>` states the answer once it exists.
+   */
   firstSeenCommit: string;
+  /**
+   * True when the tree that produced the surface carried uncommitted changes,
+   * so `firstSeenCommit` does NOT hold the surface this record names.
+   *
+   * Absent on a record written before this was read, which is not the same as
+   * false - the two earliest records were corrected by hand from the commits
+   * that actually hold their surfaces.
+   */
+  mintedDirty?: boolean;
   firstSeenAt: string;
   /** §10. Recorded after the mint, and never part of the hash. */
   deprecated?: Deprecation;

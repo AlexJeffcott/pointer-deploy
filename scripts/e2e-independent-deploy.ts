@@ -170,6 +170,23 @@ async function awaitUnit(unit: Unit, id: string): Promise<number> {
   throw new Error(`${CHANNEL} still served ${unit}=${seen} after ${PROPAGATION_MS} ms; wanted ${id}`);
 }
 
+/** The same poll, for a unit that must have LEFT the composition. */
+async function awaitNoUnit(unit: Unit): Promise<number> {
+  const started = Date.now();
+  let seen: string | undefined = "unread";
+  while (Date.now() - started < PROPAGATION_MS) {
+    const r = await sh(["curl", "-sS", `${ADDRESS}/`]);
+    const m = /id="__BUILD__">(.*?)<\/script>/s.exec(r.stdout);
+    if (m?.[1]) {
+      const info = JSON.parse(m[1]) as { units?: Record<string, { unitId: string }> };
+      seen = info.units?.[unit]?.unitId;
+      if (seen === undefined) return Date.now() - started;
+    }
+    await Bun.sleep(1000);
+  }
+  throw new Error(`${CHANNEL} still served ${unit}=${seen} after ${PROPAGATION_MS} ms; wanted nothing`);
+}
+
 async function machineFingerprint(): Promise<string> {
   const r = await sh(["fly", "machine", "list", "--json"]);
   if (r.code !== 0) return "unavailable";
@@ -327,6 +344,52 @@ try {
     `${afterReload} task(s) came back`,
   );
 
+  heading("Take the sub-app off the channel, and put it back");
+  // The other half of "the unit of release is a panel": a panel can also leave,
+  // and `--drop` is the only way one does. Every reading here was broken until
+  // 2026-09-11 and nothing in the repository ran the command on a unit this
+  // tree BUILDS - the only live use had been `--drop hello`, a unit `UNITS` no
+  // longer held, which took a different branch through every loop.
+  //
+  //   `--drop list`              read a manifest for the unit it had just
+  //                              excluded and died on an uncaught TypeError
+  //   `--from-build --drop list` said "list is named by both --app and --drop"
+  //                              on a command line where --app named nothing
+  //   either of them             threw inside the history writer, so the region
+  //                              was left with no version history written
+  const dropped = await promote(["--from-build", "--drop", "list"]);
+  check(
+    "--from-build --drop takes the sub-app off, and does not call it doubly named",
+    !dropped.stderr.includes("named by both"),
+    dropped.stderr.slice(-400),
+  );
+  check(
+    "and the terminal says what left and how to put it back",
+    dropped.stderr.includes("no longer served by") && dropped.stderr.includes("--app list="),
+    dropped.stderr.slice(-400),
+  );
+  await awaitNoUnit("list");
+
+  await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("main", { timeout: 30_000 });
+  check(
+    "the frame is served with no panel on the landing route",
+    (await page.$('[data-app="list"]')) === null,
+    "the panel is still on the page",
+  );
+
+  // Naming a unit the channel no longer serves is a refusal and not a crash.
+  const again = await sh(["bun", "run", "--silent", "scripts/promote.ts", CHANNEL, "--drop", "list"]);
+  check(
+    "dropping it a second time is refused by name",
+    again.code !== 0 && again.stderr.includes(`which ${CHANNEL} does not serve`),
+    `exit ${again.code}: ${again.stderr.slice(-300)}`,
+  );
+
+  await promote(["--app", `list=${v1.list}`]);
+  await awaitUnit("list", v1.list);
+  check("and naming an id puts it back", true);
+
   heading("No machine was built, restarted or replaced");
   const machinesAfter = await machineFingerprint();
   check(
@@ -345,7 +408,7 @@ try {
 console.log(
   failures.length === 0
     ? `\nSUCCESS: the sub-app deployed, the frame deployed, the sub-app rolled ` +
-        `back, and each left the other where it was.`
+        `back, the sub-app left the channel and came back, and each left the other where it was.`
     : `\nFAILURE: ${failures.length} check(s) failed:\n${failures.map((f) => `  - ${f}`).join("\n")}`,
 );
 process.exit(failures.length === 0 ? 0 : 1);

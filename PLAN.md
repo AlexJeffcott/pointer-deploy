@@ -34,7 +34,7 @@ It also supplies state that persists across a deploy, which is the surface §11'
 | Unit | Route | Draws | First fetched |
 | --- | --- | --- | --- |
 | `shell` | the frame | title, fixed sidenav, routing, the store, IndexedDB, export, import, push, pull | always |
-| `list` | `/` | every task: add, tag, delete. Rename and complete need members the contract table does not give it - see below | on the landing route |
+| `list` | `/` | every task: add, tag, delete, rename. Completing is `board`'s `moveTask` at step 4, renaming is `renameTask` at step 9 - see below | on the landing route |
 | `board` | `/board` | one column per fixed column, and a task moves between them | preloaded, imported when the route is opened |
 | `week` | `/week` | seven days, and every task that has a due date | preloaded, imported when the route is opened |
 | — | `/service` | what the service holds and what it retires. The frame draws it | never |
@@ -72,6 +72,7 @@ Which unit uses which member. This table is a design constraint and not a descri
 | `setDue(id, due)` | | | ✓ | |
 | `setTags(id, tags)` | ✓ | | | |
 | `removeTask(id)` | ✓ | | | |
+| `renameTask(id, title)` | ✓ | | | |
 | `goingAway(path)` | ✓ | | | |
 | `service()` | | | | `/service` |
 | `storage()` | | | | `/backup` |
@@ -81,9 +82,9 @@ Which unit uses which member. This table is a design constraint and not a descri
 
 Dropping `moveTask` refuses `board` and nothing else. Dropping `setDue` refuses `week` and nothing else. That is the reading §31 row 1 lost when the slate went to one sub-app; step 1 restores the half that needs one sub-app, and step 10 the "and nothing else" half.
 
-**A member is declared when a unit calls it, and not before.** The table is the finished surface. What `src/web/shell/api.ts` holds at any step is the rows the units built so far use, because a member no unit calls is surface the member gate cannot refuse anything for - which is what `greeting` and `setGreeting` became at step 0, and why step 1 minted a contract that drops them. So step 1 declares `tasks`, `addTask`, `setTags`, `removeTask` and `goingAway`, and steps 4 and 5 add `columns`/`moveTask` and `setDue`.
+**A member is declared when a unit calls it, and not before.** The table is the finished surface. What `src/web/shell/api.ts` holds at any step is the rows the units built so far use, because a member no unit calls is surface the member gate cannot refuse anything for - which is what `greeting` and `setGreeting` became at step 0, and why step 1 minted a contract that drops them. So step 1 declares `tasks`, `addTask`, `setTags`, `removeTask` and `goingAway`; steps 4 and 5 add `columns`/`moveTask` and `setDue`; and step 9 adds `renameTask`, which is the last row `list` needs and the one member whose arrival can be additive, because by then there are two other published units that do not call it.
 
-**That is also why `list` does not rename or complete a task at step 1.** The units table says it draws both, and neither has a member in the table: completing is `moveTask`, which is `board`'s, and renaming has no member at all. Step 4 gives `list` the first; the second is a row the table will need before the units table is true of the finished application.
+**That is also why `list` does not rename or complete a task at step 1.** The units table says it draws both. Completing is `moveTask`, which is `board`'s, and step 4 gives `list` that. Renaming is `renameTask`, and **step 9 is where it arrives** — as the additive change, because by then `board` and `week` are published against a surface that does not have it, and a member added to `ShellStore` grows no app's use set. That is the whole demonstration: one unit republishes, two do not, and `contract:matrix` stays green across the mint. Step 9's row used to read `setTags`, which step 1 minted; a step demonstrating an additive change to a member that already exists demonstrates nothing.
 
 There is no "done" flag. A task is done when it is in the `done` column, so the board and the list cannot disagree about what done means.
 
@@ -206,7 +207,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
 | 7 |  | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
 | 8 |  | Slot history and restore | Data rollback, by the same mechanism as the pointer | `restoring-an-older-snapshot` |
-| 9 |  | Additive contract change: `setTags` | Nothing republishes. `contract:matrix` stays green | `contract:matrix`, not a scenario |
+| 9 |  | Additive contract change: `renameTask` | `board` and `week` do not republish and still compile against the new contract. `contract:matrix` stays green | `contract:matrix`, not a scenario |
 | 10 |  | Breaking change: drop `moveTask` | `promote` refuses `board` and names it. `list` and `week` are untouched | restores `bun run e2e:members` |
 | 11 |  | A new `board` alone | The unit of release is a panel | `deploying-a-unit` |
 | 12 |  | `promote --app board=<older id>` | The code rollback is the deploy command. Put beside step 8 | `deploying-a-unit` |
@@ -219,13 +220,40 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 
 **A second unit, and a contract minted for it.** `list` is `15ed669` / `planner-2026-09`, and the surface it is built against dropped `greeting`, `setGreeting`, `Greeting` and `DEFAULT_GREETING` as well as adding the five members above. Both units compile against `15ed669` and neither against `9d1b0a3`, so the mint's direction reading calls the pair NOT additive and names `DEFAULT_GREETING`. Nothing is refused for it: the intersection is non-empty, and `9d1b0a3` stays retained because a rollback onto a unit published against it is what retaining is for. `scripts/contract.test.ts` holds that reading - the fourth row of §31, which needed two published contracts and now has them.
 
-**The shell still calls the service once, and keeps nothing from it.** The greeting is gone from the store, so `hydrate` is `readData`: the one call at `API_VERSION`, made because `/versions` sits outside any version prefix and cannot say whether the version this shell CALLS answers, and because only a data response carries the `Sunset` header `/service` draws. `serviceBacked` is gone with `setGreeting` - the planner is in the browser, so no write is sent anywhere until step 6.
+**The shell still calls the service once, and keeps nothing from it.** The greeting is gone from the store, so `hydrate` is `readData`: the one call at `API_VERSION`, made because `/versions` sits outside any version prefix and cannot say whether the version this shell CALLS answers, and because only a data response carries the `Sunset` header `/service` draws. `serviceBacked` is gone; `setGreeting` went on 2026-09-11, one branch late - step 1 said it had gone while `ServiceClient` still declared it, `createClient` still implemented it and the bundle still shipped it. The planner is in the browser, so no write is sent anywhere until step 6.
+
+**And `readData` no longer parses the body it does not keep.** It called `client.greeting()` behind a parser that requires `greeting.text`, so a service answering `v1` correctly with any other body put `api field greeting.text is missing or not a string` on `data-api` - a reading about the SHAPE of a response, under a doc comment saying the reading is whether the version answers. `ServiceClient.data()` makes the call and reads the status and the `Sunset` header and nothing else. `parseGreeting` and `ApiGreeting` went with it: nothing in the shell drew a field of that response, so the parser was checking a boundary no value crossed.
 
 **`list` calls `goingAway("snapshot.tasks")`, which returns null.** The service holds no snapshots until step 6 and the field is retired at step 13, so nothing is drawn for it today. The call is not decoration: `bun run e2e:members` drops the member and reads a refusal naming `list`, which is the whole of §9's first half and had no subject at step 0.
 
 **"Nothing is fetched for a view that names no unit" gained teeth.** At step 0 there was no bundle a mutation could make the page fetch, so the unit-level half of that claim was structural. It is now a difference between `/`, which fetches `list`, and the four views that fetch nothing - and the `@browser` walk measures it.
 
 **A surface change strands a channel that carries a unit built against the old one.** `test-prod` still held `hello 72e6a6f4`, which uses `ShellStore.greeting`, `ShellStore.setGreeting`, `Greeting.text` and `Greeting.audience` - all four gone from this surface - so `promote` refused every merge into that channel and named the unit and every member. Four `verify:live` scenarios failed in their Background on it. `bun run promote test-prod --from-build --drop hello` is the whole fix, and the refusal is §9's gate working on a composition nobody manufactured for it. TODO carries the reading.
+
+**And `prod` is in that state too, which is the part step 1 did not say.** Measured on 2026-09-11: both regions of `prod` serve `shell c2601912` and `hello 3bba892b` at contract `9d1b0a3`, and `hello 3bba892b`'s `uses` names all four of the members this surface removed. `promote` loads every CARRIED unit's manifest and judges the whole composition, so every promote naming the new shell on `prod` is refused until `hello` is said to leave. **The runbook is below and nothing on this branch has run it:** `prod` has no hostname, so no browser can reach it, and the promote is the one act in this repository whose record cannot have pictures.
+
+### Deploying `PLAN.md` step 1 to `prod`
+
+Not done. The commands, in order, for whoever decides to:
+
+```sh
+git checkout main && git pull          # a clean tree at the commit being deployed
+bun run build                          # no BUILD_MARKER: a marked build is refused on a real channel
+bun run publish
+bun run promote prod --from-build --drop hello
+bun run shoot --note "..." --out deploys/<composedAt>-prod   # REFUSES: prod has no hostname
+git add deploys/<composedAt>-prod && git commit
+```
+
+| | |
+| --- | --- |
+| Why `--drop hello` | `hello 3bba892b` uses `ShellStore.greeting`, `ShellStore.setGreeting`, `Greeting.text` and `Greeting.audience`. Without it the promote is refused and names the unit and all four |
+| Why not `--app hello=<older>` | Every published `hello` was built against `9d1b0a3`. There is no id that composes with this shell |
+| Why the build must be clean and unmarked | A `--from-build` to a real channel refuses a harness build, a dirty tree and another commit. Naming ids with `--shell`/`--app` takes none of those checks, which is why the runbook uses `--from-build` |
+| What the record will hold | `promote.json`, `manifest.eu.json`, `manifest.us.json`, `notes.md` — **and no pictures**. `shoot` refuses `prod` because `Host` is forbidden to `setExtraHTTPHeaders` and Fly routes on SNI. TODO §2 is the domain and the certificate that would change it |
+| The way back | `bun run promote prod --shell c2601912 --app hello=3bba892b`, which is the composition `prod` serves today |
+
+**A reading on the mint, for the repository's owner.** The removal of `greeting`, `setGreeting`, `Greeting` and `DEFAULT_GREETING` was optional. Keeping the four declared and unused would have made `15ed669` additive, left `prod` and `test-prod` promotable without a `--drop`, and cost nothing but four dead declarations - which step 6 removes anyway when the service changes its subject. What the removal bought is §31's "a published pair reads as not additive" row, held by `scripts/contract.test.ts`. So a repository whose headline claim is that a deploy is one JSON write froze its only un-shootable channel behind a manual removal, to give one test row a subject that `contract:mint --name scratch-breaking` produces on demand and that README already documents. That reads as the wrong trade. It is **not** re-minted here: a contract is an identity two published units already claim, and churning it again to undo a judgement is the owner's call and not a defect fix.
 
 **What came back, and what did not.** `bun run e2e` and `bun run e2e:members` pass rather than exiting non-zero. Six scenarios returned to `deploying-a-unit`, one to `choosing-a-version`, an Outline to `checking-what-the-page-loads`, and two to `recovering-from-an-error`; nine `falsify` mutations came back with them. What still has no subject is every claim needing a THIRD unit: two sub-apps sharing one runtime, a member dropped refusing one app and not another, and warming a unit off the landing route. TODO §31 carries those, and `PLAN.md` steps 4, 5 and 10 are where they come back.
 

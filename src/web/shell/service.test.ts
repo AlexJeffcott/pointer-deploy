@@ -6,50 +6,17 @@ import {
   createClient,
   noteSunset,
   parseDiscovery,
-  parseGreeting,
   readData,
   readService,
   type ServiceClient,
 } from "./service.ts";
 
 const HELLO = { text: "Hello", audience: "world" };
-const BONJOUR = { text: "Bonjour", audience: "tout le monde" };
 
 const rejects = (parse: (input: unknown) => unknown, input: unknown, field: string) => {
   const path = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   expect(() => parse(input)).toThrow(new RegExp(`^api field ${path} `));
 };
-
-describe("what the service sends is checked, not assumed", () => {
-  test("a greeting with every field is accepted", () => {
-    expect(parseGreeting(HELLO)).toEqual(HELLO);
-  });
-
-  // The rule the whole boundary turns on: required is what the page cannot
-  // draw without, and everything the service grew later is optional.
-  test("a greeting from a service that predates the newer field is accepted", () => {
-    expect(parseGreeting({ text: "Hello" })).toEqual({ text: "Hello", audience: "" });
-  });
-
-  test("a newer field that is present and wrong is still refused", () => {
-    rejects(parseGreeting, { text: "Hello", audience: 7 }, "greeting.audience");
-  });
-
-  test("an empty audience is a value, and an empty text is not", () => {
-    expect(parseGreeting({ text: "Hello", audience: "" }).audience).toBe("");
-    rejects(parseGreeting, { text: "", audience: "world" }, "greeting.text");
-  });
-
-  test("a greeting missing the field the page draws is rejected, by field", () => {
-    rejects(parseGreeting, { audience: "world" }, "greeting.text");
-  });
-
-  test("a body that is not an object is rejected", () => {
-    rejects(parseGreeting, [], "greeting");
-    rejects(parseGreeting, null, "greeting");
-    rejects(parseGreeting, "Hello", "greeting");
-  });
-});
 
 describe("the client", () => {
   const spy = (answer: (path: string, init?: RequestInit) => Response) => {
@@ -63,49 +30,51 @@ describe("the client", () => {
 
   const ok = (body: unknown) => Response.json(body);
 
-  test("reads the greeting from the version this shell knows", async () => {
+  test("calls the data route at the version this shell was built against", async () => {
     const s = spy(() => ok(HELLO));
     const client = createClient("https://api.test", { fetchImpl: s.fetchImpl });
 
-    expect(await client.greeting()).toEqual(HELLO);
+    await client.data();
     expect(s.calls.map((c) => c.path)).toEqual([`/${API_VERSION}/greeting`]);
   });
 
   test("a trailing slash on the base does not double the one in the path", async () => {
     const s = spy(() => ok(HELLO));
-    await createClient("https://api.test/", { fetchImpl: s.fetchImpl }).greeting();
+    await createClient("https://api.test/", { fetchImpl: s.fetchImpl }).data();
     expect(s.calls[0]!.path).toBe(`/${API_VERSION}/greeting`);
-  });
-
-  test("a write is a POST to the same path, carrying only what changed", async () => {
-    const s = spy(() => ok({ ...HELLO, audience: "Berlin" }));
-    const written = await createClient("https://api.test", { fetchImpl: s.fetchImpl }).setGreeting({
-      audience: "Berlin",
-    });
-    expect(s.calls[0]!.path).toBe(`/${API_VERSION}/greeting`);
-    expect(s.calls[0]!.init?.method).toBe("POST");
-    expect(s.calls[0]!.init?.body).toBe(JSON.stringify({ audience: "Berlin" }));
-    expect(written.audience).toBe("Berlin");
   });
 
   test("a status the service refuses with is reported as the status", async () => {
     const s = spy(() => Response.json({ error: "not found" }, { status: 404 }));
     await expect(
-      createClient("https://api.test", { fetchImpl: s.fetchImpl }).greeting(),
+      createClient("https://api.test", { fetchImpl: s.fetchImpl }).data(),
     ).rejects.toThrow(/responded 404/);
   });
 
-  test("a body that is not the shape this shell knows is reported as the field", async () => {
+  // The reading is whether the version answers, and nothing about the shape of
+  // what it answers with. This shell keeps no field of that body, so a body it
+  // does not recognise is not a fault it can report - and reporting one put
+  // `api field greeting.text is missing` on `data-api` for a service that was
+  // answering v1 perfectly well.
+  test("a body in a shape this shell does not know is still an answer", async () => {
     const s = spy(() => ok({ salutation: "Hello" }));
     await expect(
-      createClient("https://api.test", { fetchImpl: s.fetchImpl }).greeting(),
-    ).rejects.toThrow(/^api field greeting\.text /);
+      createClient("https://api.test", { fetchImpl: s.fetchImpl }).data(),
+    ).resolves.toBeUndefined();
+  });
+
+  // A truncated response is NOT an answer, which is why the body is still read
+  // even though nothing is taken out of it.
+  test("a response whose body never arrives is a fault", async () => {
+    const s = spy(() => new Response("{", { headers: { "content-type": "application/json" } }));
+    await expect(
+      createClient("https://api.test", { fetchImpl: s.fetchImpl }).data(),
+    ).rejects.toThrow();
   });
 });
 
 const stub = (over: Partial<ServiceClient> = {}): ServiceClient => ({
-  greeting: async () => HELLO,
-  setGreeting: async (patch) => ({ ...HELLO, ...patch }),
+  data: async () => {},
   discovery: async () => ({ serves: [API_VERSION], versions: null }),
   lastSunset: () => null,
   ...over,
@@ -117,23 +86,18 @@ const stub = (over: Partial<ServiceClient> = {}): ServiceClient => ({
 // only a data response carries.
 describe("the one data call the page makes", () => {
   test("a service that answers reports ok", async () => {
-    expect(await readData(stub({ greeting: async () => BONJOUR }))).toBe("ok");
+    expect(await readData(stub())).toBe("ok");
   });
 
   test("a service that cannot be reached names the fault rather than throwing", async () => {
     const said = await readData(
       stub({
-        greeting: async () => {
+        data: async () => {
           throw new Error("Unable to connect");
         },
       }),
     );
     expect(said).toBe("Unable to connect");
-  });
-
-  test("a response this shell cannot read names the field, not the service", async () => {
-    const said = await readData(stub({ greeting: async () => parseGreeting({ text: 7 }) }));
-    expect(said).toMatch(/^api field greeting\.text /);
   });
 
   // The page's tasks are in this browser and the service holds none of them, so
@@ -143,7 +107,7 @@ describe("the one data call the page makes", () => {
     store.addTask("Book the ferry");
     await readData(
       stub({
-        greeting: async () => {
+        data: async () => {
           throw new Error("Unable to connect");
         },
       }),
@@ -291,7 +255,7 @@ describe("what the service says it holds, §26", () => {
     expect(c.lastSunset()).toBeNull();
     expect(await c.discovery()).toEqual({ serves: ["v1"], versions: null });
     expect(seen).toEqual(["/versions"]);
-    await c.greeting();
+    await c.data();
     expect(c.lastSunset()).toBe("Thu, 10 Dec 2026 00:00:00 GMT");
   });
 });

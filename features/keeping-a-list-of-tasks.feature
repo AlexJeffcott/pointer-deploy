@@ -41,9 +41,28 @@ Feature: Keeping a list of tasks
 
     @browser @test-channel
     Scenario: A task is given tags, and the list draws them
+      Typed one key at a time, which is the only way this measures anything. A
+      control driven off the store alone rewrote its own value between
+      keystrokes and erased the comma as it was typed, and a step that set the
+      whole string in one event was green on it.
+
       When they add the task "Book the ferry"
       And they tag "Book the ferry" with "travel, summer"
       Then "Book the ferry" carries the tags "travel, summer"
+      And the tag box for "Book the ferry" reads "travel, summer"
+
+    @browser @test-channel
+    Scenario: A second tag is typed onto a task that already has one
+      The separator has to survive being typed. Between the comma and the first
+      letter of the second tag there is a moment when the store holds one tag
+      and the box holds "travel, " - and a box that is redrawn from the store at
+      that moment loses what the visitor is in the middle of writing.
+
+      When they add the task "Book the ferry"
+      And they tag "Book the ferry" with "travel"
+      And they go on typing ", summer" after the tags on "Book the ferry"
+      Then "Book the ferry" carries the tags "travel, summer"
+      And the tag box for "Book the ferry" reads "travel, summer"
 
     @browser @test-channel
     Scenario: Tagging one task leaves every other task untagged

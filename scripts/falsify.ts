@@ -7,6 +7,14 @@
 //
 //   bun run falsify                  # the @local mutations
 //   FALSIFY_LIVE=1 bun run falsify   # and the ones that need the real store
+//   bun run falsify --only <text>    # the mutations whose name contains <text>
+//
+// `--only` narrows and never widens: a @live mutation it names is still skipped
+// unless FALSIFY_LIVE is set. It exists so that a claim about a handful of
+// mutations can be MEASURED without running all of them - `PLAN.md` said nine
+// came back at step 1, and eight of the nine are @live, so the command in the
+// checklist skipped every one of them and the claim rested on the array having
+// grown.
 //
 // The composition mutations are @live because what they break is what
 // publish.ts and promote.ts do to the store. They are reported as SKIPPED
@@ -1196,6 +1204,20 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
   {
+    // The defect this mutation restores shipped, and was green: the tag input
+    // drew its value straight from the store, so a comma round-tripped through
+    // `tagsFrom` and Preact wrote the text back without it. `page.fill` sets the
+    // whole string in one event and cannot see it; only a scenario that types
+    // one key at a time can, which is what the two tagging scenarios now do.
+    name: "the tag box is drawn from the store between keystrokes",
+    file: "src/web/apps/list/index.tsx",
+    find: 'value={drafts[task.id] ?? task.tags.join(", ")}',
+    replace: 'value={task.tags.join(", ")}',
+    scenario: "A second tag is typed onto a task that already has one",
+    live: true,
+    browser: true,
+  },
+  {
     name: "the service accepts a greeting no page can draw",
     file: "api/service.ts",
     find: '      if ("text" in body && text === null) return refuse("text", "is not a non-empty string");',
@@ -1414,10 +1436,37 @@ async function runUnitTest(name: string): Promise<boolean> {
 
 const RUN_LIVE = Boolean(Bun.env.FALSIFY_LIVE);
 
+const argv = process.argv.slice(2);
+const only: string[] = [];
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] !== "--only") continue;
+  const text = argv[++i];
+  if (!text) {
+    console.log("--only takes the text to match in a mutation's name.");
+    process.exit(1);
+  }
+  only.push(text);
+}
+
+const selected = only.length
+  ? MUTATIONS.filter((m) => only.some((text) => m.name.includes(text)))
+  : MUTATIONS;
+
+if (only.length) {
+  // A filter that matches nothing is the same class of nothing as a --grep that
+  // matches no scenario, and it is refused the same way.
+  const missed = only.filter((text) => !MUTATIONS.some((m) => m.name.includes(text)));
+  if (missed.length) {
+    console.log(`--only ${missed.map((t) => JSON.stringify(t)).join(", ")} matches no mutation.`);
+    process.exit(1);
+  }
+  console.log(`--only: ${selected.length} of ${MUTATIONS.length} mutations selected.\n`);
+}
+
 let failures = 0;
 let skipped = 0;
 
-for (const m of MUTATIONS) {
+for (const m of selected) {
   if (m.live && !RUN_LIVE) {
     // Reported, never silently dropped. A mutation nobody ran proves nothing,
     // and a summary that hid it would read as though it had.
@@ -1476,11 +1525,12 @@ if (restored.exitCode !== 0) {
   failures++;
 }
 
-const ran = MUTATIONS.length - skipped;
+const ran = selected.length - skipped;
+const scope = only.length ? ` of the ${selected.length} --only selected` : "";
 const tail = skipped ? `, ${skipped} skipped (set FALSIFY_LIVE=1)` : "";
 console.log(
   failures === 0
-    ? `\nSUCCESS: ${ran} of ${MUTATIONS.length} mutations run, each caught by its check${tail}`
+    ? `\nSUCCESS: ${ran}${scope || ` of ${MUTATIONS.length}`} mutations run, each caught by its check${tail}`
     : `\nFAILURE: ${failures} of ${ran} mutations run were not caught${tail}`,
 );
 process.exit(failures === 0 ? 0 : 1);

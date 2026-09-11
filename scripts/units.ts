@@ -15,6 +15,16 @@
 // refuses one on a real channel and the server offers one on a `test-*` channel
 // alone, so an operator reading this table is reading builds they can deploy -
 // 112 of the 129 units in the store on 2026-08-31 were the harness's.
+//
+// The tell is the marker, and a harness that forgets to set one publishes into
+// this table as an ordinary build. That happened: `bun run e2e:members` cut
+// `goingAway` out of `ShellStore` and published the result with no marker, and
+// on 2026-09-11 a deliberately broken shell was the FIRST row here with a
+// promote command printed under it. The probe sets a marker now. What this file
+// does about the class of it is the last paragraph of the run: the command it
+// suggests is never a unit built from a dirty tree, because such a build's bytes
+// came from source no commit holds and naming an id is the one promote that
+// takes no source check.
 
 import { configFromEnv } from "./store.ts";
 import { UNITS, type Unit } from "./contract.ts";
@@ -81,6 +91,7 @@ const rows = shown.flatMap((name) =>
       id: e.unit.unitId,
       published: (e.publishedAt ?? "").slice(0, 10) || "unknown",
       commit: e.dirty ? `${e.unit.commit.slice(0, 8)}+dirty` : e.unit.commit.slice(0, 8),
+      dirty: Boolean(e.dirty),
       marker: e.unit.marker ?? "",
       surface:
         name === "shell"
@@ -111,14 +122,25 @@ for (const r of rows) {
       `${r.commit.padEnd(w.commit)}  ${r.marker ? `harness ${r.marker}, ` : ""}${r.surface}`,
   );
 }
-const first = rows[0]!;
+// The row the suggestion names is the newest one built from a COMMIT. A unit
+// built from a dirty tree came from source no commit holds - `promote
+// --from-build` refuses exactly that, and a promote naming an id takes no source
+// check at all - so a table that offered one as the command to copy would be
+// handing an operator the one build nothing else will stop. The dirty rows stay
+// listed: rolling a channel back onto what it once served is what this table is
+// for, and a channel has served a dirty build before.
+const dirtyRows = rows.filter((r) => r.dirty).length;
+const first = rows.find((r) => !r.dirty);
 console.error(
   `\n${rows.length} published units` +
-    (hidden ? `, and ${hidden} harness builds not shown. Add --all to see them` : "") +
-    `. Promote one with:`,
+    (hidden ? `, ${hidden} harness builds not shown (add --all)` : "") +
+    (dirtyRows ? `, ${dirtyRows} built from a tree no commit holds` : "") +
+    (first ? `. Promote one with:` : `, and every one of them is +dirty. There is nothing here to suggest.`),
 );
-console.error(
-  first.unit === "shell"
-    ? `  bun run promote qa --shell ${first.id}`
-    : `  bun run promote qa --app ${first.unit}=${first.id}`,
-);
+if (first) {
+  console.error(
+    first.unit === "shell"
+      ? `  bun run promote qa --shell ${first.id}`
+      : `  bun run promote qa --app ${first.unit}=${first.id}`,
+  );
+}
