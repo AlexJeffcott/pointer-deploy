@@ -23,7 +23,7 @@ Open items and what is done. Read this first after a context clear.
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite. `prod` is still on step 0's composition and is refused every promote of this surface until `hello` is dropped — §39, and the runbook is in `PLAN.md` |
 | Units | two: `shell` and `list`, the second placed on `/` at `PLAN.md` step 1. `hello` is gone; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
-| Contract | `15ed669` (`planner-2026-09`), minted at step 1. `9d1b0a3` (`hello-2026-09`) is retained beside it and no unit this tree builds compiles against it |
+| Contract | `3740ba6` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |

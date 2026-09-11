@@ -96,6 +96,18 @@ When("they take {string} off the list", async function (this: PointerWorld, titl
  */
 When("they load the page again", async function (this: PointerWorld) {
   const page = this.browserPage;
+  // Not a settling delay, and not politeness to the harness. Writing is
+  // asynchronous: measured on 2026-09-11, a task added and the page reloaded in
+  // the same ten milliseconds was gone, because the transaction was still open
+  // when the browser took the page away. What survives a reload is what was
+  // STORED, so this waits for the page's own reading that there is nothing left
+  // to store - and a reload that beats that window is TODO §40, which this step
+  // is deliberately not measuring.
+  await page.waitForFunction(
+    () => document.documentElement.dataset.plannerPending !== "yes",
+    undefined,
+    { timeout: 10_000 },
+  );
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector(`${PANEL} section`, { timeout: 20_000 });
   await page.waitForSelector(`${PANEL} [data-memory-note]`, { timeout: 20_000 });

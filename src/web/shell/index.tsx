@@ -96,6 +96,7 @@ async function startPlanner(store: ShellStore): Promise<void> {
     store.setPlanner({
       state: "unstored",
       schemaVersion: null,
+      pending: false,
       error: why(e),
       readAt: new Date().toISOString(),
     });
@@ -116,24 +117,44 @@ async function startPlanner(store: ShellStore): Promise<void> {
     return;
   }
 
-  store.setPlanner({
-    state: "stored",
-    schemaVersion: SCHEMA_VERSION,
-    error: null,
-    readAt: new Date().toISOString(),
-  });
+  const readAt = new Date().toISOString();
+  const stored = (pending: boolean): void =>
+    store.setPlanner({
+      state: "stored",
+      schemaVersion: SCHEMA_VERSION,
+      pending,
+      error: null,
+      readAt,
+    });
+  stored(false);
 
   // Started AFTER the read, and it skips its own first run. An effect created
   // before the read would write the empty list it was created with over what is
   // stored, which is the one way this feature can lose a visitor's tasks.
+  //
+  // `inFlight` is what `PlannerReport.pending` is drawn from. Counted rather
+  // than set, because two changes made close together start two transactions
+  // and the first to finish must not report the second one done.
   let loaded = false;
+  let inFlight = 0;
   effect(() => {
     const tasks = store.tasks();
     if (!loaded) {
       loaded = true;
       return;
     }
-    void planner.write(tasks).catch((e) => unstored(e));
+    inFlight += 1;
+    stored(true);
+    void planner.write(tasks).then(
+      () => {
+        inFlight -= 1;
+        if (inFlight === 0) stored(false);
+      },
+      (e: unknown) => {
+        inFlight -= 1;
+        unstored(e);
+      },
+    );
   });
 }
 
@@ -141,5 +162,7 @@ async function startPlanner(store: ShellStore): Promise<void> {
 // it without reaching into a bundle. `data-api` is the same thing for the
 // service.
 effect(() => {
-  document.documentElement.dataset.planner = store.planner().state;
+  const report = store.planner();
+  document.documentElement.dataset.planner = report.state;
+  document.documentElement.dataset.plannerPending = report.pending ? "yes" : "no";
 });

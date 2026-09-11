@@ -98,14 +98,30 @@ if (registry.contracts.some((c) => c.name === name)) {
 // reading is HEAD plus whether the tree was dirty, and a dirty tree means the
 // commit named is where the work started and not what it contains.
 const source = currentSource();
-if (at !== null && !/^[0-9a-f]{7,40}$/.test(at)) {
-  console.error(`--at ${JSON.stringify(at)} is not a commit.`);
-  process.exit(1);
+
+/**
+ * `--at`, resolved to the full commit it names.
+ *
+ * Asked of git rather than matched against a pattern. A regular expression
+ * cannot tell a commit from seven hex characters that are not one, so the
+ * message below used to be a claim the check did not make - and a short sha
+ * passed it and was recorded as a short sha, leaving the registry's records
+ * disagreeing about what a commit id looks like.
+ */
+function commitAt(ref: string): string {
+  const resolved = Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+  const full = resolved.stdout.toString().trim();
+  if (resolved.exitCode !== 0 || full === "") {
+    console.error(`--at ${JSON.stringify(ref)} is not a commit in this repository.`);
+    process.exit(1);
+  }
+  return full;
 }
+
 const record: ContractRecord = {
   name,
   hash,
-  firstSeenCommit: at ?? source?.commit ?? "0".repeat(40),
+  firstSeenCommit: at === null ? (source?.commit ?? "0".repeat(40)) : commitAt(at),
   ...(at === null && source?.dirty ? { mintedDirty: true } : {}),
   firstSeenAt: new Date().toISOString(),
 };

@@ -150,15 +150,17 @@ Database `pointer-planner`, owned by the shell.
 
 ### Opening it
 
-The shell opens with **no version first**, reads `db.version`, and then decides. Opening at a fixed version against a database that is already newer raises `VersionError`, and the shell must never be in a position to do that.
+The shell ends up opening with **no version first**, reading `db.version`, and then deciding. Opening at a fixed version against a database that is already newer raises `VersionError`, and the shell must never be in a position to do that.
 
-| Stored version | What the shell does |
-| --- | --- |
-| equal to what this shell expects | uses it |
-| lower | closes, reopens at the expected version, runs the forward upgrade |
-| **higher** | closes it, uses no cache, says so on the page, and **leaves every byte untouched** |
+| Stored version | What the shell does | Built at |
+| --- | --- | --- |
+| equal to what this shell expects | uses it | step 2 |
+| lower | closes, reopens at the expected version, runs the forward upgrade | step 14 |
+| **higher** | closes it, uses no cache, says so on the page, and **leaves every byte untouched** | step 16 |
 
 The third row is what a rollback produces, and the requirement is that it degrades rather than fails. A shell that meets data from a newer shell is not entitled to read it and is not entitled to delete it.
+
+**The last column is the whole reason steps 15 and 16 exist, and it was nearly read the other way.** This section describes where the shell ENDS UP, and a reader taking it as the design to build at step 2 would open with no version from the start - which is strictly safer, and which would leave step 15 with no `VersionError` to produce and step 16 with nothing to fix. So step 2 opens at the one version it knows, and `src/web/shell/planner.ts` says why at `SCHEMA_VERSION`. The limit is real while it stands: a visitor who is served a rolled-back shell between step 14 and step 16 meets a page that cannot open its planner at all. Step 15 is where that is measured rather than reasoned about.
 
 ---
 
@@ -200,7 +202,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | --- | --- | --- | --- | --- |
 | 0 | 2026-09-10 | The frame: five routes, three empty, `hello` removed | A view naming no unit is legitimate, and nothing is fetched for it | rewrite `serving-the-shell` |
 | 1 | 2026-09-11 | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
-| 2 |  | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
+| 2 | 2026-09-11 | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
 | 3 |  | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
 | 4 |  | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
 | 5 |  | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |

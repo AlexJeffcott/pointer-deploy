@@ -172,11 +172,28 @@ describe("the planner the store reports", () => {
     store.setPlanner({
       state: "stored",
       schemaVersion: 1,
+      pending: false,
       error: null,
       readAt: "2026-09-11T12:00:00.000Z",
     });
     expect(store.planner().state).toBe("stored");
     expect(store.planner().schemaVersion).toBe(1);
+    expect(store.planner().pending).toBe(false);
+  });
+
+  // The window `TODO` §40 is about, and the reading that makes it measurable:
+  // a change is made here and the database does not hold it yet.
+  test("a planner with a write still going says it is pending", () => {
+    const store = createStore();
+    store.setPlanner({
+      state: "stored",
+      schemaVersion: 1,
+      pending: true,
+      error: null,
+      readAt: "2026-09-11T12:00:00.000Z",
+    });
+    expect(store.planner().pending).toBe(true);
+    expect(store.planner().state).toBe("stored");
   });
 
   test("a planner that cannot be stored reports why, and keeps its tasks", () => {
@@ -184,6 +201,7 @@ describe("the planner the store reports", () => {
     store.setPlanner({
       state: "unstored",
       schemaVersion: null,
+      pending: false,
       error: "this browser does not offer IndexedDB",
       readAt: "2026-09-11T12:00:00.000Z",
     });

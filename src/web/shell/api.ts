@@ -60,6 +60,17 @@ export type PlannerReport = {
   state: "unread" | "stored" | "unstored";
   /** The schema version this shell writes, or null while nothing is stored. */
   schemaVersion: number | null;
+  /**
+   * Whether a change made here has still to reach the database.
+   *
+   * Writing is asynchronous and a page can be closed part-way through one.
+   * Measured on 2026-09-11: a task added and the page reloaded in the same
+   * ten milliseconds was gone, because the transaction was still open when the
+   * browser took the page away. Nothing makes that window zero - IndexedDB has
+   * no synchronous commit - so the page is given the reading instead, and
+   * anything that must know the planner is safe waits for this to be false.
+   */
+  pending: boolean;
   /** Why the planner is not being stored, or null when it is. */
   error: string | null;
   /** When the planner was read, ISO. Null while it has never been read. */
@@ -146,6 +157,7 @@ const DEFAULT_COLUMN = "todo";
 export const NO_PLANNER: PlannerReport = {
   state: "unread",
   schemaVersion: null,
+  pending: false,
   error: null,
   readAt: null,
 };
