@@ -130,10 +130,17 @@ export type ShellStore = {
   /**
    * Replaces every task at once.
    *
-   * The shell calls this with what it read out of IndexedDB and nothing else
-   * does. It is on this surface for the same reason `setService` is: the shell
-   * writes what it learned into the store the panels read, so that what the
-   * panel draws and what the planner holds stay one fact.
+   * The FRAME calls this and no unit does. It is on this surface for the same
+   * reason `setService` is: the shell writes what it learned into the store the
+   * panels read, so that what the panel draws and what the planner holds stay
+   * one fact.
+   *
+   * Two callers, one member, `PLAN.md` step 3. Step 2 added it for what came
+   * out of IndexedDB; `/backup` now hands it what came out of a file, and step
+   * 7 will hand it what came out of a snapshot. Every one of them is a TOTAL
+   * overwrite, which is why there is no member for adding some tasks to the
+   * ones already held - and why one assignment here is one IndexedDB
+   * transaction rather than one per task.
    */
   loadTasks(tasks: readonly Task[]): void;
   planner(): PlannerReport;

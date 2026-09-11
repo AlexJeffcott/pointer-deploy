@@ -1,5 +1,7 @@
 import { useState } from "preact/hooks";
 import type { ShellStore } from "./api.ts";
+import { documentFrom, readDocument, type ImportOutcome } from "./document.ts";
+import { SCHEMA_VERSION } from "./planner.ts";
 import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
 import { navigate, route } from "./router.ts";
@@ -99,6 +101,131 @@ function ServiceView({ store }: { store: ShellStore }) {
   );
 }
 
+/**
+ * The planner as one file, drawn by the shell, `PLAN.md` step 3.
+ *
+ * No unit is placed on `/backup` and nothing is fetched for it, exactly as on
+ * `/service`. Two of the document's four doors are here; push and pull are the
+ * other two and arrive at steps 6 and 7.
+ *
+ * The frame calls `document.ts` straight and writes through
+ * `ShellStore.loadTasks`, so step 3 adds no member to the contract. A sub-app
+ * cannot read a file, so a member for it would be surface the member gate could
+ * refuse nothing for.
+ */
+function BackupView({ store }: { store: ShellStore }) {
+  const planner = store.planner();
+  const tasks = store.tasks();
+  const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
+
+  const save = (): void => {
+    const doc = documentFrom(tasks, SCHEMA_VERSION);
+    const url = URL.createObjectURL(
+      new Blob([`${JSON.stringify(doc, null, 2)}\n`], { type: "application/json" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `pointer-planner-${doc.exportedAt.slice(0, 10)}.json`;
+    // Attached, clicked, and taken away on the next turn of the loop. A
+    // detached anchor downloads in Chrome and not in every browser, and
+    // revoking the object URL in the same tick races the download starting
+    // from it.
+    document.body.append(link);
+    link.click();
+    setTimeout(() => {
+      link.remove();
+      URL.revokeObjectURL(url);
+    }, 0);
+  };
+
+  const load = async (event: Event): Promise<void> => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // Cleared first, so that choosing the SAME file again fires a second
+    // change event. An input still holding the name does not, and a person who
+    // has just seen a refusal is exactly the person who tries again.
+    input.value = "";
+    if (!file) return;
+
+    const read = readDocument(await file.text(), SCHEMA_VERSION);
+    // The write, and the whole of "a total overwrite in one transaction": one
+    // assignment to the store, which the shell's effect turns into one
+    // IndexedDB transaction that clears the object store and puts the
+    // document's tasks into it. A refusal never reaches this line.
+    if (read.ok) store.loadTasks(read.tasks);
+    setOutcome(read);
+  };
+
+  return (
+    <div class={styles.report} data-backup>
+      <dl class={styles.pairs}>
+        <dt>Planner</dt>
+        <dd data-planner-state>{planner.state}</dd>
+        <dt>Tasks held</dt>
+        <dd data-planner-tasks>{tasks.length}</dd>
+        <dt>Schema</dt>
+        <dd data-planner-version>{planner.schemaVersion ?? "nothing written"}</dd>
+        <dt>Writing</dt>
+        <dd data-planner-pending>{planner.pending ? "a change has still to land" : "nothing waiting"}</dd>
+        {planner.error ? (
+          <>
+            <dt>Not stored</dt>
+            <dd data-planner-error>{planner.error}</dd>
+          </>
+        ) : null}
+      </dl>
+
+      <div class={styles.doors}>
+        <div class={styles.door}>
+          <h3 class={styles.doorTitle}>Export</h3>
+          <button type="button" class={styles.button} data-export onClick={save}>
+            Write a file
+          </button>
+          <p class={styles.muted}>
+            Every task as one JSON file. Clearing this browser&rsquo;s site data destroys the
+            planner, and this file is what survives it.
+          </p>
+        </div>
+
+        <div class={styles.door}>
+          <h3 class={styles.doorTitle}>Import</h3>
+          <label class={styles.muted} for="import-file">
+            Choose a file
+          </label>
+          <input
+            id="import-file"
+            class={styles.file}
+            type="file"
+            accept="application/json,.json"
+            data-import
+            onChange={load}
+          />
+          <p class={styles.muted}>
+            A total overwrite. Every task here is replaced by the ones in the file, and nothing is
+            merged. A file this shell cannot read is refused whole.
+          </p>
+        </div>
+      </div>
+
+      {outcome === null ? null : outcome.ok ? (
+        <p class={styles.outcome} data-import-read={outcome.tasks.length}>
+          Read {outcome.tasks.length} {outcome.tasks.length === 1 ? "task" : "tasks"} out of the
+          file. Every task that was here has been replaced.
+        </p>
+      ) : (
+        <p class={styles.refused} data-import-refused>
+          The file was refused: {outcome.problem}. Nothing was changed.
+        </p>
+      )}
+
+      <p class={styles.muted}>
+        Pushing this planner to the service, and pulling one into another browser, are not built
+        yet.
+      </p>
+    </div>
+  );
+}
+
 export function Shell({ store }: { store: ShellStore }) {
   const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE;
   const view = VIEWS[path]!;
@@ -140,6 +267,7 @@ export function Shell({ store }: { store: ShellStore }) {
         <p class={styles.note}>{view.note}</p>
 
         {path === "/service" ? <ServiceView store={store} /> : null}
+        {path === "/backup" ? <BackupView store={store} /> : null}
 
         <div class={styles.panels}>
           {view.apps.map((name) => (

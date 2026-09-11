@@ -158,3 +158,65 @@
 .muted {
   color: var(--muted);
 }
+
+/* The backup view, drawn by the shell. `PLAN.md` step 3. */
+
+.doors {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+.door {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.door p {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.doorTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.button {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.file {
+  font: inherit;
+  font-size: 0.8125rem;
+  max-width: 100%;
+}
+
+/* Read and refused are the same shape on purpose: what a person looks for is
+   the sentence, and a refusal that hid in a different corner would be missed. */
+.outcome,
+.refused {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--line);
+}
+
+.refused {
+  border-color: var(--error, #b3261e);
+  color: var(--error, #b3261e);
+}

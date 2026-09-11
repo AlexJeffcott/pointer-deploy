@@ -46,7 +46,12 @@ export const VIEWS: Record<string, View> = {
   "/backup": {
     title: "Backup",
     apps: [],
-    note: "Drawn by the shell. It will hold export, import, push and pull; none of them is built yet.",
+    // `PLAN.md` step 3 built the first two doors, so this note stopped saying
+    // that none of them was built - which is the mistake `/` made at step 2,
+    // where the note went on contradicting the panel directly beneath it.
+    // Which doors exist is the PANEL's sentence: it can say push and pull are
+    // still missing, and a one-line note cannot say it without going stale.
+    note: "Drawn by the shell. The planner as one file, out and back in. Nothing is fetched for this view.",
   },
 };
 
