@@ -99,12 +99,24 @@ export async function openPlanner(): Promise<Planner> {
      */
     write: async (tasks) => {
       const tx = db.transaction([TASKS, META], "readwrite");
-      const store = tx.objectStore(TASKS);
-      store.clear();
-      for (const task of tasks) store.put(task);
-      const meta = tx.objectStore(META);
-      meta.put({ key: "schemaVersion", value: SCHEMA_VERSION } satisfies MetaRow);
-      meta.put({ key: "writtenAt", value: new Date().toISOString() } satisfies MetaRow);
+      try {
+        const store = tx.objectStore(TASKS);
+        store.clear();
+        for (const task of tasks) store.put(task);
+        const meta = tx.objectStore(META);
+        meta.put({ key: "schemaVersion", value: SCHEMA_VERSION } satisfies MetaRow);
+        meta.put({ key: "writtenAt", value: new Date().toISOString() } satisfies MetaRow);
+      } catch (e) {
+        // A request that throws as it is QUEUED leaves the clear queued and
+        // everything after it unqueued, and the transaction then COMMITS an
+        // empty store - the one outcome one transaction exists to prevent. An
+        // unclonable value is the reachable way in, and `PLAN.md` step 3 hands
+        // this an array a file supplied. So the transaction is aborted by hand
+        // and the caller is told, rather than the planner being emptied
+        // quietly.
+        tx.abort();
+        throw e;
+      }
       await committed(tx);
     },
 
