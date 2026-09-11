@@ -74,6 +74,16 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 **What the changelog closed.** `CHANGELOG.md` is generated from `deploys/` by `bun run changelog`, never written by hand, and not committed: every fact in it is already in `deploys/`, so a copy in git buys nothing and costs staleness, a check for it, and a conflict on its counts whenever two branches each land a deploy. What has to be right is the archive and the readings, and `scripts/changelog.test.ts` holds the loader against fixtures - the half that had no test at all and had been wrong twice. The archive forced three readings the entry has to get right, each of them a state the records already hold: a promote every one of whose units is `carried` moved nothing and is not a deploy anybody asked for, a record written by `--region eu` names one region and keeps another promote's bytes under an as-served name, and the oldest record has no act at all, so `not recorded` and `nothing` are different cells. The fourth is a state the archive has never held: `warnings` is `[]` in all five records, so the block that lists them is written and tested against the case nobody has seen. Verified by hand on 2026-09-10 with a sixth record staged in the working tree - a moved unit, two warnings, no pictures - which made both tests red, rendered the entry it should, and was then removed.
 
+### 37. A scenario measures machine state it does not arrange
+
+`features/steps/shell.steps.ts:186` — "both origins are served by one machine" — reads `fly machine list` and asserts exactly one machine is `started`. Nothing in the scenario puts the other one to sleep. It passes only while `iad` happens to be suspended under `auto_stop_machines`, which is most of the time and is not a fact the scenario establishes.
+
+Seen on 2026-09-11: `bun run verify:live` was 37 of 38, and the failure was this. `iad` was `started` because a single `curl -H 'fly-prefer-region: iad'` — taken minutes earlier to check that `us` was healthy after the step 0 deploy — woke it. Reading the deployment made the suite red.
+
+**The assertion is not wrong.** The claim is that ONE server answers two origins, and with two machines up a request can reach either, so the scenario cannot prove it. What is missing is the arrangement: the suite already stops a machine elsewhere (`shell.steps.ts:46`, one per run, §6), so a `Given` that suspends every machine but one is the same mechanism applied where the reading needs it.
+
+Until then a live run is order-dependent on whether anybody has touched `us` recently, which is the §32 shape: a check that reports a different answer depending on what else happened, rather than failing.
+
 ### 36. A promote can write a pointer the running image cannot parse
 
 `PLAN.md` step 0 took the application to one unit, so `promote qa --from-build` wrote a pointer whose `apps` is `{}`. The image deployed at the time threw `manifest names no apps` on it. Nothing refused the write; the refusal happened later, in every machine, one at a time.
