@@ -54,7 +54,9 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
-**`PLAN.md` step 4 landed on 2026-09-12.** `board` is the third unit and the first placed off the landing route, so the warm the shell has emitted since §17 finally has something to buy: measured with a control, the view opens in **60 ms** warm and **840 ms** without the tags. Ten mutations were added with it, four `@local` and six `@browser`, and all ten are caught. It closed §31 row 2 and closed half of row 3. It opened no item of its own; §43, §44 and §45 are still step 3's.
+**`PLAN.md` step 4 landed on 2026-09-12.** `board` is the third unit and the first placed off the landing route, so the warm the shell has emitted since §17 finally has something to buy: measured with a control, the view opens in **52 ms** warm and **832 ms** without the tags, median of 9, and the same 780 ms after a ten-second pause. Twelve mutations were added with it, four `@local` and eight `@browser`, and all twelve are caught. It closed §31 row 2 and closed half of row 3.
+
+**A cold read by `devils-advocate-agent` on 2026-09-12 found nine defects and six wrong sentences, all fixed on the branch.** Two are items of their own: §46, IndexedDB is a third door on the column value and nothing guards it, and §47, 530 ms of the warm's baseline is unaccounted for. The rest were fixed in place - nothing asserted the additive direction on the published pair, a mutation was caught for a reason its comment got wrong and the persistence claim had no mutation at all, the measurement was three runs at the hottest cache moment, `README.md` said in four places that `/board` places no unit, and a `.feature` file and `falsify.ts` disagreed about which way §41's margin moves. `PLAN.md` step 4's section carries the whole reading. §43, §44 and §45 are still step 3's.
 
 **`PLAN.md` step 3 landed on 2026-09-11.** `qa` serves `list=2adce208 shell=6464877b` at contract `1c4a120`, record `deploys/2026-09-11T16-50-15Z-qa`. `list`'s id is the one step 2 promoted: a whole view arrived and no sub-app was rebuilt. It opened three items: §43, one `unstored` state for three different facts; §44, a cold-state step `PLAN.md` specified and nothing built; §45, document fields nothing reads. Sixteen mutations were added with it and **nine of them are `@local`**, so `bun run falsify` runs nine of the sixteen rather than reporting all sixteen as skipped.
 
@@ -87,6 +89,34 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
+
+### 47. 530 ms of the warm's baseline is unaccounted for, and the loader fetches in series
+
+**Measured on 2026-09-12 by `scripts/measure-preload.ts`, after `devils-advocate-agent` asked what the 780 ms is attributable to.** The control arm - the same page with the warm tags cut out of the HTML - takes 821 to 837 ms from the click to the panel being on screen. The two fetches it makes are 143-167 ms for the stylesheet and 139-192 ms for the module, adding up to 284-354 ms.
+
+So roughly 530 ms of the 832 is neither fetch. It is not module evaluation or rendering: those happen in both arms, and the warm arm's whole reading is 41 to 68 ms.
+
+| | |
+| --- | --- |
+| What is known | The two fetch durations, per run, off `PerformanceResourceTiming`. `startTime` shows them tight in series - the module starts within 1 ms of the stylesheet finishing - so the gap is not between them |
+| What is not known | Where the other 530 ms goes. Candidates nothing has measured: the delay between a stylesheet's resource timing ending and its `onload` firing, which is what `addStylesheet` awaits; SRI verification on a cross-origin file; the route change and the effect that starts the load |
+| Why it matters to the design | `loader.ts:44-45` awaits the stylesheet and THEN imports the module. A `Promise.all` there would cut the control arm towards the LONGER of the two rather than their sum - about 150 ms of 832, not half of it - and it needs no warm tag anywhere. The 780 ms is not at risk from it; what is at risk is the sentence that says a serial loader is why the baseline is what it is |
+| The next reading | Time `addStylesheet`'s promise and the `import()` separately in the page, in both arms. That is the measurement that says whether the 530 ms is the loader's or the browser's |
+| Not a fix | Making `loader.ts` parallel because it is probably faster. The stylesheet is awaited BEFORE the module on purpose: a panel that mounts before its styles arrive draws unstyled and then reflows. That is a trade nobody has measured either |
+
+### 46. IndexedDB is a door on the column value and nothing guards it
+
+**Found by `devils-advocate-agent` on 2026-09-12, on the step 4 branch.** Two doors that write a task's column are guarded: `moveTask` refuses a column no `columns()` entry names, and `readDocument` refuses a document carrying one and names the columns this shell draws. `src/web/shell/planner.ts` contains no occurrence of `column` at all, so the read path takes whatever is in the database.
+
+`PLAN.md`'s "One document, four doors" table lists opening IndexedDB as a door, and the reason given for guarding the other two is exactly the state this one produces: a task in the planner, drawn by `list`, on no panel of the board. The board draws per-column counts rather than a total, so every number on the page agreed and nothing said the task was missing.
+
+| | |
+| --- | --- |
+| What is reachable today | Nothing. `COLUMNS` has not changed and no shell has ever written a different value |
+| What reaches it | A later shell that changes the columns, and steps 15 and 16 - this shell meeting data a newer one wrote. That is the same asymmetry those steps exist for, on a field rather than on a schema version |
+| What stands in front of it now | The board REPORTS it. `unplaced` names the task and its column, one `@browser` scenario arranges it by writing straight into the database, and one mutation removes the report |
+| Why not a refusal | A shell that deleted or rewrote a task it did not understand would be destroying data it is not entitled to, which is the rule `PLAN.md` states for the whole planner. Reporting is what a shell in that position may do |
+| What is open | Whether the SHELL should carry the reading rather than the board. `board` is a separately published unit, so a planner full of unplaceable tasks says nothing at all on `/`, `/week` or `/backup`. That is §43's shape again: the panel is where a person is standing, and it is not the only place |
 
 ### 45. The document declares two fields nothing reads
 
@@ -154,7 +184,7 @@ The scenario now arranges it: `the planner is slow to open` delays the first `in
 
 | | |
 | --- | --- |
-| The guard is not dead code | Step 4 built `board` and warmed it, so that panel mounts SOONER and the margin is narrower still - the direction that makes a scenario measure nothing. `The board says it is reading before the planner has been read` therefore uses the same arranged slow open, and its mutation is caught. Step 6 pulls a snapshot, which is a slower read than a local open, and is the first thing that closes the margin without an arrangement |
+| The guard is not dead code | Step 4 built `board` and warmed it, so that panel mounts SOONER - which makes the requirement MORE reachable, not less: a panel that renders earlier is more likely to render while the planner is unread. That is still not enough to reach it, so `The board says it is reading before the planner has been read` uses the same arranged slow open, and its mutation is caught. The `board` scenario lands directly on `/board`, where the warm and the import happen in one load, so the warm is not the variable in it either way. Step 6 pulls a snapshot, which is a slower read than a local open, and is the first thing that reaches the state without an arrangement |
 | The arrangement is a harness fact, not a visitor's | 1500 ms is chosen to be longer than a bundle fetch, not measured from anything. A visitor on a slow disk or a cold profile is the real case and nothing here measures how often it happens |
 | The class is wider than the planner | Any "before X lands" requirement in this shell has the same shape: the panel that would show it is fetched after the shell paints. `data-api` has the same margin and no scenario about its first paint at all |
 
@@ -305,7 +335,7 @@ Clearing the slate to one sub-app took the subject away from four readings, and 
 | Each sub-app is fetched from its own unit's directory | `Each unit's files are served from that unit's own directory`, plus `html.test.ts`'s `loads each sub-app from its own unit's base` |
 | A published pair reads as not additive | `scripts/contract.test.ts`: `9d1b0a3` against `15ed669` is not additive on the shell half, and the output names `DEFAULT_GREETING`. The registry holds two contracts now |
 | A separately deployed panel and the frame share one store | `keeping-a-list-of-tasks.feature`, nine `@browser @test-channel` scenarios, and the `task accessor reads the store without subscribing` mutation. Only `bun run verify:browser` runs any of them, which is why that command is in `CLAUDE.md`'s table from 2026-09-11 and was not before |
-| Warming an off-screen unit's files buys something | **Closed at step 4**, and the number is 780 ms. `scripts/measure-preload.ts` takes every reading twice, once from the page as served and once with the warm tags cut out of the HTML on the way to the browser, so nothing but the tags differs: the view opens in 60 ms warm and 840 ms without, median of 3 on 2026-09-12. Two `@browser` scenarios in `warming-a-unit-before-its-view.feature` read the mechanism off the browser's resource timings, and two mutations strip the tags - one aimed there, one at `Moving between views draws each one and fetches nothing`, which measured nothing about the warm until a unit sat off the landing route |
+| Warming an off-screen unit's files buys something | **Closed at step 4**, and the number is 780 ms. `scripts/measure-preload.ts` takes every reading twice, once from the page as served and once with the warm tags cut out of the HTML on the way to the browser, so nothing but the tags differs: the view opens in 52 ms warm and 832 ms without, median of 9 on 2026-09-12, and 56 against 836 when the click is taken ten seconds after the landing view settles. Two `@browser` scenarios in `warming-a-unit-before-its-view.feature` read the mechanism off the browser's resource timings, and two mutations strip the tags - one aimed there, one at `Moving between views draws each one and fetches nothing`, which measured nothing about the warm until a unit sat off the landing route. §47 is what the baseline is made of, and it does not move the number |
 
 **Still without a subject**, and what each needs:
 

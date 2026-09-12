@@ -48,6 +48,23 @@ if (!Number.isInteger(RUNS) || RUNS < 1) {
   process.exit(1);
 }
 
+/**
+ * How long the landing view is READ before the click, in ms.
+ *
+ * Zero is the hottest moment for the warm and the weakest claim: Chrome's
+ * preload cache holds a warmed response for a short while and then the file is
+ * an ordinary disk-cache entry, so a click taken the instant the page settles
+ * measures the best case the script itself constructed. A cold read on
+ * 2026-09-12 named that, and this is the answer - the same reading, taken again
+ * after a pause a visitor would take.
+ */
+const pauseFlag = process.argv.indexOf("--pause");
+const PAUSE_MS = pauseFlag === -1 ? 0 : Number(process.argv[pauseFlag + 1]);
+if (!Number.isInteger(PAUSE_MS) || PAUSE_MS < 0) {
+  console.error(`--pause needs a whole number of milliseconds, and was given ${JSON.stringify(process.argv[pauseFlag + 1])}`);
+  process.exit(1);
+}
+
 type Ids = Record<Unit, string>;
 
 const failures: string[] = [];
@@ -155,6 +172,18 @@ type Reading = {
   startedBy: string[];
   /** Content-Security-Policy refusals the page reported. */
   refusals: string[];
+  /**
+   * How long each of the unit's files took, and when it started, off the
+   * browser's own timings.
+   *
+   * Here because the headline number is not all preload. `loader.ts` awaits the
+   * STYLESHEET and only then imports the module, so the control arm pays two
+   * cross-origin round trips in SERIES and the warm arm pays none. A cold read
+   * on 2026-09-12 said the 780 ms was therefore "what the tags buy given a
+   * serial loader", which is true - so the two durations are reported, and the
+   * serial part of the baseline can be read rather than argued about.
+   */
+  files: Array<{ file: string; initiator: string; startedAt: number; tookMs: number }>;
 };
 
 async function readOnce(browser: Browser, origin: string, warm: boolean): Promise<Reading> {
@@ -184,19 +213,33 @@ async function readOnce(browser: Browser, origin: string, warm: boolean): Promis
       OFF_SCREEN,
     );
 
+    // The pause a visitor takes before clicking. Zero measures the moment the
+    // preload cache is hottest; anything larger measures what is left of the
+    // warm once that cache has let the files go to ordinary HTTP cache.
+    if (PAUSE_MS > 0) await page.waitForTimeout(PAUSE_MS);
+
     const startedAt = Date.now();
     await page.click(`a[href="${VIEW}"]`);
     await page.waitForSelector(`[data-app="${OFF_SCREEN}"] section`, { timeout: 30_000 });
     const openedInMs = Date.now() - startedAt;
 
-    const timings = await page.evaluate(
+    const files = await page.evaluate(
       (unit) =>
         performance
           .getEntriesByType("resource")
           .filter((e) => e.name.includes(`/units/${unit}/`))
-          .map((e) => (e as PerformanceResourceTiming).initiatorType),
+          .map((e) => {
+            const r = e as PerformanceResourceTiming;
+            return {
+              file: r.name.split("/").pop() ?? r.name,
+              initiator: r.initiatorType,
+              startedAt: Math.round(r.startTime),
+              tookMs: Math.round(r.duration),
+            };
+          }),
       OFF_SCREEN,
     );
+    const timings = files.map((f) => f.initiator);
     const refusals = await page.evaluate(
       () => (globalThis as unknown as { __refusals?: string[] }).__refusals ?? [],
     );
@@ -207,6 +250,7 @@ async function readOnce(browser: Browser, origin: string, warm: boolean): Promis
       fetchedTimes: timings.length,
       startedBy: timings,
       refusals,
+      files,
     };
   } finally {
     await context.close();
@@ -218,7 +262,11 @@ const median = (numbers: number[]): number => {
   return sorted[Math.floor(sorted.length / 2)]!;
 };
 
-console.log(`measuring the warm on ${OFF_SCREEN}, ${RUNS} runs per arm\n`);
+console.log(
+  `measuring the warm on ${OFF_SCREEN}, ${RUNS} runs per arm` +
+    (PAUSE_MS > 0 ? `, ${PAUSE_MS} ms on the landing view before the click` : "") +
+    "\n",
+);
 
 const ids = await publishAndPoint();
 console.log(`${CHANNEL} serves ${UNITS.map((u) => `${u} ${ids[u]}`).join(" ")}\n`);
@@ -248,7 +296,30 @@ try {
   console.log(`  click to panel on screen, median ms     warm ${warmOpen}   control ${controlOpen}`);
   console.log(`  every run, warm ms                      ${warm.map((r) => r.openedInMs).join(", ")}`);
   console.log(`  every run, control ms                   ${control.map((r) => r.openedInMs).join(", ")}`);
-  console.log(`  policy refusals                         warm ${warm.flatMap((r) => r.refusals).length}   control ${control.flatMap((r) => r.refusals).length}\n`);
+  console.log(`  warm spread, ms                         ${Math.min(...warm.map((r) => r.openedInMs))} to ${Math.max(...warm.map((r) => r.openedInMs))}`);
+  console.log(`  control spread, ms                      ${Math.min(...control.map((r) => r.openedInMs))} to ${Math.max(...control.map((r) => r.openedInMs))}`);
+  console.log(`  policy refusals                         warm ${warm.flatMap((r) => r.refusals).length}   control ${control.flatMap((r) => r.refusals).length}`);
+
+  // Where the control arm's time goes, so the headline number can be read
+  // rather than taken. `loader.ts` awaits the stylesheet before it imports the
+  // module, so these two are in SERIES in the control arm and the sum is the
+  // floor a parallel loader would cut into.
+  console.log("\n  the control arm's two fetches, per run");
+  for (const [i, r] of control.entries()) {
+    const said = r.files
+      .map((f) => `${f.file} ${f.initiator} started ${f.startedAt} took ${f.tookMs}`)
+      .join(" | ");
+    console.log(`    run ${i + 1}  ${said}`);
+  }
+  const serial = control.map((r) => r.files.reduce((n, f) => n + f.tookMs, 0));
+  console.log(`    the two fetches add up to, per run, ms   ${serial.join(", ")}`);
+  console.log(
+    `\n  loader.ts fetches the stylesheet and THEN the module, so the two above are\n` +
+      `  in series. A parallel loader would cut the control arm towards the longer of\n` +
+      `  the two rather than their sum, with no warm tag anywhere. That is not\n` +
+      `  measured here and it is not an argument against the warm - it is what the\n` +
+      `  780 ms is measured AGAINST. TODO carries it.\n`,
+  );
 
   check(
     "the warm puts the unit's two files in the browser before the view is opened",
@@ -280,8 +351,10 @@ try {
   // mechanism, not a failure of the script - so this is a number and a
   // sentence, never a check that turns the exit code red.
   console.log(
-    `\n  the warm opened the view ${controlOpen - warmOpen} ms sooner ` +
-      `(${controlOpen} ms without it, ${warmOpen} ms with it), median of ${RUNS}.`,
+    `  the warm opened the view ${controlOpen - warmOpen} ms sooner ` +
+      `(${controlOpen} ms without it, ${warmOpen} ms with it), median of ${RUNS}` +
+      (PAUSE_MS > 0 ? `, after ${PAUSE_MS} ms on the landing view` : ", clicked as soon as the landing view settled") +
+      ".",
   );
 } finally {
   await browser?.close();

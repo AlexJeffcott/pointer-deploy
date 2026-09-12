@@ -84,7 +84,7 @@ after the load, and the answer is zero.
 ## 5 · The panel
 
 30. Each panel's effect calls `loadApp(name, assets)`.
-31. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle. Both are already in cache from the warm: measured on 2026-09-12, each file carries exactly one resource timing across the whole visit, taken at 5 ms, and the import adds none.
+31. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle — in that order, so an unwarmed panel pays two cross-origin round trips in series. Both are already in cache from the warm: measured on 2026-09-12, each file carries exactly one resource timing across the whole visit, taken at 5 ms, and the import adds none.
 32. A module with no function default export is rejected by name: "list has no default export, so it is not a sub-app".
 33. The panel renders inside the shell's tree with the store passed as a prop. A throw is caught by that panel's own boundary, which offers "Mount again". The frame is untouched.
 
@@ -125,7 +125,7 @@ Three request fans in sequence, not one chain: the server, then the store, then 
 | Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 13 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files each for `list` and `board` |
 | Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1/greeting` |
 
-Only the shell's own files are needed to paint — 9 of them here. Of the four panel files, `list`'s two are fetched AND run, because that unit is on the route a visitor lands on. `board`'s two are fetched and never imported: the module has not executed, and a visitor who never opens `/board` pays two requests for nothing. What that buys the visitor who does open it is 780 ms — `scripts/measure-preload.ts`, 2026-09-12.
+Only the shell's own files are needed to paint — 9 of them here. Of the four panel files, `list`'s two are fetched AND run, because that unit is on the route a visitor lands on. `board`'s two are fetched and never imported: the module has not executed, and a visitor who never opens `/board` pays two requests for nothing. What that buys the visitor who does open it is 780 ms: the view draws in 52 ms rather than 832, median of 9 on 2026-09-12, and the same after ten seconds on this view. About 530 ms of that baseline is not the two fetches and nothing has said what it is - TODO §47. `scripts/measure-preload.ts` takes it with a control.
 
 Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-12. It read **11** with the two-unit composition of 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
 

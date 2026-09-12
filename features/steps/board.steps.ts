@@ -59,6 +59,63 @@ When("they load the board again", async function (this: PointerWorld) {
   await page.waitForSelector(`${PANEL} [data-board-note]`, { timeout: 20_000 });
 });
 
+/**
+ * One task written straight into the planner, in a column nothing draws.
+ *
+ * There is no control that produces this and that is the point: `moveTask`
+ * refuses such a column and `readDocument` refuses a document carrying one, so
+ * the only door left is the database - which a later shell's columns, or a
+ * rollback onto data a newer shell wrote, reaches without anybody typing
+ * anything. `PLAN.md` steps 15 and 16 are where it stops being arranged.
+ *
+ * Written after the page has opened rather than before it, so the object stores
+ * are the ones the shell created. Opened with NO version, so this never
+ * upgrades anything and never blocks the shell's own handle.
+ */
+When(
+  "the planner is given a task in the column {string}",
+  async function (this: PointerWorld, column: string) {
+    await this.browserPage.evaluate(
+      ([name, col]) =>
+        new Promise<void>((resolve, reject) => {
+          const open = indexedDB.open(name!);
+          open.onerror = () => reject(new Error(`could not open ${name}`));
+          open.onsuccess = () => {
+            const handle = open.result;
+            const tx = handle.transaction("tasks", "readwrite");
+            tx.objectStore("tasks").put({
+              id: "seeded-1",
+              title: "Learn to sail",
+              column: col,
+              due: null,
+              tags: [],
+              createdAt: "2026-09-12T09:00:00.000Z",
+            });
+            tx.oncomplete = () => {
+              handle.close();
+              resolve();
+            };
+            tx.onabort = () => reject(new Error("the seed transaction aborted"));
+          };
+        }),
+      ["pointer-planner", column] as const,
+    );
+  },
+);
+
+Then(
+  "the board reports {int} task it does not draw",
+  async function (this: PointerWorld, count: number) {
+    const page = this.browserPage;
+    await page.waitForSelector(`${PANEL} [data-unplaced="${count}"]`, { timeout: 10_000 });
+    // The title and the column, both said. A count alone tells a visitor there
+    // is a task somewhere and gives them nothing to look for.
+    const said = await page.$eval(`${PANEL} [data-unplaced]`, (n) => n.textContent ?? "");
+    expect(said).toContain("Learn to sail");
+    expect(said).toContain("someday");
+  },
+);
+
 Then("the board says it is reading the planner", async function (this: PointerWorld) {
   await this.browserPage.waitForSelector(`${PANEL} [data-planner-unread]`, { timeout: 10_000 });
 });
@@ -128,9 +185,12 @@ Then("the {string} column is empty", async function (this: PointerWorld, column:
 /**
  * The counts the board draws beside its column names.
  *
- * A second reading of the same fact, and it is not decoration: the cards are
- * what the panel drew and the count is what the panel SAYS it drew, so a filter
- * that dropped a task would put the two out of step. Both are read here.
+ * NOT an independent cross-check, and a comment claiming it was stood here
+ * until a cold read on 2026-09-12. The panel computes `held` once and renders
+ * `held.length` and `held.map(...)` from it, so the two cannot disagree - one
+ * value drawn twice. What this step is worth is the three columns in one
+ * assertion with the numbers named, which is how a scenario says where every
+ * task on the board is rather than where one of them is.
  */
 Then(
   "the board counts {int} tasks in {string}, {int} in {string} and {int} in {string}",
@@ -154,6 +214,10 @@ Then(
         (n) => n.textContent?.trim() ?? "",
       );
       expect(`${column} says ${drawn}`).toBe(`${column} says ${wanted}`);
+      // The cards as well as the count. One value drawn twice in the panel, so
+      // this cannot catch a disagreement between them - it catches a count
+      // drawn from somewhere else entirely, which is what a later edit could
+      // make it.
       expect(`${column} draws ${(await cardsIn(this, column)).length}`).toBe(
         `${column} draws ${wanted}`,
       );

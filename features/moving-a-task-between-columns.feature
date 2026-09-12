@@ -116,6 +116,34 @@ Feature: Moving a task between columns
       And they open the tasks view
       Then "Book the ferry" carries the tags "travel"
 
+  Rule: A task the board cannot draw is reported, never hidden
+
+    Two doors that WRITE a column are guarded: `moveTask` refuses a column no
+    column names, silently, because no control on the board can produce one, and
+    `readDocument` refuses a document carrying one by name. IndexedDB is a third
+    door and nothing guards it - a shell that deleted a task it did not
+    understand would be destroying data it is not entitled to, which is the rule
+    `PLAN.md` states for the whole planner at steps 15 and 16.
+
+    So the board reports instead. Without this the task is in the planner, on
+    the list, on no panel here, and nothing anywhere on the page says so - and
+    the board draws per-column counts rather than a total, so the numbers all
+    agree. TODO §46 is the door; this is what stands in front of it.
+
+    Arranged, and said to be arranged: a later shell's columns reach this state,
+    and so does a rollback onto data a newer shell wrote. Neither exists yet.
+
+    Background:
+      Given the qa channel points at build "tasks"
+      And a visitor opens the board view
+
+    @browser @test-channel
+    Scenario: A task in a column the board does not draw is reported
+      When the planner is given a task in the column "someday"
+      And they load the board again
+      Then the board reports 1 task it does not draw
+      And every column on the board is empty
+
   Rule: The board waits for the planner to be read
 
     `PLAN.md` step 2's requirement, on the panel that is fetched last. A board
@@ -125,9 +153,16 @@ Feature: Moving a task between columns
 
     The open is slowed on purpose, and without that this rule measures nothing.
     TODO §41 is the class: a panel is fetched and imported after the shell
-    paints, so IndexedDB is nearly always open before it first renders. `board`
-    is WARMED, which makes that margin narrower rather than wider, and narrower
-    is the direction that makes a scenario measure nothing.
+    paints, so IndexedDB is nearly always open before it first renders.
+
+    The warm is not the variable here, and a sentence saying it was stood in
+    this file until a cold read on 2026-09-12. The scenario LANDS on `/board`,
+    where `board` is warmed and imported in the same load, so what the warm
+    changes is nothing a scenario can see. What it changes in general is the
+    other direction from the one that sentence claimed: a warmed panel mounts
+    SOONER, so it is more likely to render while the planner is unread, so the
+    requirement is more reachable rather than less. `scripts/falsify.ts` says
+    that, and this file said the opposite.
 
     Background:
       Given the qa channel points at build "tasks"

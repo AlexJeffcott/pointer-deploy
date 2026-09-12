@@ -1689,10 +1689,13 @@ const MUTATIONS: Mutation[] = [
 
   // --- `PLAN.md` step 4, the board ------------------------------------------
   //
-  // Five of the eight are @local, for the same reason step 3's nine are: what a
-  // COLUMN is holds in the store and in the document reader, both pure. The
-  // three that need a browser are the ones about the panel - which column a
-  // card is drawn in, and that a move takes it out of the one it was in.
+  // Nine entries here and two under "warming a sub-app's files" above make step
+  // 4's eleven. FIVE are @local, for the same reason step 3's nine are: what a
+  // COLUMN is holds in the store and in the document reader, both pure. Six
+  // need a browser - four of them about the panel, and the warming pair. This
+  // comment said "five of the eight … the three that need a browser" until a
+  // cold read on 2026-09-12 counted the array and found 4 and 4 here; a wrong
+  // count beside the array is exactly the failure `PLAN.md` names.
 
   {
     // Every column draws every task. The board looks busy and is useless: a
@@ -1707,13 +1710,38 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
   {
-    // The move is drawn and never written. The card appears in the new column
-    // because the panel re-rendered from a store that changed nothing, so the
-    // reading a reload takes is the one that sees it.
-    name: "a move is drawn without being written",
+    // The button writes the column the card is ALREADY in, so a move moves
+    // nothing. Caught by the `they move` step's own wait for the card in the
+    // target column, which is why the scenario named is one whose FIRST move is
+    // the thing being measured.
+    //
+    // A cold read on 2026-09-12 refuted the comment that stood here. It said
+    // the card would appear in the new column because the panel re-rendered
+    // from a store that changed nothing - which this panel cannot do, because
+    // it holds no state of its own and draws every card off `store.tasks()`.
+    // The entry is kept and re-aimed; the persistence claim it used to be
+    // pointed at now has a mutation of its own, below.
+    name: "a move writes the column the card is already in",
     file: "src/web/apps/board/index.tsx",
     find: "                              onClick={() => store.moveTask(task.id, to.id)}",
     replace: "                              onClick={() => store.moveTask(task.id, column.id)}",
+    scenario: "A task moved to another column leaves the one it was in",
+    live: true,
+    browser: true,
+  },
+  {
+    // Where a task IS never reaches the database. Every scenario that moves a
+    // card and reads the board passes - the store holds the move and the panel
+    // draws it - and the planner comes back from the next visit with every task
+    // in the first column. The one reading that sees it is a reload.
+    //
+    // Aimed at `planner.ts` rather than at the board, because that is where the
+    // claim is: `PLAN.md` step 2 says a sub-app does not know a database exists,
+    // so a column that is not kept is the SHELL failing to keep it.
+    name: "a task's column is not kept",
+    file: "src/web/shell/planner.ts",
+    find: "        for (const task of tasks) store.put(task);",
+    replace: '        for (const task of tasks) store.put({ ...task, column: "todo" });',
     scenario: "A move is still there after a reload",
     live: true,
     browser: true,
@@ -1738,6 +1766,19 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
   {
+    // The board draws its three columns and says nothing about a task in none
+    // of them. Every count on the page agrees - they are per-column, not a
+    // total - so the planner holds a task the board does not draw and no
+    // reading anywhere contradicts the page.
+    name: "a task the board cannot draw is not reported",
+    file: "src/web/apps/board/index.tsx",
+    find: "      {unplaced.length > 0 ? (",
+    replace: "      {false ? (",
+    scenario: "A task in a column the board does not draw is reported",
+    live: true,
+    browser: true,
+  },
+  {
     // A move that rewrites every task. With one task on the board - which is
     // where four of the five scenarios in the first Rule start - this is
     // indistinguishable from a move.
@@ -1755,6 +1796,11 @@ const MUTATIONS: Mutation[] = [
     name: "a task is moved to a column the board does not draw",
     file: "src/web/shell/api.ts",
     find: "      if (!isColumn(column)) return;",
+    // `if (false) return;` leaves `isColumn` declared and called by nothing, so
+    // this mutation would NOT survive `tsc` under `noUnusedLocals`. It is a
+    // unit test, and `runUnitTest` runs `bun test` without a build, so it runs
+    // and is caught. Named here because it is one file away from the trap §35
+    // exists for, and a later move of this entry to a scenario would meet it.
     replace: "      if (false) return;",
     unitTest: "a column no column names moves nothing",
   },

@@ -8,7 +8,7 @@ import styles from "./app.module.css";
  * visitor does not land on. So it is the first bundle the page WARMS: the shell
  * emits a modulepreload and a style preload for it on every load, and the
  * import at navigation reads the warmed response rather than fetching a second
- * time. `measuring-what-the-page-warms.feature` is where that is measured.
+ * time. `warming-a-unit-before-its-view.feature` is where that is measured.
  *
  * It owns no tasks and no columns. Both come off the store the shell created,
  * which is what makes this and `list` two published bundles over one collection
@@ -43,6 +43,23 @@ export default function Board({ store }: SubAppProps) {
       </section>
     );
   }
+
+  /**
+   * Every task this board is NOT drawing, `PLAN.md` step 4.
+   *
+   * A task whose column no column names is in the planner, on the list, and on
+   * no panel here - and without this line nothing on the page would say so. The
+   * two guards on a column value are on the two doors that WRITE one:
+   * `moveTask` refuses it silently, and `readDocument` refuses it by name.
+   * IndexedDB is a third door and nothing guards it, because a shell that
+   * deleted a task it did not understand would be destroying data it is not
+   * entitled to - which is the rule `PLAN.md`'s rollback steps state for the
+   * whole planner. So the board REPORTS instead. TODO §46 is the door.
+   *
+   * Reachable when a later shell changes the columns, and at steps 15 and 16,
+   * where this shell meets data a newer one wrote.
+   */
+  const unplaced = tasks.filter((task) => !columns.some((c) => c.id === task.column));
 
   return (
     <section class={styles.panel} data-unit-marker={__UNIT_MARKER__}>
@@ -101,6 +118,16 @@ export default function Board({ store }: SubAppProps) {
           );
         })}
       </div>
+
+      {unplaced.length > 0 ? (
+        <p class={styles.unplaced} data-unplaced={unplaced.length}>
+          {unplaced.length} {unplaced.length === 1 ? "task is" : "tasks are"} in a column this board
+          does not draw, so {unplaced.length === 1 ? "it is" : "they are"} not above:{" "}
+          {unplaced.map((task) => `${task.title} (${task.column})`).join(", ")}. The list still
+          holds {unplaced.length === 1 ? "it" : "them"}, and exporting the planner writes{" "}
+          {unplaced.length === 1 ? "it" : "them"} out.
+        </p>
+      ) : null}
 
       <p class={styles.note} data-board-note>
         A task is done when it is in the last column. There is no done flag, so this board and the
