@@ -60,7 +60,11 @@ export default function Board({ store }: SubAppProps) {
               </h3>
 
               {held.length === 0 ? (
-                <p class={styles.empty} data-column-empty={column.id}>
+                /* `data-empty` as well as the column's own marker: the
+                   harness watches for that attribute to record what the
+                   planner's state was every time the page said it was empty,
+                   and this panel's empty message is one of those. */
+                <p class={styles.empty} data-empty data-column-empty={column.id}>
                   Nothing here.
                 </p>
               ) : (

@@ -36,11 +36,12 @@ That moves the shell and nothing else. The same command names a sub-app —
 `--app list=eecdb7c6` — and the shell stays exactly where it was; rolling that
 sub-app back afterwards leaves alone whatever was deployed in between.
 
-**Two units, today.** `PLAN.md` step 1 places `list` on `/`, so
-`scripts/contract.ts` names two units and `build.ts` builds two. Examples
-naming `hello` are from the slate before step 0 and are kept where the reading
-they illustrate was taken against it; the tree builds `shell` and `list`.
-`PLAN.md` steps 4 and 5 add `board` and `week`, one per step.
+**Three units, today.** `PLAN.md` step 1 places `list` on `/` and step 4 places
+`board` on `/board`, so `scripts/contract.ts` names three units and `build.ts`
+builds three. Examples naming `hello` are from the slate before step 0 and are
+kept where the reading they illustrate was taken against it; the tree builds
+`shell`, `list` and `board`. `PLAN.md` step 5 adds `week`, and that is the last
+of them.
 
 **And one change in this project's history was not one JSON write.** Going to
 zero sub-apps means a pointer whose `apps` is `{}`, and the image running at the
@@ -322,17 +323,25 @@ The sets are generated, never written:
 
 ```
 $ bun run contract:matrix
-       9d1b0a3  15ed669
-shell     fail     pass
-list      fail     pass
+       9d1b0a3  15ed669  1c4a120  f766e10
+shell     fail     pass     pass     pass
+list      fail     fail     pass     pass
+board     fail     fail     fail     pass
 ```
 
-Two contracts and two units, on 2026-09-11. Every cell against `9d1b0a3` fails
-and that is the reading: `PLAN.md` step 1 removed the greeting from the surface,
-so a unit built here no longer satisfies the contract the previous slate was
-built against. Nothing is refused for it — the intersection is non-empty, both
-units share `15ed669` — and `9d1b0a3` stays retained, because a rollback onto a
-unit published against it is exactly what retaining is for.
+Four contracts and three units, on 2026-09-12. Every cell against `9d1b0a3`
+fails and that is the reading: `PLAN.md` step 1 removed the greeting from the
+surface, so a unit built here no longer satisfies the contract the previous
+slate was built against. Nothing is refused for it — the intersection is
+non-empty, all three units share `f766e10` — and `9d1b0a3` stays retained,
+because a rollback onto a unit published against it is exactly what retaining is
+for.
+
+The staircase is what a slate of additive mints looks like. Each unit passes
+every contract from the one that first had the members it calls onwards, so
+`board` — which calls `columns` and `moveTask`, minted at step 4 — passes one
+cell and `shell` passes three. A row that got SHORTER would be the reading to
+stop at: it would mean a mint had taken a member a published unit still calls.
 
 That is one `tsc` per cell, with `@pointer/shell` and `@pointer/subapp`
 re-pointed at that contract's `.d.ts` files — the same `paths` mechanism
@@ -452,16 +461,24 @@ question an operator actually has is different — does this sub-app need
 anything this shell does not have — and the two come apart the moment the shell
 drops a member nothing in the composition ever called.
 
-`bun run contract:members`, taken on 2026-09-11 against the surface `PLAN.md`
-step 1 minted:
+`bun run contract:members`, taken on 2026-09-12 against the surface `PLAN.md`
+step 4 minted:
 
 ```
-member                      list
-FieldSunset.instead         uses
+member                       list    board
+Column.id                            uses
+Column.label                         uses
+FieldSunset.instead          uses
 FieldSunset.reason
 FieldSunset.since
-FieldSunset.sunset          uses
+FieldSunset.sunset           uses
+NO_PLANNER
 NO_SERVICE
+PlannerReport.error
+PlannerReport.pending
+PlannerReport.readAt
+PlannerReport.schemaVersion
+PlannerReport.state          uses    uses
 ServiceField.going
 ServiceField.path
 ServiceField.type
@@ -476,25 +493,30 @@ ServiceReport.serves
 ServiceReport.state
 ServiceRoute.method
 ServiceRoute.path
-ShellStore.addTask          uses
-ShellStore.goingAway        uses
-ShellStore.removeTask       uses
+ShellStore.addTask           uses
+ShellStore.columns                   uses
+ShellStore.goingAway         uses
+ShellStore.loadTasks
+ShellStore.moveTask                  uses
+ShellStore.planner           uses    uses
+ShellStore.removeTask        uses
 ShellStore.service
+ShellStore.setPlanner
 ShellStore.setService
-ShellStore.setTags          uses
-ShellStore.tasks            uses
-Task.column
+ShellStore.setTags           uses
+ShellStore.tasks             uses    uses
+Task.column                          uses
 Task.createdAt
 Task.due
-Task.id                     uses
-Task.tags                   uses
-Task.title                  uses
+Task.id                      uses    uses
+Task.tags                    uses
+Task.title                   uses    uses
 createStore
 
-not removable on their own: FieldSunset, ServiceField, ServiceReport, ServiceRoute, ShellStore, Task
+not removable on their own: Column, FieldSunset, PlannerReport, ServiceField, ServiceReport, ServiceRoute, ShellStore, Task
 ```
 
-Twenty-three of the surface's thirty-three members are called by no sub-app.
+Twenty-nine of the surface's forty-six members are called by no sub-app.
 `setService` is a writer the shell owns, `service` is a reader the frame keeps
 to itself for the `/service` view, and the fields under `ServiceReport` are read
 by the frame drawing that view. Under the set intersection, removing any of them
@@ -513,22 +535,28 @@ names when it calls the published pair not additive.
 Ownership comes out at the FIELD. `list` reads two of the four members of a
 sunset — the day it goes and what to move to — so a service that retired
 `reason` would cost this panel nothing, and the reading says so without anybody
-declaring it. `Task.column` and `Task.due` are the same reading the other way
-round: a task HAS them, and nothing on this slate moves either, so `board` at
-step 4 and `week` at step 5 are the units that will show as using them.
+declaring it. `Task.column` and `Task.due` were the same reading the other
+way round: a task HAS them, and nothing on the slate moved either. `PLAN.md`
+step 4 built `board`, which moves one — so `Task.column` is in `board`'s set
+with nobody declaring it, and `Task.due` waits for `week` at step 5.
 
-The set `list` uses is exactly the row `PLAN.md`'s contract table gives it,
+The set each unit uses is exactly the row `PLAN.md`'s contract table gives it,
 which is why that table is written as a design constraint rather than as a
 description: a unit that held no member of its own would leave the gate with
-nothing to refuse.
+nothing to refuse. From step 4 that holds in both directions and is asserted in
+both: `board` calls `ShellStore.columns` and `ShellStore.moveTask` and `list`
+calls neither; `list` calls `addTask`, `removeTask` and `setTags` and `board`
+calls none of them. Step 10 drops `moveTask` and reads a refusal that names
+`board` and leaves `list` alone.
 
 **Use is measured by removal, never parsed.** Cut one declaration out of the
 surface and recompile the consumers against the rest; if it still compiles, they
 do not use it. That is the same definition the rule needs, and `tsc` is the
 oracle for it — the trick `falsify` plays on the scenarios, played on a type
 surface. Two runs per member, one to prove the cut surface still holds and one
-for every app at once: 26 members in about 14 s, in `build.ts` beside the
-matrix. The time follows the member count, never the lane count. A member whose removal stops the surface being a surface — `ShellStore`
+for every app at once: 46 members in about 17 s on 2026-09-12, in `build.ts`
+beside the matrix. The time follows the member count, never the lane count —
+`board` is a second sub-app and 20 more members, and the reading cost 3 s more. A member whose removal stops the surface being a surface — `ShellStore`
 itself — cannot be asked about, and is reported rather than counted.
 
 `unit.json` carries what was derived: `provides` on the shell, `uses` on each
@@ -575,11 +603,14 @@ ordinary build and came out at the top of `bun run units shell` with a promote
 command under it — a shell a real channel would have taken, caught only because
 `list` happened to use the member the probe cuts. TODO §38.
 
-With one sub-app the second half of the claim — *and nothing else* — is not
-measured there; `scripts/members.test.ts` holds it instead, by naming the set
-`list` uses and asserting that `service` and `setService` are not in it. Step 10
-is the first step with two sub-apps and a member only one of them calls, which
-is what the end-to-end half needs.
+The second half of the claim — *and nothing else* — shows in that run's output
+from step 4 onwards: the refusal names `list` and prints `board` beside it with
+the members it uses, unrefused. What is still waiting for step 10 is a run whose
+whole POINT is that half, with the member chosen so that the other sub-app is
+the one that survives — `goingAway` is `list`'s, so this probe measures the half
+it always did. `scripts/members.test.ts` is what asserts it, in both directions:
+`board` calls `columns` and `moveTask` and `list` calls neither, `list` calls
+`addTask`, `removeTask` and `setTags` and `board` calls none of them.
 
 The contract sets in such a run are disjoint — the shell satisfies only the
 contract just minted, and the published app only the one it was built against —
@@ -763,7 +794,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/web/shell/` | The frame: the store factory (`api.ts`), routing, the context, and `AsyncAppLoader` |
 | `src/web/shell/views.ts` | Which sub-apps appear on which route. The shell owns placement; `build.ts` checks it against the units it emits |
 | `src/web/shell/AsyncAppLoader.tsx` | Fetches one sub-app and renders it INSIDE this tree, with the boundary that can therefore catch what it throws |
-| `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others. **Empty on this slate**, and `PLAN.md` step 1 is the first thing to put a directory back in it |
+| `src/web/apps/<name>/` | One sub-app. Its own bundle, its own stylesheet, shares nothing with the others. Two on this slate: `list` from `PLAN.md` step 1, `board` from step 4 |
 | `src/web/shell/subapp.ts` | `SubApp` and `SubAppProps`, the half of the contract a sub-app satisfies |
 | `src/web/shell/contract.ts` | The shell's conformance, in one file the matrix can compile |
 | `src/web/apps/<name>/contract.ts` | That app's default export, checked against `SubApp` |
@@ -777,6 +808,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `src/server/blocks.ts` | The server-to-shell surface: `__BUILD__` and `__APPS__`, declared once |
 | `src/server/blocks.provides.json` | What this server writes, derived and committed. The image cannot work it out |
 | `scripts/e2e-member-gate.ts` | Drops a member and proves the refusal names one sub-app, against the real store |
+| `scripts/measure-preload.ts` | What warming an off-screen unit buys, with a control: every reading taken twice, once with the warm tags cut out of the HTML on the way to the browser |
 | `scripts/store.ts` | SigV4 by hand: Bun's `S3Client` cannot set `Cache-Control` |
 | `scripts/publish.ts` | `dist/units/<n>/` → `units/<n>/<id>/`. `unit.json` last, and only what changed |
 | `scripts/promote.ts` | Read the composition, merge what was named, test the member gate, write |
@@ -851,12 +883,10 @@ caught even though a route that swapped its unit is not.
 
 ## Warming a sub-app's files before its view is opened
 
-One unit is warmed on this slate, and it is the unit on the view a visitor lands
-on — so the warming buys nothing measurable yet. That is asserted rather than
-assumed: the served page is checked to warm `list` and nothing else, and
-`falsify` warms a file no view placed to prove the check has teeth. The BENEFIT
-gets a subject at `PLAN.md` step 4, the first step to put a unit on a route a
-visitor does not land on; TODO §31 carries that until then.
+Two units are warmed on this slate, and `board` is on `/board` — a route a
+visitor does not land on. So the warm has a subject from `PLAN.md` step 4, and
+the answer is **780 ms**: measured on 2026-09-12, three runs per arm, the view
+opened in 60 ms with the tags and 840 ms without them.
 
 A sub-app's bundle is fetched when its view first appears, so a navigation used
 to wait on a network fetch that could have happened while the visitor was
@@ -873,33 +903,45 @@ a sub-app the visitor never opens would have its top-level code run — and when
 that runs is a behaviour a sub-app can notice. A preload fills the HTTP cache
 and does nothing else.
 
-**Nothing measures it on this slate.** Every unit this repository builds is on
-the view a visitor lands on, so there is no off-screen bundle to warm and no
-reading to take. The tags are still emitted, and `html.test.ts` holds their
-shape. What is gone until a second unit exists: the two `@browser` scenarios
-that watched the network for them, the `falsify` mutation that stripped the
-tags, and `scripts/measure-preload.ts`, which ran the server against the real
-store and repeated itself with the tags removed as a control.
+**A control is what makes any of it a measurement.** `bun run measure:preload`
+publishes, points `test-qa` at what it published, runs this repository's own
+server against the real store, and takes every reading twice: once from the page
+as served, and once from the same page with the warm tags cut out of the HTML on
+the way to the browser. Stripping them in a route handler rather than mutating
+the server is the point — both arms then run against one origin, one store, one
+pointer and one build, so nothing but the tags differs. Readings, 2026-09-12:
 
-The readings that script took on the previous slate, kept because they are what
-a second unit will be measured against:
-
-| | Reading |
-| --- | --- |
-| The policy | No refusal. `script-src` and `style-src` are already derived from the origins the manifest names, so neither hint needs a policy change |
-| The digest | Each off-screen bundle and stylesheet is fetched **once** across the navigation. The import reuses the preloaded response rather than fetching a second time |
-| The composition | The URLs follow the override, held by a unit test that composes one and asserts the preload moved with it |
-| The cost | One modulepreload and one style preload per off-screen unit per load, for a visitor who may never navigate |
+| | Warm | Control |
+| --- | --- | --- |
+| The benefit | click to panel on screen **60 ms**, median of 3 | **840 ms** |
+| The policy | no refusal. `script-src` and `style-src` are already derived from the origins the manifest names | no refusal |
+| Before the view is opened | `board`'s two files are in the browser | neither is |
+| The digest | each file fetched **once** across the visit. The import reuses the warmed response | once — the import does the one fetch itself |
+| What started them | `link` (stylesheet), `other` (module) | `link` (stylesheet), `script` (the import) |
+| The composition | the URLs follow the override, held by a unit test that composes one and asserts the preload moved with it | — |
+| The cost | one modulepreload and one style preload per off-screen unit per load, for a visitor who may never navigate | — |
 
 `loader.ts` needs no change for any of it: `addStylesheet` and the `loading` map
 still run at mount, and a preload only warms the cache.
 
-**A scenario was written for this, measured, and deleted.** "Opening a view
-costs no further request for its bundles" was green with the preload tags and
-green without them: the control showed the count after the navigation was 1
-either way, because with no preload the import does the one fetch itself. It
-discriminated nothing. The question needs a control, and a control is a thing a
-script can have and a scenario cannot.
+**A scenario was written for this, measured, and deleted — and the reason it
+was deleted is still true.** "Opening a view costs no further request for its
+bundles" was green with the preload tags and green without them: the count after
+the navigation was 1 either way, because with no preload the import does the one
+fetch itself. A count is not the reading. What discriminates is on the timing
+entry, and `warming-a-unit-before-its-view.feature` reads it there: a file
+fetched because of a tag is in the browser BEFORE the view is opened, and
+nothing that reaches it was started by a dynamic import. `initiatorType` is
+`other` for a warmed module and `link` for a warmed stylesheet, measured on
+2026-09-11 and not guessed — the first version of that file asserted `link` for
+both and went red on the module.
+
+**And one scenario that measured nothing now measures this.** `Moving between
+views draws each one and fetches nothing` was a statement about five views that
+placed one unit between them. Step 4 makes the walk open a view that DOES place
+one, and the count is still zero — because the files were already warm.
+Measured on 2026-09-11: 0 requests across the walk, and the `the page warms
+nothing, and the walk pays for it` mutation turns it red.
 
 ## Two failure rules, on purpose
 

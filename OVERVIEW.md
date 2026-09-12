@@ -29,7 +29,7 @@ Live: <https://pointer-deploy.fly.dev/>
 
 ## Where the application is now
 
-The page is a title, a fixed sidenav and five views, and one of them places a unit: `/` draws `list`, which is every task the planner holds. `/board` and `/week` are waiting for one; `/service` is drawn by the frame itself, from the one reading it took of the service, and `/backup` will be drawn by the frame too. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views, and two of them place a unit: `/` draws `list`, which is every task the planner holds, and `/board` draws `board`, one panel per column with a task moving between them. `/week` is waiting for one; `/service` and `/backup` are drawn by the frame itself — one from the reading it took of the service, one from the planner as a file. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
 
 The tasks are in memory and nowhere else, which is `PLAN.md` step 1 rather than an omission: IndexedDB is step 2, so a reload starts the planner empty and the panel says so on the page.
 

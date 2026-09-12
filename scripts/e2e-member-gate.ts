@@ -12,11 +12,14 @@
 // `ShellStore.goingAway`. Then `list` is rebuilt without the call and the same
 // promote succeeds.
 //
-// With one sub-app the second half of the claim - "and nothing else" - is not
-// measured here. `PLAN.md` step 10 is the first step with two sub-apps and a
-// member only one of them calls; until then `scripts/members.test.ts` is what
-// says a member no app calls costs no app anything, and it names the set `list`
-// uses rather than asserting an empty one.
+// `PLAN.md` step 4 added `board`, so the second half of the claim - "and
+// nothing else" - has a subject in the output: the refusal names `list` and
+// prints `board` beside it with the members it uses, unrefused. What is still
+// waiting for step 10 is a run whose whole point is that half, with the member
+// chosen so that the OTHER sub-app is the one that survives. `goingAway` is
+// `list`'s, so this probe measures the half it always did and now shows the
+// other one in passing. `scripts/members.test.ts` is what asserts it: each unit
+// holds a member the other does not call, in both directions.
 //
 // Restored at `PLAN.md` step 1 from the version at commit ff196d5. Step 0 left
 // it exiting non-zero: the gate is measured by what a SUB-APP uses, and a tree
@@ -41,6 +44,7 @@
 // A probe aimed at a member no unit uses would have been promotable.
 
 import { rm } from "node:fs/promises";
+import { UNITS } from "./contract.ts";
 
 const CHANNEL = "test-qa";
 /**
@@ -133,7 +137,14 @@ try {
   const promoted = await run(["bun", "run", "promote", CHANNEL, "--from-build"]);
   if (promoted.code !== 0) throw new Error(`the baseline promote failed:\n${promoted.said}`);
   baseline = idsOf(promoted.out);
-  check("a baseline composition is serving", Object.keys(baseline).length === 2, JSON.stringify(baseline));
+  // Every unit this tree builds, counted from `UNITS` rather than written
+  // down. The literal 2 here was step 1's unit count and outlived it: `board`
+  // arrived at step 4 and this check failed on a composition that was correct.
+  check(
+    "a baseline composition is serving",
+    Object.keys(baseline).length === UNITS.length,
+    JSON.stringify(baseline),
+  );
   console.log(`  ${JSON.stringify(baseline)}`);
 
   // --- the change: one member goes, and one app used it --------------------

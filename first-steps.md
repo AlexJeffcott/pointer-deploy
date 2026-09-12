@@ -53,10 +53,10 @@ after the load, and the answer is zero.
     - `<link rel="stylesheet">` — the shell's CSS in the store, with its sha384.
     - `<script type="importmap">` — the shell unit's own `imports` map, served as recorded with every file resolved against the **shell's** directory (`src/server/html.ts:83-92`). The server names no specifier, so the count is whatever that shell build wrote. This build writes five: `preact`, `preact/hooks`, `preact/jsx-runtime`, `@preact/signals` and `@pointer/shell` (`build.ts:268-274`). The map's `integrity` section is assembled separately and covers every `.js` file the shell and each app declare, not only the mapped specifiers — the shell's entry, its shared chunks and each panel's bundle, 12 entries in the build measured below (`src/server/html.ts:100-110`).
     - `<div id="app">`.
-    - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, a `units` entry for the shell and every app the manifest carries, each with its id, commit and marker (`src/server/html.ts:17-22`), the contract hash, and `apiBase`. Two units here.
+    - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, a `units` entry for the shell and every app the manifest carries, each with its id, commit and marker (`src/server/html.ts:17-22`), the contract hash, and `apiBase`. Three units here.
     - `<script id="__APPS__">` — each sub-app's JS URL, CSS URL and CSS digest.
     - `<script type="module" src="…units/shell/<id>/index-<hash>.js" integrity="sha384-…">`.
-    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). One and one in this composition, and both are for the panel this route mounts, so they warm nothing that is not about to be fetched anyway. A second sub-app in the pointer produces a second pair from the deployed binary, unrebuilt.
+    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). Two and two in this composition. `list`'s pair warms nothing that is not about to be fetched anyway, because this route mounts it. `board`'s pair is the one that buys something: this route does not mount it, and a visitor who later opens `/board` gets the panel in 60 ms instead of 840 (`scripts/measure-preload.ts`, 2026-09-12). A further sub-app in the pointer produces a further pair from the deployed binary, unrebuilt.
 13. The `content-security-policy` header: `default-src 'none'`; `script-src` = the store origin plus the **sha256 of the import map's own bytes**; `style-src` = the store origin; `connect-src` = the service origin and nothing else; `base-uri`, `form-action`, `frame-ancestors` all `'none'`.
 14. Four reading headers: `x-manifest-age`, `x-manifest-refresh`, `x-shell-blocks`, `x-shell-api`.
 15. `handedOut.record()` adds this composition to what `GET /compositions` reports.
@@ -66,7 +66,7 @@ after the load, and the answer is zero.
 16. The CSP applies to everything below it.
 17. The shell stylesheet is fetched from the store, checked against its sha384, and blocks the first paint.
 18. The import map is read. It must be parsed before any module import.
-19. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — two in this composition. All are `public, max-age=31536000, immutable`.
+19. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — four in this composition, and two of them are for a panel this route does not mount. All are `public, max-age=31536000, immutable`.
 20. The shell module is fetched and checked. Its imports of `preact` and the rest resolve through the map to more files in the shell's directory, each checked against the map's integrity entry.
 21. Any file whose bytes do not match its digest is **not executed**. That is the only place the refusal is observable.
 
@@ -78,13 +78,13 @@ after the load, and the answer is zero.
 25. `store.setService(awaiting(base))` runs **before** the render, so the first paint says which service is being read and that it has not answered.
 26. `render()` mounts `<ShellBoundary><Shell/></ShellBoundary>`.
 27. `Shell.tsx` reads `__APPS__` at module scope, once.
-28. The route is `location.pathname` = `/`. That view names `list`. The `/board`, `/week`, `/service` and `/backup` views name no unit at all: the frame draws them.
+28. The route is `location.pathname` = `/`. That view names `list`. `/board` names `board`, and nothing on this route imports it — its files are warm and its module has not run. The `/week`, `/service` and `/backup` views name no unit at all: the frame draws them.
 29. First paint: the title, the fixed sidenav, the view's own heading and note, and one empty slot marked `data-app-loading`.
 
 ## 5 · The panel
 
 30. Each panel's effect calls `loadApp(name, assets)`.
-31. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle. Both are usually already in cache from the preload.
+31. `loadApp` appends a `<link rel="stylesheet">` with the panel's digest and **waits for it to load**, then `import()`s the bundle. Both are already in cache from the warm: measured on 2026-09-12, each file carries exactly one resource timing across the whole visit, taken at 5 ms, and the import adds none.
 32. A module with no function default export is rejected by name: "list has no default export, so it is not a sub-app".
 33. The panel renders inside the shell's tree with the store passed as a prop. A throw is caught by that panel's own boundary, which offers "Mount again". The frame is untouched.
 
