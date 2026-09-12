@@ -117,16 +117,16 @@ after the load, and the answer is zero.
 
 ## The shape
 
-Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for. Measured in this composition: **1**, then **11**, then **2**.
+Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for. Measured in this composition: **1**, then **13**, then **2**.
 
 | Fan | What sets the count | Here | What |
 | --- | --- | --- | --- |
 | Server | always 1 | 1 | The HTML |
-| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 11 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files |
+| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 13 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files each for `list` and `board` |
 | Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1/greeting` |
 
-Only the shell's own files are needed to paint — 9 of them here. On this slate the panel files are fetched and also run, because the one sub-app is on the route a visitor lands on. A unit placed on a route nobody opens is fetched and never imported, which is what the preload tags are for, and `PLAN.md` step 4 is the first to have one.
+Only the shell's own files are needed to paint — 9 of them here. Of the four panel files, `list`'s two are fetched AND run, because that unit is on the route a visitor lands on. `board`'s two are fetched and never imported: the module has not executed, and a visitor who never opens `/board` pays two requests for nothing. What that buys the visitor who does open it is 780 ms — `scripts/measure-preload.ts`, 2026-09-12.
 
-Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
+Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-12. It read **11** with the two-unit composition of 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
 
 That reading was taken while the deployed service still answered the previous slate's surface, so `GET /v1/greeting` returned 404. The count is the same either way — the page makes the call and draws the default when it fails, which is the behaviour, not a fault in the measurement.

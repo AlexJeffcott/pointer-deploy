@@ -1,0 +1,60 @@
+{
+  "schema": 3,
+  "composedAt": "2026-09-12T14:19:39.258Z",
+  "contract": "f766e10",
+  "shell": {
+    "unitId": "62d6b53a",
+    "commit": "7ae1ab6b7b346137407806682160c64e74f73a75",
+    "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/shell/62d6b53a/",
+    "js": "index-vjxaza15.js",
+    "css": "index-4nax2sgd.css",
+    "imports": {
+      "preact": "preact-03mn2pxb.js",
+      "preact/hooks": "preact-hooks-9fbqqg7y.js",
+      "preact/jsx-runtime": "preact-jsx-runtime-bg505wne.js",
+      "@preact/signals": "preact-signals-qfnz91ey.js",
+      "@pointer/shell": "api-5ca8308a.js"
+    },
+    "integrity": {
+      "index-vjxaza15.js": "sha384-pPtUMAY/ARAXy8dut2iMLufaI4fgf0RrZEVKqd5XA0M8HmnBEaZbNO/WRnVTSF3Q",
+      "shared-tep1n9ad.js": "sha384-BYHTsCGg836GcLOOIvPHTuliwd+QkBOjWk/gEfEF3QXWxrDcqdi+4jFVguPyWgt6",
+      "shared-y6ncryts.js": "sha384-AJ/f8GaMeBi0N7Yne1YJVtqrvDaqX7TDJk54uozMrmKsQMg/+OVtIKQSEV8xd1qO",
+      "shared-h3zx0m6y.js": "sha384-cAdV0v2o3STOb0eIP4/AgUO3nPOho03WE989L2y3wyjeLzIKZleAIYRAnTOl7qGi",
+      "shared-51rbczf7.js": "sha384-GzOARjiEA8Zo1yjRgy2OUkVdqpoHClP4VcOZL3KcSTjNBIVP3YMEo4RtBdHTZPGs",
+      "shared-y9cbq62n.js": "sha384-lv918MO5cvACTfi6ky9X98Ia5kJzMnspPFs0iuRf/q3b/F+HRBy6AXauqw8cEstH",
+      "api-5ca8308a.js": "sha384-gMEGMV8h1iZu54u20NcKz7NfW3vN6rOye+4Z8p8qvrLbPTR4p8joidE0mMAxtNQT",
+      "preact-03mn2pxb.js": "sha384-uurdQe3qcG0qH8rnp8ggfswsHIatS3l+483PfSSqZQB5llproW1bhtu/DddLs1nI",
+      "preact-hooks-9fbqqg7y.js": "sha384-GY/z8MFDksri/17tYtBeV7CGuK/MfNhANCJZMLa8dJTSwneEYHntw0A+rAw/awGQ",
+      "preact-jsx-runtime-bg505wne.js": "sha384-MsHjx+rd6kyxpAJq2o3DCc+yedOpXXml7z3PvNZ3IccA0Kw/TJMuBp2y5kZq4b0I",
+      "preact-signals-qfnz91ey.js": "sha384-6ibuEzTH94gstP14/Z3ucS6P4pqRhykX/QKJghBoMazMzHZZk4JHK5+d3KBUoSa9",
+      "index-4nax2sgd.css": "sha384-aEfP1YZCNgx8m6hFstVY/YWmXflrKLOsb4NEyTZj6VakeqjLVwD31QG6BUMBM/sk"
+    },
+    "marker": ""
+  },
+  "apps": {
+    "list": {
+      "unitId": "2adce208",
+      "commit": "36f912db3f50b50546087ae1ca9780291c5704f0",
+      "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/list/2adce208/",
+      "js": "list-v8q4wesc.js",
+      "css": "list-agn6t6qh.css",
+      "integrity": {
+        "list-v8q4wesc.js": "sha384-iXPf5KonMc7sN/dqRSNua5gwY9RMWz9T4YXZ2lOAwePk+l0rF1nawfPYDH+PFVfj",
+        "list-agn6t6qh.css": "sha384-HEH/uz+f85bphFjhDUsRQoIMi/raMA7QtD61Bqgc6BH9t6+CvLlH8Dfj5yd0Kiir"
+      },
+      "marker": ""
+    },
+    "board": {
+      "unitId": "5900f86c",
+      "commit": "7ae1ab6b7b346137407806682160c64e74f73a75",
+      "assetBase": "https://pointer-deploy-assets.fly.storage.tigris.dev/units/board/5900f86c/",
+      "js": "board-rm16yqky.js",
+      "css": "board-nbca5xwf.css",
+      "integrity": {
+        "board-rm16yqky.js": "sha384-zp+3BjsIHISFq8samPZpm0HN3voQQS0pJoc6PctCElGZZo6Xj+bbdWVsQqfTjae0",
+        "board-nbca5xwf.css": "sha384-NrJsgWE0OyZys9/NzQvQxSt4axOIKkmlvq2MRryP1PxGQOySbxU5hslfMlxjbnzf"
+      },
+      "marker": ""
+    }
+  }
+}
