@@ -1213,6 +1213,16 @@ bun run pr --dry-run          # the body on stdout, and nothing changed
 
 **Which units changed is read from an unmarked build.** `BUILD_MARKER` is compiled in - `build.ts` defines `__BUILD_MARKER__` and `__UNIT_MARKER__` from it - so a marked build's bytes differ from an unmarked one's and its ids differ with them. Comparing a marked build against the channel would report every branch as changing every unit, including one that edited nothing but a script. So the reading is taken first and the marked build is made only when there is something to preview. The shell draws `__BUILD_MARKER__` in its nav foot, so a preview whose SHELL changed is labelled `pr-<n>` and the production picture is not - a difference in the picture that the branch did not make. A preview of a sub-app alone carries no label at all, because the shell came from the channel. Measured on 2026-09-10 by composing `hello=8ca0806a`, a `pr-48570` build, against qa's own shell: served, gated and shot, and indistinguishable from production in the image.
 
+**A branch that ADDS a unit cannot be previewed at all, and that is a property of the override.** The origin composes from the pointer and replaces only a unit the pointer already NAMES — `src/server/index.ts:157` loops over `Object.keys(ids)` — so a query string naming `board` against a channel serving `shell, list` is ignored, and the page that comes back is the channel's own. `overrideRefusal` catches it and says so rather than letting a shot of `qa` be filed as a preview. Met on 2026-09-12 by `PLAN.md` step 4, the first branch to add a unit since the previews were built:
+
+```
+FAILED --override names board, and qa composes shell, list. The origin ignores
+a name it does not compose, so this would have shot the channel and filed it as
+a preview.
+```
+
+So for such a branch the order inverts: promote to `qa`, shoot the deploy record, and the pull request carries the record's pictures with no preview column and a sentence saying why. What would remove the inversion is an override that may ADD a unit the pointer does not name — the composition gate would still run on it, so it is not a question of safety — and that is a change to what an override IS, not a change to the shooter. TODO §34 carries it.
+
 **`previews/` is not `deploys/`.** A preview was published and never promoted, and no channel ever pointed at it. Two directories, because they are two claims.
 
 ## One record of every published unit
