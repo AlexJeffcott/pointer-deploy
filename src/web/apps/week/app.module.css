@@ -17,6 +17,9 @@
   border-radius: 0.4rem;
   padding: 0.65rem 0.6rem 0.75rem;
   min-height: 6rem;
+  /* A grid item's default minimum is its content, so one long card title
+     would push the seven columns out of equal widths. */
+  min-width: 0;
 }
 
 .dayTitle,
@@ -29,6 +32,16 @@
   display: flex;
   gap: 0.35rem;
   align-items: baseline;
+}
+
+/* One line, whatever the date reads. `SUN 13 SEP` wrapped at seven columns
+   and made two of the seven panels taller than the other five, which the
+   record's pictures showed on 2026-09-13. The heading is narrower than the
+   panel rather than the panel wider than the row. */
+.dayTitle {
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .count {
