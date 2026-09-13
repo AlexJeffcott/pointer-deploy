@@ -267,15 +267,16 @@ Green checks are a necessary condition for shipping and never a sufficient one, 
 
 | Layer | What it covers | Size |
 | --- | --- | --- |
-| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **819 tests**, ~30 s |
+| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **835 tests**, ~30 s |
 | `bun run verify` | Scenarios needing an injected failure — unreachable store, corrupt manifest, a retired field | **56** `@local` scenarios, ~8 s |
 | `bun run verify:live` | Everything that publishes or promotes, against the **real** store and deployed machines | **47** `@live` scenarios, ~16 min |
 | `bun run verify:browser` | What only a browser sees: three bundles agreeing on one store, a blocked module script, a panel that throws | **78** `@browser` scenarios, ~6 min |
-| `bun run falsify` | 174 deliberate breakages. **Each must turn a named check red** | 174 mutations, 110 run locally, 0 uncaught |
+| `bun run falsify` | 175 deliberate breakages. **Each must turn a named check red** | 175 mutations, 111 run locally, 0 uncaught |
 | `bun run mutate` | Operator and literal mutation over the server's pure logic and the service | 1205 mutants. `src/server` **895 of 895**; `api/service.ts` 268 of 310 |
 | `bun run e2e` | Deploy the panel, deploy the frame, roll the panel back, read off the **rendered page** | the question the project exists to answer |
 | `bun run e2e:schema` | Retire a field on the service, write another, read what the page paints — no unit rebuilt, no id moved | in a real Chrome |
-| `bun run verify:cold` | Two pages in one browser context, which is the only way to reach the state the cold-planner check reports | 9 readings, TODO §44 |
+| `bun run verify:cold` | Two pages in one browser context: the cold-planner check reaches its state, and the `deleteDatabase` `PLAN.md` specified is shown blocked | 11 readings, TODO §44 |
+| `bun run verify:split` | A test channel split on purpose: the check reports it once, and the command it prints puts the channel back | 10 readings, TODO §42 |
 
 **167 written scenarios** (173 executable, six being outlines) are the specification and the acceptance suite at once. Every number in the table above was measured on 2026-09-13; they read 424 / 54 / 45 / 13 / 92 and "100 written scenarios" until then, which is three slates behind and is what a cold read that day found.
 
@@ -283,7 +284,7 @@ Four conventions hold the whole thing up:
 
 - The `.feature` files are the specification **and** the acceptance suite. Never paraphrase one into a separate test.
 - Anything that publishes or promotes runs against the **real** store. A stub reimplementing them could pass while the real path was broken.
-- **Every new scenario must be seen red before it is trusted.** `bun run falsify` exists for this, and has found three checks that proved nothing. Where a check's state cannot be reached by a mutation — a guard against something the suite's own isolation already prevents — the message is made a pure function with its own tests and the state is ARRANGED by a committed script instead. `bun run verify:cold` is one; §42's split channel was arranged by hand and the reading is in `TODO.md`.
+- **Every new scenario must be seen red before it is trusted.** `bun run falsify` exists for this, and has found three checks that proved nothing. Where a check's state cannot be reached by a mutation — a guard against something the suite's own isolation already prevents — the message is made a pure function with its own tests and the state is ARRANGED by a committed script instead. `bun run verify:cold` and `bun run verify:split` are the two, and both put the state back in a `finally`.
 - The suite deploys, so it deploys **somewhere else**: two channels the application is served from, two the suite owns, with a tripwire that fails a run if a real channel moved.
 
 > **`falsify` earns its keep.** Writing five mutations for the member gate found two faults in the *checks* rather than in the code — a scenario asserting only a member's name, which both halves of the gate print; and a search string matching two places, so a mutation patched the wrong one and was reported as caught. `falsify` now refuses any search that matches more than one place.

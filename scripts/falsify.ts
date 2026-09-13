@@ -1843,6 +1843,14 @@ const MUTATIONS: Mutation[] = [
   // removing the probe stays green. `bun run verify:cold` is the arrangement -
   // two pages in one context - and it is one command.
   //
+  // These three were reported CAUGHT on 2026-09-13 by a check that never ran.
+  // `runUnitTest` spawned three of the five homes `package.json` names, so
+  // `bun test` could not load `features/support/__tests__/cold-planner.test.ts`
+  // at all; bun exits 1 with `matched 0 tests`, which is not `code === 0`, and
+  // a mutation whose test cannot be found read as a mutation whose test went
+  // red. Found by a cold read. `TEST_HOMES` is the fix and the guard now
+  // catches both of bun's wordings for a filter that matched nothing.
+  //
   // That arrangement is also what took `PLAN.md`'s `deleteDatabase` out of the
   // design. Measured 2026-09-13: a delete issued while another page holds the
   // database open is blocked, deletes nothing, and queues every later open on
@@ -1870,6 +1878,13 @@ const MUTATIONS: Mutation[] = [
     // The probe opens the database instead of reading the list. An `open` with
     // no version CREATES it with no object stores, and the shell's own
     // `open(name, 1)` then finds a version 1 holding no `tasks` store.
+    //
+    // A string edit caught by a string grep, and that is said rather than left
+    // to be noticed: the script runs in a page, and `cold-planner.test.ts`
+    // starts no browser. What RUNS it is `bun run verify:cold`. This pair is
+    // worth keeping because the property it protects - the probe never opens -
+    // is the one that would corrupt a real planner, and a grep catches an edit
+    // that reintroduces it.
     name: "the cold probe opens the database",
     file: "features/support/cold-planner.ts",
     find: "    const reading = indexedDB.databases();",
@@ -1879,17 +1894,21 @@ const MUTATIONS: Mutation[] = [
 
   // --- TODO §42, a channel a killed run left split ------------------------
   //
-  // Three entries, all `@local`, because the message is pure and the store read
+  // Four entries, all `@local`, because the message is pure and the store read
   // around it is two `fetch` calls. The hook itself is NOT mutated here: a
   // mutation that removed it would turn nothing red, because no test channel is
   // split while the suite is healthy. That is the same shape §44 has, and it is
   // why the message was made a pure function with its own tests rather than
   // written inline in `hooks.ts`.
   //
-  // The hook was measured instead, by arranging the state on 2026-09-13:
-  // `test-prod` was split on purpose, one scenario was run, and the reading was
-  // one error naming the channel and the recovery. Running the printed command
-  // put the channel back. The arrangement found a defect - the check ran before
+  // The hook was measured instead, by arranging the state. That arrangement is
+  // `bun run verify:split` now, and was prose until a cold read on 2026-09-13
+  // pointed at `~/projects/CLAUDE.md`: the verification artefact is committed
+  // next to the feature, and runs in one command. It splits `test-prod`, reads
+  // the report, runs the command the report printed, and puts the channel back
+  // in a `finally`.
+  //
+  // The by-hand arrangement found a defect the same day - the check ran before
   // `recordRealChannels`, so `AfterAll` threw a SECOND error about the deploy
   // guard not running - and the order is swapped.
 
@@ -1912,6 +1931,17 @@ const MUTATIONS: Mutation[] = [
     find: "  if (split.length === 0) return null;",
     replace: "  if (false) return null;",
     unitTest: "two regions in agreement have nothing to report",
+  },
+  {
+    // A unit the split region serves and the base does not is left to be
+    // CARRIED. A promote merges, so running the printed command changes
+    // nothing about that unit and the channel stays refused - which is the one
+    // case the line above the command already describes in words.
+    name: "a unit only the split region serves is not dropped",
+    file: "scripts/regions.ts",
+    find: "    const drops = carried.map((unit) => ` --drop ${unit}`).join(\"\");",
+    replace: '    const drops = "";',
+    unitTest: "a unit the base does not serve is dropped",
   },
   {
     // The recovery names what the SPLIT region serves rather than what the base
@@ -2276,16 +2306,31 @@ async function runScenario(m: Mutation): Promise<boolean> {
   return code === 0;
 }
 
+/**
+ * Every home the `test` script names, and it must stay every one of them.
+ *
+ * It read `src/server src/web scripts` until 2026-09-13 while `package.json`
+ * named five, so a mutation whose test lives in `api/` or `features/support`
+ * ran against a `bun test` that could not load it. Bun then exits 1 with
+ * `matched 0 tests`, `code === 0` is false, and the mutation is reported as
+ * CAUGHT by a check that never ran - which is the §35 trap one file over,
+ * reached from the other side. Found by a cold read the same day, on the three
+ * mutations this branch aimed at `features/support/__tests__/`.
+ */
+const TEST_HOMES = ["src/server", "src/web", "scripts", "api", "features/support"];
+
 async function runUnitTest(name: string): Promise<boolean> {
-  // The same homes the `test` script names. `scripts` is here because the
-  // member reading lives there and a mutation of it must find its test.
-  const proc = Bun.spawn(["bun", "test", "src/server", "src/web", "scripts", "-t", name], {
+  const proc = Bun.spawn(["bun", "test", ...TEST_HOMES, "-t", name], {
     stdout: "pipe",
     stderr: "pipe",
   });
   const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
   const code = await proc.exited;
-  if (/ 0 pass/.test(out) && / 0 fail/.test(out)) {
+  // Two wordings, because bun has two. A filter that matches nothing in the
+  // files it loaded prints `matched 0 tests`; one that matches a file with no
+  // tests prints a `0 pass` / `0 fail` summary. Either is a check that did not
+  // run, and neither may be counted.
+  if (/matched 0 tests/.test(out) || (/ 0 pass/.test(out) && / 0 fail/.test(out))) {
     throw new Error(`-t ${JSON.stringify(name)} matched no test:\n${out}`);
   }
   return code === 0;

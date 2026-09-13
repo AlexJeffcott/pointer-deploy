@@ -139,23 +139,45 @@ describe("a channel a killed run left split", () => {
     expect(splitChannelReport("test-qa", split, "eu")).toContain("Nothing in this run caused it");
   });
 
-  // The base is what every other region is put back TO, so a base that names
-  // nothing cannot produce a command - and offering one would send a person to
-  // a promote naming no units at all.
-  test("a base region with no pointer reports the split and offers no command", () => {
-    const said = splitChannelReport("test-qa", [
-      { region: "eu", ids: null },
-      { region: "us", ids: { shell: "62d6b53a" } },
-    ], "eu");
-    expect(said).toBeNull();
+  // The base is what every other region is put back TO. With two regions, a
+  // base that names nothing leaves one known region, and a set of one differs
+  // from nothing - so this is not a split and there is nothing to say. The
+  // test was named "reports the split and offers no command" until a cold read
+  // on 2026-09-13 read its body, which asserts the opposite.
+  test("a base region with no pointer is not a split", () => {
+    expect(
+      splitChannelReport("test-qa", [
+        { region: "eu", ids: null },
+        { region: "us", ids: { shell: "62d6b53a" } },
+      ], "eu"),
+    ).toBeNull();
   });
 
-  test("three regions: only the ones that differ from the base are named", () => {
+  test("one command per region that differs, and no more", () => {
     const said = splitChannelReport("test-qa", [
       { region: "eu", ids: { shell: "aaaa1111" } },
       { region: "us", ids: { shell: "bbbb2222" } },
     ], "eu")!;
     expect(said.split("bun run promote")).toHaveLength(2);
+  });
+
+  // A promote MERGES, so a unit the split region serves and the base does not
+  // is carried and the channel stays split. That is the one case the message
+  // already describes in words - "us serves hello aaaa1111 where eu serves
+  // hello none" - and the command under it could not fix until 2026-09-13.
+  test("a unit the base does not serve is dropped, not left to be carried", () => {
+    const said = splitChannelReport("test-qa", [
+      { region: "eu", ids: { shell: "aaaa1111" } },
+      { region: "us", ids: { shell: "aaaa1111", hello: "bbbb2222" } },
+    ], "eu")!;
+    expect(said).toContain("hello bbbb2222");
+    expect(said).toContain("bun run promote test-qa --region us --shell aaaa1111 --drop hello");
+  });
+
+  test("a unit both regions serve is named by --app and never dropped", () => {
+    const said = splitChannelReport("test-qa", split, "eu")!;
+    expect(said).toContain("--app list=f1fdb597");
+    expect(said).not.toContain("--drop");
   });
 });
 

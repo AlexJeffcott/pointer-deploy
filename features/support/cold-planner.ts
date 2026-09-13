@@ -46,8 +46,12 @@ export type ProbeReading = number | "unsupported" | null;
 export function readProbe(raw: string | null): ProbeReading {
   if (raw === null || raw === "unread") return null;
   if (raw === "unsupported") return "unsupported";
-  const n = Number(raw);
-  return Number.isInteger(n) && n >= 0 ? n : null;
+  // Digits and nothing else. `Number("")` is 0 and `Number("0x10")` is 16, so
+  // reading through `Number` turned an empty value into "cold" and a hex string
+  // into a version. Found by a cold read on 2026-09-13; the test that claimed
+  // to cover it happened to pick three strings `Number` also rejects.
+  if (!/^\d+$/.test(raw)) return null;
+  return Number(raw);
 }
 
 /**
@@ -69,8 +73,11 @@ export function coldPlannerProblem(reading: ProbeReading, scenario: string): str
     `  Every browser scenario must start from the state a fresh visitor sees. That held ` +
     `without anything asserting it, because Playwright gives each test its own context and ` +
     `IndexedDB is per profile.\n` +
-    `  Something changed that. Look at playwright.config.ts first - a reused context, ` +
-    `\`fullyParallel\`, or a worker count - and then at any step that opens a second page.\n` +
+    `  Something changed that. What produces it is a SHARED context: a fixture or hook that ` +
+    `reuses one across tests, \`launchPersistentContext\`, or a \`storageState\` carrying a ` +
+    `profile in. More workers is more isolation, not less, and \`fullyParallel\` cannot share ` +
+    `one either - a sentence here said both until a cold read on 2026-09-13.\n` +
+    `  Then look at any step that opens a second page, and at playwright.config.ts.\n` +
     `  Nothing here clears it. Measured on 2026-09-13: a delete issued while another page ` +
     `holds the database open is blocked, deletes nothing, and queues every later open ` +
     `behind it - so the clear hangs a reused context rather than saving it. ` +
@@ -89,10 +96,18 @@ export function coldPlannerProblem(reading: ProbeReading, scenario: string): str
  *
  * `indexedDB.databases()` is a read. It creates no database, holds no
  * connection and blocks nothing, which is the whole reason it replaced the
- * delete. It resolves asynchronously, and the race it could lose - the shell
- * creating the database before it answers - is not one it has lost: the shell's
- * module is fetched over the network first, and `verify:cold` reads 0 on a
- * fresh context every run.
+ * delete.
+ *
+ * It resolves asynchronously, and it CAN lose a race the other way: the spec
+ * resolves it against the storage bucket when its task runs, not when it is
+ * called, so a shell that opened the database first would be reported as warm
+ * on a cold context. Nothing has seen that - `verify:cold` reads 0 on a fresh
+ * context every run - and one script on one day is the whole of the evidence,
+ * which a cold read on 2026-09-13 said plainly rather than leaving implied. The
+ * cost if it ever happens is a scenario failing in its `After` hook for a
+ * reason that is not true, which is the least diagnosable kind of failure. What
+ * makes it unlikely is that the shell's module is fetched over the network
+ * before it can open anything.
  */
 export const PROBE_SCRIPT = `(() => {
   try {

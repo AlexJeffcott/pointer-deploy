@@ -503,10 +503,15 @@ What is built instead is the READING, and it needs no delete. `indexedDB.databas
 | The reading | `indexedDB.databases()` at document start, once per browsing context, into `sessionStorage` |
 | Where it goes | `PointerWorld.usePage`, so every page the world drives has it - the fixture's and any second browser a scenario opens |
 | What it says | The scenario's name, the version that already existed, and where to look: `playwright.config.ts` first |
-| The check, pure | `coldPlannerProblem` and the script's shape are in `features/support/cold-planner.ts`, with 15 tests and three `falsify` mutations |
-| The check, arranged | `bun run verify:cold`. Two pages in one browser context, which is the state nothing else can reach. Nine readings on 2026-09-13 |
+| The check, pure | `coldPlannerProblem` and the script's shape are in `features/support/cold-planner.ts`, with 29 tests and three `falsify` mutations. Three of those tests GREP the script's text rather than running it, because it runs in a page and that file starts no browser; `verify:cold` is what runs it |
+| The check, arranged | `bun run verify:cold`. Two pages in one browser context, 11 readings on 2026-09-13. That is ONE way to reach the state - `launchPersistentContext` and a `storageState` reach it too - and it is the cheapest |
+| The refutation, arranged | The same script. It issues the `deleteDatabase` this section specified while the first page holds the database open, and reads back `blocked` and a database still there. A claim that overturns a specification is the last one that should rest on prose |
 
-**Nothing is cleared, and that is deliberate.** A reused context gives a visitor a warm planner; the suite reports it rather than hiding it behind a clear that would sometimes work. A clear step nothing verifies is a clear step that will be silently dropped - which is what this section said, and the answer turned out to be an arrangement rather than a mutation.
+**The refutation is about the CONCURRENT shape, and `verify:cold` measures the other one too.** A page that has closed holds nothing open, so a delete there completes and does exactly what this section specified. What was rejected is the step as an unconditional part of the setup, because the shape it cannot survive is the shape a shared context actually produces first.
+
+**A third option was not considered until a cold read on 2026-09-13 asked: delete, and report when the delete is blocked.** That would clear the sequential shape and report the concurrent one, which is strictly more than the reading alone. It is not built, and the reason is a trade rather than a measurement: a harness hook that deletes a visitor's planner is a write, and the reading already names the fault in both shapes without one. If a reused context ever becomes something the suite wants rather than something it reports, that is the design to build.
+
+**Nothing is cleared, and that is deliberate.** A reused context gives a visitor a warm planner; the suite reports it rather than hiding it behind a clear that works in one shape of two. A clear step nothing verifies is a clear step that will be silently dropped - which is what this section said, and the answer turned out to be an arrangement rather than a mutation.
 
 The live suite gains a second store to clean: snapshots and slots it wrote. They go under a `test-` key prefix, and the existing tripwire pattern covers them.
 

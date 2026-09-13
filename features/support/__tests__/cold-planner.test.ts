@@ -1,8 +1,14 @@
 // TODO §44. The half of the cold-state guarantee that can be read without a
 // browser: what the probe's reading MEANS, and what the script does in what
-// order. The browser half is arranged by hand and recorded in `PLAN.md`,
-// because a mutation that removes the clear turns nothing red while Playwright
-// gives each test its own context.
+// order. The browser half is `bun run verify:cold`, a committed script, because
+// a mutation removing the probe turns nothing red while Playwright gives each
+// test its own context.
+//
+// Three of these are STRING checks on the script's text - it opens nothing,
+// deletes nothing, and marks the context before it reads. A check that greps a
+// string is weaker than one that runs it, and the reason it is here is that the
+// script runs in a page and this file does not start a browser. What runs it is
+// `verify:cold`; these are what a mutation can reach cheaply.
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -20,7 +26,7 @@ describe("what the probe read", () => {
   });
 
   // The whole point. A context nothing has used holds no `pointer-planner`, so
-  // the delete reports version 0 and there is nothing to say.
+  // the probe reports version 0 and there is nothing to say.
   test("version 0 means no database existed, which is cold", () => {
     expect(readProbe("0")).toBe(0);
     expect(coldPlannerProblem(0, "a scenario")).toBeNull();
@@ -39,9 +45,19 @@ describe("what the probe read", () => {
   });
 
   // The recovery is a place to look and not a command, because nothing here can
-  // know which change made the contexts shared.
-  test("the reading names where to look", () => {
-    expect(coldPlannerProblem(1, "a scenario")).toContain("playwright.config.ts");
+  // know which change made the contexts shared. What it names has to be things
+  // that CAN share a context: a sentence naming `fullyParallel` and a worker
+  // count stood here until 2026-09-13, and neither can - more workers is more
+  // isolation.
+  test("the reading names what can actually share a context", () => {
+    const said = coldPlannerProblem(1, "a scenario")!;
+    expect(said).toContain("launchPersistentContext");
+    expect(said).toContain("storageState");
+    expect(said).toContain("playwright.config.ts");
+  });
+
+  test("and says that more workers is not the cause", () => {
+    expect(coldPlannerProblem(1, "a scenario")).toContain("More workers is more isolation");
   });
 
   // A browser with no `indexedDB.databases()` cannot answer. That is not a warm
@@ -67,10 +83,20 @@ describe("what the probe read", () => {
     expect(said).toContain("verify:cold");
   });
 
-  test("a reading that is not a version is no reading", () => {
-    expect(readProbe("yesterday")).toBeNull();
-    expect(readProbe("-1")).toBeNull();
-    expect(readProbe("1.5")).toBeNull();
+  // `Number("")` is 0 and `Number("0x10")` is 16, so reading through `Number`
+  // turned an empty value into "cold" and a hex string into a version. The
+  // three strings this test used to check are three `Number` also rejects,
+  // which is why it passed against the wrong reader. Found by a cold read on
+  // 2026-09-13.
+  test.each(["yesterday", "-1", "1.5", "", " ", "0x10", " 1 ", "1e3", "+1", "Infinity"])(
+    "a reading of %p is no reading",
+    (raw) => {
+      expect(readProbe(raw)).toBeNull();
+    },
+  );
+
+  test.each(["0", "1", "2", "10"])("a reading of %p is a version", (raw) => {
+    expect(readProbe(raw)).toBe(Number(raw));
   });
 });
 

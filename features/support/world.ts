@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from "@playwright/test";
 import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
+import { REGIONS, type Region } from "../../scripts/regions.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
 import { PROBE_KEY, PROBE_SCRIPT, readProbe, type ProbeReading } from "./cold-planner.ts";
 import type { BuildInfo } from "@pointer/blocks";
@@ -34,7 +35,23 @@ const LIVE_ADDRESS = Bun.env.LIVE_ADDRESS ?? "https://pointer-deploy.fly.dev";
 
 const MANIFEST_BASE =
   Bun.env.MANIFEST_BASE ?? "https://pointer-deploy-assets.fly.storage.tigris.dev/manifests";
-const REGION = Bun.env.REGION ?? "eu";
+/**
+ * The region this harness reads and writes, and every other region is put back
+ * to it. Refused rather than trusted: `REGION=eu1` typed as a plain string used
+ * to reach `splitChannelReport` through an unchecked cast, where it produced a
+ * message saying "eu1 has no pointer" - true, and not the fault. Found by a
+ * cold read on 2026-09-13.
+ */
+const REGION: Region = (() => {
+  const named = Bun.env.REGION ?? "eu";
+  if (!(REGIONS as readonly string[]).includes(named)) {
+    throw new Error(
+      `REGION is ${JSON.stringify(named)}, and this harness reads ${REGIONS.join(", ")}. ` +
+        `Every pointer it reads and every region it puts back is named by it.`,
+    );
+  }
+  return named as Region;
+})();
 
 const LIVE_CHANNELS: Record<Channel, string> = {
   qa: "test-qa",
@@ -47,7 +64,7 @@ export const REAL_CHANNELS = ["qa", "prod"] as const;
 export const TEST_CHANNELS = Object.values(LIVE_CHANNELS);
 
 /** The region the suite reads and puts every other region back to. */
-export const BASE_REGION = REGION;
+export const BASE_REGION: Region = REGION;
 
 const LIVE_HOSTS: Record<Channel, string> = {
   qa: Bun.env.TEST_QA_HOST ?? "test-qa.pointer-deploy.test",
@@ -872,9 +889,9 @@ export class PointerWorld {
     this.drivenPages.push(page);
     page.on("request", (r) => this.requests.push(r.url()));
     // TODO §44, and it goes FIRST. `addInitScript` runs its scripts in the
-    // order they were added, and this one issues `deleteDatabase` before any
-    // page script has run. IndexedDB serialises requests per database name, so
-    // the delete is ahead of the shell's own open and there is no race.
+    // order they were added, and this one READS what the context already held
+    // before any page script runs. It deletes nothing and opens nothing -
+    // `cold-planner.ts` carries the measurement that took the delete out.
     await page.addInitScript(PROBE_SCRIPT);
     await page.addInitScript(() => {
       const seen: string[] = [];

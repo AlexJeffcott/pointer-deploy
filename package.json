@@ -36,7 +36,8 @@
     "e2e:schema": "bun run scripts/e2e-service-schema.ts",
     "e2e:preview": "bun run scripts/e2e-pr-preview.ts",
     "measure:preload": "bun run scripts/measure-preload.ts",
-    "verify:cold": "bun run scripts/probe-cold-planner.ts"
+    "verify:cold": "bun run scripts/probe-cold-planner.ts",
+    "verify:split": "bun run scripts/probe-split-channel.ts"
   },
   "dependencies": {
     "preact": "^10.29.8",

@@ -59,6 +59,10 @@ export function regionDrift(compositions: RegionComposition[]): string | null {
   const known = compositions.filter((c) => c.ids !== null) as Array<
     RegionComposition & { ids: Record<string, string> }
   >;
+  // A TYPE guard rather than a reachability one, and that is worth saying
+  // because a cold read on 2026-09-13 asked why one like it was deleted below.
+  // With fewer than two known regions the loop never runs and this returns null
+  // anyway; what the guard buys is that `known[0]!` is not a lie.
   if (known.length < 2) return null;
 
   const first = known[0]!;
@@ -105,24 +109,24 @@ export function splitChannelReport(
     RegionComposition & { ids: Record<string, string> }
   >;
 
-  // No `known.length < 2` guard, and its absence is measured. `regionDrift`
-  // above has one and needs it; here it is unreachable, because one known
-  // region either IS the base - and then nothing differs from it - or is not,
-  // and then the base names nothing and the branch below says so. A mutation
-  // aimed at such a guard stays green, which is the shape TODO §44 is about.
+  // No `known.length < 2` guard here, and `regionDrift`'s is a type guard
+  // rather than a reachability one. A sentence claiming an asymmetry of
+  // REACHABILITY stood here until a cold read on 2026-09-13 and was false:
+  // neither guard is reachable, and the one above earns its place by making
+  // `known[0]!` honest.
   const baseComposition = known.find((c) => c.region === base);
-  // Every other region differs from the base, or there is no base to name. Both
-  // are worth separate sentences: the second cannot offer a command, and
-  // pretending it can would send a person to a promote that names nothing.
-  if (!baseComposition) {
-    const drift = regionDrift(compositions);
-    if (!drift) return null;
-    return (
-      `${channel} is split across regions and ${base} has no pointer to put them back to.\n` +
-      `  ${drift}\n` +
-      `  Nothing here can name the recovery, because the region the suite reads names nothing.`
-    );
-  }
+  // Unreachable for a `Region`, and kept for the same reason `regionDrift`'s
+  // is: `baseComposition.ids` below would otherwise be read off `undefined`.
+  // With two regions, a base that is not among the known ones leaves at most
+  // one known region, and nothing differs from a set of one.
+  //
+  // What stood here instead was a three-line message about a base with no
+  // pointer. It could not be produced by any valid input - the same cold read
+  // found it - and was reachable only through an unchecked cast in
+  // `hooks.ts`, where it would have told a person "eu1 has no pointer" when
+  // the truth was that REGION is not a region. The cast is gone and so is the
+  // message.
+  if (!baseComposition) return null;
 
   const split = known
     .filter((c) => c.region !== base)
@@ -147,9 +151,18 @@ export function splitChannelReport(
       c.differing.map((u) => `${u} ${baseComposition.ids[u] ?? "none"}`).join(", "),
   );
 
-  const commands = split.map(
-    (c) => `  bun run promote ${channel} --region ${c.region} ${flags}`,
-  );
+  // A promote MERGES, so a unit the split region serves and the base does not
+  // is CARRIED and the channel stays split. `--drop` is the only way off it,
+  // and `promote` refuses an inferred removal on purpose: removal is said,
+  // never guessed. A cold read on 2026-09-13 found the command being printed
+  // for exactly the case the line above it describes in words.
+  const commands = split.map((c) => {
+    const carried = Object.keys(c.ids)
+      .filter((unit) => !(unit in baseComposition.ids))
+      .sort();
+    const drops = carried.map((unit) => ` --drop ${unit}`).join("");
+    return `  bun run promote ${channel} --region ${c.region} ${flags}${drops}`;
+  });
 
   return (
     `${channel} is split across regions, and every promote to it is refused until it is not.\n` +

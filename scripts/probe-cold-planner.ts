@@ -51,6 +51,20 @@ const probeOf = async (page: import("playwright-core").Page): Promise<ProbeReadi
 
 console.error(`arranging a reused browser context against ${ORIGIN}\n`);
 
+// `e2e` and `e2e:members` refuse when the tree builds no sub-app, and this one
+// needs the same: it drives `list`'s controls on the deployed origin, so a
+// composition without that panel leaves it waiting on a selector for 30 s and
+// then failing for a reason that is not about the planner.
+const served = await fetch(ORIGIN).then((r) => r.text());
+if (!served.includes('"list"')) {
+  console.error(
+    `${ORIGIN} serves no \`list\` panel, and this script types a task into it. There is ` +
+      `nothing here to arrange a warm planner with. Promote a composition that places ` +
+      `\`list\` on the landing route, or point LIVE_ADDRESS at one that does.`,
+  );
+  process.exit(1);
+}
+
 const browser = await chromium.launch();
 const context = await browser.newContext();
 
@@ -77,7 +91,10 @@ try {
     undefined,
     { timeout: 10_000 },
   );
-  check(true, `the first page stored ${JSON.stringify(TASK)}`);
+  // Read back, not asserted true. `check(true, ...)` stood here until a cold
+  // read on 2026-09-13 counted it among the nine readings this script reports.
+  const storedFirst = await first.$$eval('[data-app="list"] [data-task]', (n) => n.length);
+  check(storedFirst === 1, `the first page drew ${storedFirst} task after storing one`);
 
   // The second page, in the SAME context. This is the state a change to
   // `playwright.config.ts` produces, and the one nothing could reach before.
@@ -108,9 +125,38 @@ try {
   const drawn = await second.$$eval('[data-app="list"] [data-task]', (n) => n.length);
   check(drawn > 0, `and the second page drew ${drawn} task(s), which is the state being reported`);
 
+  // THE REFUTATION, re-run rather than quoted. `PLAN.md` specified a
+  // `deleteDatabase` in the browser world's setup. Issued from this page while
+  // the first page still holds the database open, it must fire `blocked` and
+  // delete nothing - which is why it is not in the harness. Nothing else in the
+  // tree can show that, and a claim that overturns a specification is the last
+  // one that should rest on prose.
+  const blocked = await second.evaluate(
+    (db) =>
+      new Promise<string>((resolve) => {
+        const request = indexedDB.deleteDatabase(db);
+        request.onblocked = () => resolve("blocked");
+        request.onsuccess = () => resolve("deleted");
+        request.onerror = () => resolve("error");
+        setTimeout(() => resolve("no answer in 3000 ms"), 3000);
+      }),
+    "pointer-planner",
+  );
+  check(
+    blocked === "blocked",
+    `a deleteDatabase issued while the first page holds it open answers ${JSON.stringify(blocked)}`,
+  );
+  const survived = await second.evaluate(
+    (db) => indexedDB.databases().then((all) => all.some((d) => d.name === db)),
+    "pointer-planner",
+  );
+  check(survived, "and the database is still there, so the delete deleted nothing");
+
   // The other shape, and the commoner one: the first page is GONE. Sequential
-  // tests sharing a context leave no connection open. The reading is the same,
-  // because the probe never depended on a connection.
+  // tests sharing a context leave no connection open. The probe reads the same,
+  // because it never depended on a connection - and this is also the shape in
+  // which `PLAN.md`'s delete WOULD have worked, which is why the refutation is
+  // about the concurrent shape and not about the step being useless.
   await first.close();
   const third = await context.newPage();
   await third.addInitScript(PROBE_SCRIPT);
@@ -142,6 +188,8 @@ if (failed.length > 0) {
 }
 console.error(
   `SUCCESS: ${checks.length} readings held. A reused context is reported by name in both ` +
-    `shapes - a page still holding the database open, and a page that has closed - and ` +
-    `nothing was cleared, opened or written.`,
+    `shapes - a page still holding the database open, and a page that has closed - and the ` +
+    `delete PLAN.md specified was blocked and deleted nothing in the first of them.\n` +
+    `         This script writes one task through the page and opens the database through the ` +
+    `shell, which is how the state is arranged. The PROBE writes and opens nothing.`,
 );
