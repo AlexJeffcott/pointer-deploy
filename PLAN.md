@@ -254,20 +254,30 @@ That is what step 10 needs. Dropping `moveTask` has to refuse `board` and leave 
 
 **The protocol is the paused one, for both units.** `--runs 9 --pause 10000`, so the click is taken ten seconds after the landing view settles rather than at the moment Chrome's preload cache is hottest. Step 4's headline 780 ms came from the UNPAUSED arm (52 against 832) and its paused arm read 56 against 836. So the number to set 55 against 822 beside is 56 against 836, and the same cold read is why that is said here rather than left to be compared wrongly.
 
-| Reading | `board` warm | `board` control | `week` warm | `week` control |
-| --- | --- | --- | --- | --- |
-| click to panel on screen, median of 9 | **55 ms** | **822 ms** | **60 ms** | **839 ms** |
-| what the warm bought | **767 ms** | | **779 ms** | |
-| the same reading at step 4, paused | 56 ms | 836 ms | — | — |
-| every run, ms | 46 to 68 | 810 to 842 | 45 to 121 | 822 to 850 |
-| the unit's files in the browser before the view is opened | 2 | 0 | 2 | 0 |
-| files fetched across the visit | 2 | 2 | 2 | 2 |
-| what started them | `link`, `other` | `link`, `script` | `link`, `other` | `link`, `script` |
-| content-policy refusals | 0 | 0 | 0 | 0 |
+Four arms, two per unit, because the branch was measured again after a cold read changed the panel:
 
-**One reading here is worse than step 4's and it is said rather than smoothed.** `week`'s warm arm ran 46, 60, 51, 46, 92, 45, 106, 113, 121 - it climbs across the nine runs, where `board`'s stays inside 46 to 68. The median is 60 ms and the benefit is 779 ms either way, so nothing about the warm turns on it. **What the climb is, this script cannot say.** It is not the two fetches, which are reported per run and do not climb, and it is not the control arm, which is flat at 822 to 850. TODO §47 carries it beside the unaccounted time, because they may be one thing.
+| Run | Unit | Warm, median of 9 | Warm, every run | Control, median of 9 | What the warm bought |
+| --- | --- | --- | --- | --- | --- |
+| first | `board` | 55 ms | 46 to 68 | 822 ms | **767 ms** |
+| first | `week` | 60 ms | 45 to 121 | 839 ms | **779 ms** |
+| second | `board` | 67 ms | 43 to 112 | 829 ms | **762 ms** |
+| second | `week` | 55 ms | 48 to 125 | 821 ms | **766 ms** |
+| step 4, paused | `board` | 56 ms | — | 836 ms | 780 ms |
 
-**And §47's own number moved.** The control arm's two fetches now add up to 342 to 494 ms of a median 822 to 839, so about **420 ms** is neither fetch, where step 4 measured about 530 ms. The fetches got slower and the baseline did not, which narrows the gap without explaining it. A `Promise.all` in `loader.ts` would still recover at most the shorter of the two.
+And the readings that do not vary, in all four arms:
+
+| Reading | Warm | Control |
+| --- | --- | --- |
+| the unit's files in the browser before the view is opened | 2 | 0 |
+| files fetched across the visit | 2 | 2 |
+| what started them | `link`, `other` | `link`, `script` |
+| content-policy refusals | 0 | 0 |
+
+**The warm arm is NOISY and the control arm is not, and the second pair of runs is what says so.** Across 36 warm runs the readings fall between 43 and 125 ms; across 36 control runs they fall between 807 and 850. The first pair looked like a difference between the units - `week` ran 46, 60, 51, 46, 92, 45, 106, 113, 121 while `board` stayed inside 46 to 68 - and this section said so. The second pair puts `board` at 43 to 112 and `week` at 48 to 125, so the scatter belongs to the run and not to the unit. **What it is, this script cannot say**; it is not the two fetches, which are reported per run, and it is not the control arm.
+
+That is a claim withdrawn by measuring it again rather than by arguing, and the shape of the mistake is worth keeping: nine runs of one arm looked like a property of a unit, and were a property of nine runs. What survives is the number the four arms agree on - the warm opens the view between **762 and 779 ms** sooner - and every one of them is a median of nine.
+
+**And §47's own number moved.** The control arm's two fetches add up to 319 to 515 ms of a median 821 to 839, so roughly **430 ms** is neither fetch, where step 4 measured about 530 ms of 832. The fetches got slower and the baseline did not, which narrows the gap without explaining it. A `Promise.all` in `loader.ts` would still recover at most the shorter of the two.
 
 **Sixteen scenarios, twenty mutations, and all twenty caught. Eight of the sixteen scenarios still have no mutation of their own.** Seven mutations are `@local` - what a DATE is and what a WEEK is, in the store, the document reader and `week.ts`, all three pure - and thirteen need a browser. `bun run verify:browser` is what runs the thirteen; `bun run verify` and `bun run verify:live` reach none of them, which is the reason that command is in `CLAUDE.md`'s table.
 

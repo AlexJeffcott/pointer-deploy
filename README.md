@@ -902,10 +902,10 @@ on `/board` and `week` on `/week`, are on routes a visitor does not land on. So
 four of the six warmed files are the subject, and the warm has had one since
 `PLAN.md` step 4.
 
-The answer is **767 ms for `board` and 779 ms for `week`**, measured on
-2026-09-13, nine runs per arm, the click taken ten seconds after the landing
-view settled. Step 4's first reading was 780 ms on 2026-09-12 with `board` the
-only unit off the landing route.
+The answer is **762 to 779 ms**, over four arms measured on 2026-09-13 — two
+per unit, nine runs each, the click taken ten seconds after the landing view
+settled. Step 4's first reading was 780 ms on 2026-09-12 with `board` the only
+unit off the landing route.
 
 **Those are two runs of one script and not one measurement.** It publishes its
 own build, points `test-qa` at it, starts its own server and its own browser,
@@ -938,11 +938,13 @@ pointer and one build, so nothing but the tags differs. Every 2026-09-13 row bel
 
 | | Warm | Control |
 | --- | --- | --- |
-| The benefit, `board`, 2026-09-13 | click to panel on screen **55 ms**, median of 9 | **822 ms** |
-| The benefit, `week`, 2026-09-13 | **60 ms**, median of 9 | **839 ms** |
-| Every run, 2026-09-13 | `board` 46 to 68 ms, `week` 45 to 121 | 810 to 850 ms |
-| The first reading, `board`, 2026-09-12 | 52 ms, median of 9 | 832 ms |
-| The same, after 10 s on the landing view | 56 ms, median of 5 | 836 ms |
+| `board`, first run, 2026-09-13 | click to panel on screen **55 ms**, median of 9 | **822 ms** |
+| `week`, first run, 2026-09-13 | **60 ms**, median of 9 | **839 ms** |
+| `board`, second run, 2026-09-13 | **67 ms**, median of 9 | **829 ms** |
+| `week`, second run, 2026-09-13 | **55 ms**, median of 9 | **821 ms** |
+| Every one of those 36 warm runs | 43 to 125 ms | 807 to 850 ms |
+| `board`, 2026-09-12, unpaused | 52 ms, median of 9 | 832 ms |
+| `board`, 2026-09-12, paused | 56 ms, median of 5 | 836 ms |
 | The policy | no refusal. `script-src` and `style-src` are already derived from the origins the manifest names | no refusal |
 | Before the view is opened | the unit's two files are in the browser, both units | neither is |
 | The digest | each file fetched **once** across the visit. The import reuses the warmed response | once — the import does the one fetch itself |
@@ -957,26 +959,27 @@ so a median of three was hiding no range, and clicking after ten seconds on the
 landing view — well past the moment Chrome's preload cache is hottest — reads
 56 ms against 836 ms.
 
-**About 420 ms of the control arm's 822 is unaccounted for, and that is said
+**About 430 ms of the control arm's 825 is unaccounted for, and that is said
 rather than filled in.** `loader.ts` awaits the stylesheet and only then imports
 the module, so the control arm pays two cross-origin fetches in series. Measured
-per run on 2026-09-13, across both off-screen units, the two add up to
-342–494 ms. The rest is not module evaluation or rendering either — those happen
+per run on 2026-09-13, across both off-screen units and both pairs of runs, the
+two add up to 319–515 ms. The rest is not module evaluation or rendering either — those happen
 in both arms, and the warm arm's whole reading is 45–68 ms.
 `scripts/measure-preload.ts` reports the two durations per run and cannot say
 what the rest is. What follows for the design is narrow: a `Promise.all` in
 `loader.ts` would recover at most the SHORTER of the two fetches, about 200 ms
-of 822, and not half of it. The first reading, on 2026-09-12 at three units, put
+of 825, and not half of it. The first reading, on 2026-09-12 at three units, put
 the unaccounted time at 530 ms of 832 — the fetches got slower and the baseline
 did not, which narrows the gap without explaining it. TODO §47.
 
-**And one reading is worse at four units than at three.** `week`'s warm arm ran
-46, 60, 51, 46, 92, 45, 106, 113, 121 ms across nine runs — it climbs, where
-`board`'s stays inside 46–68 on the same machine in the same session. The
-control arm is flat at 822–850 and the two fetches do not climb either. The
-median is 60 ms and the benefit is 779 ms, so nothing about the warm turns on
-it, and what the climb is has not been measured. TODO §47 holds it beside the
-420 ms, because they may be one thing.
+**The warm arm is noisy and the control arm is not.** Across 36 warm runs the
+readings fall between 43 and 125 ms; across 36 control runs, between 807 and
+850. The first pair of runs looked like a difference between the two units —
+`week` scattered and `board` did not — and this section said so until the second
+pair put `board` at 43–112 and `week` at 48–125. The scatter belongs to the run
+and not to the unit, and what it is has not been measured. TODO §47 holds it
+beside the 430 ms, because they may be one thing. Every number that survives is
+a median of nine, and the four of them agree within 17 ms.
 
 `loader.ts` needs no change for any of it: `addStylesheet` and the `loading` map
 still run at mount, and a preload only warms the cache.
