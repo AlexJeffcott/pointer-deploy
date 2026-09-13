@@ -3,6 +3,7 @@ import { manifestDoc, startStubStore, type StubStore } from "./stub-store.ts";
 import { curlGet, run, type Run } from "./http.ts";
 import { APPS, UNITS, type Unit } from "../../scripts/contract.ts";
 import { CACHE_POINTER, configFromEnv, getObjectText, putObject } from "../../scripts/store.ts";
+import { PROBE_KEY, PROBE_SCRIPT, readProbe, type ProbeReading } from "./cold-planner.ts";
 import type { BuildInfo } from "@pointer/blocks";
 import type { ServedComposition, ServedReading } from "../../src/server/served.ts";
 import { VIEWS } from "../../src/web/shell/views.ts";
@@ -42,6 +43,12 @@ const LIVE_CHANNELS: Record<Channel, string> = {
 
 export const REAL_CHANNELS = ["qa", "prod"] as const;
 
+/** The channels the live suite owns and may write. TODO §42 reads both. */
+export const TEST_CHANNELS = Object.values(LIVE_CHANNELS);
+
+/** The region the suite reads and puts every other region back to. */
+export const BASE_REGION = REGION;
+
 const LIVE_HOSTS: Record<Channel, string> = {
   qa: Bun.env.TEST_QA_HOST ?? "test-qa.pointer-deploy.test",
   prod: Bun.env.TEST_PROD_HOST ?? "test-prod.pointer-deploy.test",
@@ -50,6 +57,41 @@ const LIVE_HOSTS: Record<Channel, string> = {
 export type UnitIds = Record<Unit, string>;
 
 const BUILD_IDS = new Map<string, UnitIds>();
+
+/**
+ * What one region's pointer names for one store channel, or null for no pointer.
+ *
+ * A free function and not the world's method, because `BeforeAll` runs before
+ * any world exists and TODO §42's reading has to be taken once for the whole
+ * run rather than per scenario. `PointerWorld.compositionInRegion` is the same
+ * read against a `Channel`; this one takes the store name directly.
+ *
+ * A read that fails is null and not a throw. A split channel is what this is
+ * looking for, and a network fault that stopped the whole suite before its
+ * first scenario would be a worse failure than the one it prevents.
+ */
+export async function compositionOf(
+  storeChannel: string,
+  region: string,
+): Promise<Record<string, string> | null> {
+  const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${region}/${storeChannel}.json`;
+  try {
+    const res = await fetch(url, { headers: { "cache-control": "no-cache" } });
+    if (!res.ok) return null;
+    const doc = (await res.json()) as {
+      shell?: { unitId?: string };
+      apps?: Record<string, { unitId?: string }>;
+    };
+    const ids: Record<string, string> = {};
+    if (doc.shell?.unitId) ids.shell = doc.shell.unitId;
+    for (const [name, app] of Object.entries(doc.apps ?? {})) {
+      if (app?.unitId) ids[name] = app.unitId;
+    }
+    return Object.keys(ids).length > 0 ? ids : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function pointerBuildId(channel: string): Promise<string> {
   const url = `${MANIFEST_BASE.replace(/\/$/, "")}/${REGION}/${channel}.json`;
@@ -827,7 +869,13 @@ export class PointerWorld {
 
   async usePage(page: Page): Promise<void> {
     this.page = page;
+    this.drivenPages.push(page);
     page.on("request", (r) => this.requests.push(r.url()));
+    // TODO §44, and it goes FIRST. `addInitScript` runs its scripts in the
+    // order they were added, and this one issues `deleteDatabase` before any
+    // page script has run. IndexedDB serialises requests per database name, so
+    // the delete is ahead of the shell's own open and there is no race.
+    await page.addInitScript(PROBE_SCRIPT);
     await page.addInitScript(() => {
       const seen: string[] = [];
       (globalThis as unknown as { __refusals: string[] }).__refusals = seen;
@@ -865,6 +913,40 @@ export class PointerWorld {
     return this.browserPage.evaluate(
       () => (globalThis as unknown as { __emptyWhen?: string[] }).__emptyWhen ?? [],
     );
+  }
+
+  /**
+   * Every page this world has driven, in the order it took them up.
+   *
+   * TODO §44 reads the cold-planner probe off all of them rather than off the
+   * current one: a scenario that opened a second browser leaves `this.page`
+   * pointing at the second, and the reading that matters is that NO context the
+   * scenario used started warm.
+   */
+  private drivenPages: Page[] = [];
+
+  /**
+   * What the cold-planner probe found in every context this scenario used.
+   *
+   * A page that has closed, or never navigated, reports nothing - `null` - and
+   * that is not a fault. A scenario that failed before it opened a page has one
+   * error already.
+   */
+  async coldPlannerReadings(): Promise<ProbeReading[]> {
+    const readings: ProbeReading[] = [];
+    for (const page of this.drivenPages) {
+      if (page.isClosed()) continue;
+      try {
+        const raw = await page.evaluate(
+          (key) => sessionStorage.getItem(key),
+          PROBE_KEY,
+        );
+        readings.push(readProbe(raw));
+      } catch {
+        readings.push(null);
+      }
+    }
+    return readings;
   }
 
   /**

@@ -11,6 +11,8 @@
 //   the region flag   `--region us` writes one, for a deliberate difference
 //   the drift check   two regions already serving different compositions is a
 //                     state a promote must not flatten by accident
+//   the split report  the same state read at the START of a suite run, with the
+//                     one command that fixes it. TODO §42
 //
 // Pure. The store reads are in promote.ts.
 
@@ -73,6 +75,90 @@ export function regionDrift(compositions: RegionComposition[]): string | null {
     );
   }
   return null;
+}
+
+/**
+ * Why a channel cannot be promoted at all, and the one command that fixes it.
+ *
+ * A DIFFERENT reading from `regionDrift`, which is what a promote prints when
+ * it refuses. This is what a person needs at the START of a run: `regionDrift`
+ * says two regions disagree, and a person meeting it 41 times reads it as a
+ * code failure. This says which channel, what an earlier run left behind, and
+ * the promote that puts it back.
+ *
+ * TODO §42. Measured on 2026-09-11: `bun run verify:live` was killed at
+ * scenario 9 of 46, its `After` hook never put the moved region back, and the
+ * next run failed 41 of 46 - every one of them in its Background, on
+ * `regionDrift`'s message. The refusal is correct and the reading it does not
+ * give is why.
+ *
+ * `base` is the region whose composition the recovery names, because that is
+ * the one the suite reads and the one every other region is put back TO.
+ * Returns null when there is nothing to say.
+ */
+export function splitChannelReport(
+  channel: string,
+  compositions: RegionComposition[],
+  base: Region,
+): string | null {
+  const known = compositions.filter((c) => c.ids !== null) as Array<
+    RegionComposition & { ids: Record<string, string> }
+  >;
+
+  // No `known.length < 2` guard, and its absence is measured. `regionDrift`
+  // above has one and needs it; here it is unreachable, because one known
+  // region either IS the base - and then nothing differs from it - or is not,
+  // and then the base names nothing and the branch below says so. A mutation
+  // aimed at such a guard stays green, which is the shape TODO §44 is about.
+  const baseComposition = known.find((c) => c.region === base);
+  // Every other region differs from the base, or there is no base to name. Both
+  // are worth separate sentences: the second cannot offer a command, and
+  // pretending it can would send a person to a promote that names nothing.
+  if (!baseComposition) {
+    const drift = regionDrift(compositions);
+    if (!drift) return null;
+    return (
+      `${channel} is split across regions and ${base} has no pointer to put them back to.\n` +
+      `  ${drift}\n` +
+      `  Nothing here can name the recovery, because the region the suite reads names nothing.`
+    );
+  }
+
+  const split = known
+    .filter((c) => c.region !== base)
+    .map((c) => ({ region: c.region, differing: unitsThatDiffer(baseComposition.ids, c.ids), ids: c.ids }))
+    .filter((c) => c.differing.length > 0);
+  if (split.length === 0) return null;
+
+  // The shell first and the apps in name order, which is how `promote` prints a
+  // composition and how every other command in the documents is written. The
+  // flags are order-free to the promoter; a person reading two of them side by
+  // side is not.
+  const flags = Object.entries(baseComposition.ids)
+    .sort(([a], [b]) => (a === "shell" ? -1 : b === "shell" ? 1 : a < b ? -1 : a > b ? 1 : 0))
+    .map(([unit, id]) => (unit === "shell" ? `--shell ${id}` : `--app ${unit}=${id}`))
+    .join(" ");
+
+  const lines = split.map(
+    (c) =>
+      `  ${c.region} serves ` +
+      c.differing.map((u) => `${u} ${c.ids[u] ?? "none"}`).join(", ") +
+      ` where ${base} serves ` +
+      c.differing.map((u) => `${u} ${baseComposition.ids[u] ?? "none"}`).join(", "),
+  );
+
+  const commands = split.map(
+    (c) => `  bun run promote ${channel} --region ${c.region} ${flags}`,
+  );
+
+  return (
+    `${channel} is split across regions, and every promote to it is refused until it is not.\n` +
+    `${lines.join("\n")}\n` +
+    `  Nothing in this run caused it. A run that was killed before its After hook ran ` +
+    `leaves a region where a scenario moved it.\n` +
+    `  Put it back, naming what ${base} already serves:\n` +
+    `${commands.join("\n")}`
+  );
 }
 
 /** One pointer and one history, per region per channel. */

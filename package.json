@@ -35,7 +35,8 @@
     "e2e:deprecation": "bun run scripts/e2e-deprecation.ts",
     "e2e:schema": "bun run scripts/e2e-service-schema.ts",
     "e2e:preview": "bun run scripts/e2e-pr-preview.ts",
-    "measure:preload": "bun run scripts/measure-preload.ts"
+    "measure:preload": "bun run scripts/measure-preload.ts",
+    "verify:cold": "bun run scripts/probe-cold-planner.ts"
   },
   "dependencies": {
     "preact": "^10.29.8",

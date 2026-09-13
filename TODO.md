@@ -54,6 +54,14 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
+**§42 and §44 closed on 2026-09-13, and building each one refuted a sentence about it.**
+
+§42 asked for a `BeforeAll` that names a split test channel once instead of letting 41 Backgrounds fail on it. Built, and then arranged: `test-prod` was split on purpose, one scenario was run, and the reading was ONE error naming the channel, the units that differ and the promote that fixes it. Running that printed command restored the channel exactly. The arrangement found a defect in the check itself - it ran before `recordRealChannels`, so `AfterAll` threw a SECOND error about the deploy guard not running, and a person met two errors where the whole point is one. The order is swapped.
+
+§44 asked for `indexedDB.deleteDatabase("pointer-planner")` in the browser world's setup. **That step hangs the case it exists for.** Measured with two pages in one browser context: a delete issued while another page holds the database open is blocked, deletes nothing, and queues every later `open` on that name behind it - so the second page's shell never got a connection and the panel sat on "Reading the planner…". What is built instead is the reading, `indexedDB.databases()`, which opens nothing and blocks nothing. `bun run verify:cold` is the arrangement and it is one command.
+
+**Both items were the shape the memory calls a check that cannot reach its state.** A mutation removing either hook stays green, because no test channel is split and no context is reused while the suite is healthy. So the MESSAGE in each was made a pure function with its own tests and its own mutations - 8 tests and 3 mutations for §42, 15 and 3 for §44 - and the hook around it was measured by arranging the state by hand.
+
 **`PLAN.md` step 5 landed on 2026-09-13, and the slate's unit list is finished.** `week` is the fourth unit and the second placed off the landing route: `/week` draws seven days, Monday to Sunday, and every task that has a date. `setDue` is its own member and nothing else calls it, so each of the three sub-apps now holds at least one member the other two do not - which is what step 10 needs in order to refuse ONE unit and name it. The contract is `9e59f0c`, additive over `f766e10`, and **both** `list` and `board` came out of the build with the ids they already had: a fourth unit arrived and two published bundles did not move. Twenty mutations were added, seven `@local` and thirteen `@browser`, and all twenty are caught. Eight of the sixteen scenarios still have none of their own, which is the reading a count of mutations does not give.
 
 **§35's guard fired twice on the step 5 branch, which is its second and third real use.** Both times a mutation was written as a cut and the cut stopped the build rather than the check: `onPick(held)` left the chosen value assigned and read by nothing, and `outside && false` has type `false`, so tsc dropped the narrowing that made `held` a string and the build failed with TS2322. Both are re-aimed to keep the value read, and both are caught. A mutation that does not compile is reported as caught by a check that never ran, which is the thing that guard exists to refuse.
@@ -143,18 +151,6 @@ So a hand-edited file carrying `"createdAt": "yesterday"` is accepted and reorde
 | The fix for `exportedAt` | Either read it - refuse a file with no stamp - or stop declaring it required. A field a document must carry and nothing checks is a field a writer can omit with no consequence |
 | Why not at step 3, or at step 5 | Both are new rules on a door step 3 built, and neither is reachable from a file this application writes. `due` was different: `week` gave it a reader, so a value that is not a date became a task on no day of the week rather than a field nothing looks at. These two still have no reader. They belong with step 6, which adds two more doors to the same rule |
 
-### 44. A cold-state step the plan specified and nothing built
-
-**Found by `devils-advocate-agent` on 2026-09-11.** `PLAN.md`'s "What this costs the suite" says `indexedDB.deleteDatabase("pointer-planner")` goes in the browser world's setup, "once, so no scenario can forget it", with one `falsify` mutation that removes it and a named scenario that must go red. `deleteDatabase` appears nowhere outside that table. Step 2 did not build it and step 3 did not notice.
-
-Every browser scenario does start cold, because Playwright gives each test a fresh context and IndexedDB is per profile. That is a DEFAULT and not a decision: nothing in this repository asserts it, and `workers: 1` and `fullyParallel: false` are set for the pointer rather than for the planner.
-
-| | |
-| --- | --- |
-| What it costs today | Nothing measurable. The isolation holds |
-| What it costs later | A change to `playwright.config.ts` - reusing a context to make the suite faster is the obvious one - silently makes every planner scenario order-dependent, and the first failure looks like a race |
-| The fix | The step `PLAN.md` already specifies, plus the mutation it already specifies. One `Before` hook and one array entry |
-
 ### 43. One `unstored` state for three different facts
 
 **Measured on 2026-09-11, by arranging a write failure for the first time.** `PlannerReport.state` is `unread | stored | unstored`, and three paths in `startPlanner` set the last of those: a browser with no IndexedDB, a database that would not open, and a **write that failed after a successful read**. `list` draws one sentence for all three - "These tasks are kept in this page alone. A reload starts again with none." - and in the third case it is false. A reload starts again with whatever was last written.
@@ -167,27 +163,6 @@ Every browser scenario does start cold, because Playwright gives each test a fre
 | The fix | A fourth value, or `unstored` plus a reading of whether anything was ever read, and a second sentence in `list`. Additive on the contract, and it republishes `list` |
 | Why not at step 3 | Step 3 is a frame change with no unit rebuilt, which is the claim it exists to make. Republishing `list` to correct a sentence would have spent that claim |
 | Not a fix | Leaving the truth on `/backup` alone. The panel is where a person is standing when the write fails |
-
-### 42. An interrupted live suite leaves a channel refusing every promote
-
-**Measured on 2026-09-11.** `bun run verify:live` was killed by a signal at scenario 9 of 46. The `After` hook that puts a moved region back never ran, so `test-qa` was left with `list f1fdb597` in `eu` and `4a8fa04b` in `us`. The next run failed **41 of 46**, every one of them in its Background, on
-
-```
-eu and us serve different compositions: list f1fdb597 != 4a8fa04b.
-Writing both would replace one with a composition nobody chose for it.
-Name one with --region <eu|us>. Nothing was changed.
-```
-
-That refusal is §3's region rule working correctly - it is the whole point of refusing a split - and the reading it does not give is **why** the channel is split. A person meeting 41 red scenarios reads it as a code failure, and the recovery is one command: `bun run promote test-qa --region us --shell <id> --app <name>=<id>`, naming what the other region already serves.
-
-| | |
-| --- | --- |
-| What is missing | Nothing detects a split at the START of a run. The suite discovers it one Background at a time, 41 times |
-| The cheap fix | A `BeforeAll` that reads both regions of every test channel and fails with one message naming the recovery command, rather than letting every scenario fail on its own |
-| The fuller fix | The same check restores parity itself, the way `restoreRegionParity` does at the end of a scenario. It knows both compositions and which region is the base |
-| Not a fix | Making the promote write both regions anyway. That is exactly what §3 refuses, and for the right reason |
-
-This is distinct from §6, which is a superseded composition inside a healthy run.
 
 ### 41. A first-paint requirement that no composition can reach
 
@@ -508,4 +483,6 @@ Titles and dates only. The full text of each is in git history; `TODO.md` at `f7
 | 27 | 2026-08-31 | What the service offers, and who reads which field |
 | 28 | 2026-08-31 | A `falsify` mutation that proved nothing |
 | 30 | 2026-09-10 | A pull request gets a URL |
+| 42 | 2026-09-13 | A split test channel is refused once, at the start of a run, with the promote that fixes it. `splitChannelReport` in `scripts/regions.ts`, 8 tests, 3 mutations. Arranged on `test-prod` and measured: one error instead of 41, and the printed command restored the channel exactly |
+| 44 | 2026-09-13 | The cold state every browser scenario starts from is READ and reported, not cleared. `PLAN.md`'s `deleteDatabase` was built and refuted - a delete blocked by another page's connection deletes nothing and queues every later open behind it, so it hangs the case it exists for. `bun run verify:cold` is the arrangement |
 | — | 2026-09-10 | The version switcher is removed, and the page it was on |

@@ -827,6 +827,8 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `features/support/world.ts` | The harness: local stub vs live store, and the suite's own channels. The world, and nothing that registers with the runner |
 | `features/support/bdd.ts` | The bindings, and the one file that names the runner |
 | `features/support/hooks.ts` | Every hook, in the order they must run |
+| `features/support/cold-planner.ts` | What a browser context already held when a scenario opened its first page, and why nothing clears it. TODO §44 |
+| `scripts/probe-cold-planner.ts` | `bun run verify:cold`. Two pages in one browser context, which is the only way to reach that state |
 | `playwright.config.ts` | The runner: one worker, traces and screenshots on failure |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
 | `scripts/publish-schema-2-fixture.ts` | One-off. The kept schema 2 manifest a rollback scenario points a channel at |

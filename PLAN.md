@@ -489,13 +489,24 @@ Steps 15 and 16 are the pair the persistence question was deferred for on 2026-0
 
 `~/projects/CLAUDE.md` requires every scenario to start from the cold state a fresh visitor sees. Persistence puts a clear step in front of every browser scenario, and any scenario that misses it becomes order-dependent.
 
+**This section specified a step, and building it on 2026-09-13 refuted it.** What it asked for was `indexedDB.deleteDatabase("pointer-planner")` in the browser world's setup, once, with one `falsify` mutation removing it and a named scenario that must go red. Both halves failed, for different reasons, and both were measured rather than argued.
+
+| What was specified | What the measurement said |
+| --- | --- |
+| `deleteDatabase` before the page is opened | **It hangs the case it is for.** A delete issued while another page in the same context holds the database open is BLOCKED: it deletes nothing AND queues every later `open` on that name behind it, so the next page's shell never gets a connection and the panel sits on "Reading the planner…" |
+| One `falsify` mutation removes it, and a named scenario goes red | **No scenario can go red.** Playwright gives each test its own context and IndexedDB is per profile, so the state a clear would fix is unreachable and a mutation removing the clear stays green |
+
+What is built instead is the READING, and it needs no delete. `indexedDB.databases()` names what exists and at what version; it opens nothing, holds no connection and blocks nothing. Every page the world drives carries it, and the `After` hook fails the scenario by name when any context it used already held a planner — after the restores, because a hook that threw first would leave a pointer where a scenario moved it, which is §42's own failure produced by §44's check.
+
 | | |
 | --- | --- |
-| The step | `indexedDB.deleteDatabase("pointer-planner")` before the page is opened |
-| Where it goes | The browser world's setup, once, so no scenario can forget it |
-| The check | One `falsify` mutation removes it, and a named scenario must go red |
+| The reading | `indexedDB.databases()` at document start, once per browsing context, into `sessionStorage` |
+| Where it goes | `PointerWorld.usePage`, so every page the world drives has it - the fixture's and any second browser a scenario opens |
+| What it says | The scenario's name, the version that already existed, and where to look: `playwright.config.ts` first |
+| The check, pure | `coldPlannerProblem` and the script's shape are in `features/support/cold-planner.ts`, with 15 tests and three `falsify` mutations |
+| The check, arranged | `bun run verify:cold`. Two pages in one browser context, which is the state nothing else can reach. Nine readings on 2026-09-13 |
 
-That last row is the point. A clear step nothing verifies is a clear step that will be silently dropped.
+**Nothing is cleared, and that is deliberate.** A reused context gives a visitor a warm planner; the suite reports it rather than hiding it behind a clear that would sometimes work. A clear step nothing verifies is a clear step that will be silently dropped - which is what this section said, and the answer turned out to be an arrangement rather than a mutation.
 
 The live suite gains a second store to clean: snapshots and slots it wrote. They go under a `test-` key prefix, and the existing tripwire pattern covers them.
 

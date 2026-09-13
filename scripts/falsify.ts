@@ -1835,6 +1835,94 @@ const MUTATIONS: Mutation[] = [
     unitTest: "the refusal names the columns this shell draws",
   },
 
+  // --- TODO §44, the cold state every browser scenario starts from ---------
+  //
+  // Three entries, all `@local`. The hook is not mutated, for the reason §42's
+  // block gives and this item states outright: nothing about cold state is
+  // reachable while Playwright gives each test its own context, so a mutation
+  // removing the probe stays green. `bun run verify:cold` is the arrangement -
+  // two pages in one context - and it is one command.
+  //
+  // That arrangement is also what took `PLAN.md`'s `deleteDatabase` out of the
+  // design. Measured 2026-09-13: a delete issued while another page holds the
+  // database open is blocked, deletes nothing, and queues every later open on
+  // that name behind it. The step meant to save a reused context hangs it.
+
+  {
+    // A warm context is read as cold, so the isolation can break and nothing
+    // says so - which is the whole of §44.
+    name: "a planner that already existed reads as cold",
+    file: "features/support/cold-planner.ts",
+    find: '  if (reading === null || reading === "unsupported" || reading === 0) return null;',
+    replace: "  return null;",
+    unitTest: "a version above 0 means the context was used before",
+  },
+  {
+    // A browser with no `indexedDB.databases()` is reported as warm, so every
+    // run on one fails for a reason that is not about the planner.
+    name: "a browser that cannot answer is reported as warm",
+    file: "features/support/cold-planner.ts",
+    find: '  if (reading === null || reading === "unsupported" || reading === 0) return null;',
+    replace: "  if (reading === null || reading === 0) return null;",
+    unitTest: "a browser that cannot answer is not reported as warm",
+  },
+  {
+    // The probe opens the database instead of reading the list. An `open` with
+    // no version CREATES it with no object stores, and the shell's own
+    // `open(name, 1)` then finds a version 1 holding no `tasks` store.
+    name: "the cold probe opens the database",
+    file: "features/support/cold-planner.ts",
+    find: "    const reading = indexedDB.databases();",
+    replace: "    const reading = Promise.resolve([]); indexedDB.open(\"x\");",
+    unitTest: "opens nothing and deletes nothing",
+  },
+
+  // --- TODO §42, a channel a killed run left split ------------------------
+  //
+  // Three entries, all `@local`, because the message is pure and the store read
+  // around it is two `fetch` calls. The hook itself is NOT mutated here: a
+  // mutation that removed it would turn nothing red, because no test channel is
+  // split while the suite is healthy. That is the same shape §44 has, and it is
+  // why the message was made a pure function with its own tests rather than
+  // written inline in `hooks.ts`.
+  //
+  // The hook was measured instead, by arranging the state on 2026-09-13:
+  // `test-prod` was split on purpose, one scenario was run, and the reading was
+  // one error naming the channel and the recovery. Running the printed command
+  // put the channel back. The arrangement found a defect - the check ran before
+  // `recordRealChannels`, so `AfterAll` threw a SECOND error about the deploy
+  // guard not running - and the order is swapped.
+
+  {
+    // The report says a channel is split and stops there, so a person has to
+    // work the flags out of two manifests by hand. That is what they already
+    // had from `regionDrift`, 41 times.
+    name: "the split report does not name the recovery",
+    file: "scripts/regions.ts",
+    find: "  const commands = split.map(",
+    replace: "  const commands = [] as string[];\n  void split.map(",
+    unitTest: "names the promote that puts it back",
+  },
+  {
+    // Two regions in agreement are reported as a split, so a healthy suite
+    // refuses to start. The lines and the command are both built from an empty
+    // list, so the message names a channel and then nothing at all.
+    name: "regions in agreement are reported as a split",
+    file: "scripts/regions.ts",
+    find: "  if (split.length === 0) return null;",
+    replace: "  if (false) return null;",
+    unitTest: "two regions in agreement have nothing to report",
+  },
+  {
+    // The recovery names what the SPLIT region serves rather than what the base
+    // serves, so running it changes nothing and the channel stays refused.
+    name: "the recovery names the composition that is already wrong",
+    file: "scripts/regions.ts",
+    find: "  const flags = Object.entries(baseComposition.ids)",
+    replace: "  const flags = Object.entries(split[0]!.ids)",
+    unitTest: "names the promote that puts it back",
+  },
+
   // --- `PLAN.md` step 5, the week -------------------------------------------
   //
   // Twenty entries, counted from the array below rather than remembered:
