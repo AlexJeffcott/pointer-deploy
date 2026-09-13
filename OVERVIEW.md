@@ -29,13 +29,13 @@ Live: <https://pointer-deploy.fly.dev/>
 
 ## Where the application is now
 
-The page is a title, a fixed sidenav and five views, and two of them place a unit: `/` draws `list`, which is every task the planner holds, and `/board` draws `board`, one panel per column with a task moving between them. `/week` is waiting for one; `/service` and `/backup` are drawn by the frame itself — one from the reading it took of the service, one from the planner as a file. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views, and three of them place a unit: `/` draws `list`, which is every task the planner holds, `/board` draws `board`, one panel per column with a task moving between them, and `/week` draws `week`, seven days from Monday to Sunday with every task that has a date. `/service` and `/backup` are drawn by the frame itself — one from the reading it took of the service, one from the planner as a file — and they never get a unit. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
 
-The tasks are in memory and nowhere else, which is `PLAN.md` step 1 rather than an omission: IndexedDB is step 2, so a reload starts the planner empty and the panel says so on the page.
+The tasks are in IndexedDB, `PLAN.md` step 2, and the shell owns the database: a reload comes back to the planner it left and a fresh browser starts empty. `/backup` writes the whole planner to a JSON file and reads one back over the top, step 3. This paragraph said the tasks were in memory and nowhere else until step 5 found it still saying so.
 
-That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app and step 1 added `list`. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app; step 1 added `list`, step 4 added `board` and step 5 added `week`, which is all of them. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
 
-**Examples naming `hello` below are readings taken before step 0.** They are real and they were taken against that tree; what this one builds is `shell` and `list`. TODO §31 lists what is still waiting for a third unit, and `PLAN.md` says which step gives it back.
+**Examples naming `hello` below are readings taken before step 0.** They are real and they were taken against that tree; what this one builds is `shell`, `list`, `board` and `week`. TODO §31 lists what is still waiting, and `PLAN.md` says which step gives each of them back.
 
 What gets built on this slate is documented as it is built. The process is the thing being shown, more than whatever the application turns out to be.
 

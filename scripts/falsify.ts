@@ -1834,6 +1834,203 @@ const MUTATIONS: Mutation[] = [
     replace: '      ""',
     unitTest: "the refusal names the columns this shell draws",
   },
+
+  // --- `PLAN.md` step 5, the week -------------------------------------------
+  //
+  // Fourteen entries, counted from the array below rather than remembered:
+  // FIVE are `@local` and nine need a browser. The five are what a DATE is -
+  // in the store and in the document reader, both pure - and the nine are the
+  // panel. The split is step 4's for step 4's reason, and the count beside the
+  // array is the thing a cold read on 2026-09-12 found wrong there.
+
+  {
+    // A date that writes every task. With one task on the page - which is where
+    // six of the seven scenarios in the first Rule start - this is
+    // indistinguishable from dating one.
+    name: "a date puts every task on it",
+    file: "src/web/shell/api.ts",
+    find: "      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, due } : t));",
+    replace: "      tasks.value = tasks.value.map((t) => ({ ...t, due }));",
+    unitTest: "dating one task leaves every other task where it was",
+  },
+  {
+    // The guard that stops a task carrying something that is not a date.
+    // Nothing a visitor can choose produces one - the select's options are the
+    // seven days - so this costs nothing today and is the second line if a
+    // control ever names a date. `PLAN.md` step 7 pulls a planner written by
+    // another browser.
+    //
+    // `&& false` rather than cutting the condition, and §35 is why: cutting it
+    // whole leaves `isDueDate` imported and called by nothing, `noUnusedLocals`
+    // fails the build, and the guard refuses the reading rather than counting
+    // it. The call stays and the branch is dead.
+    name: "a task is given a date that is not one",
+    file: "src/web/shell/api.ts",
+    find: "      if (due !== null && !isDueDate(due)) return;",
+    replace: "      if (due !== null && !isDueDate(due) && false) return;",
+    unitTest: "a refused date leaves the one the task already carried",
+  },
+  {
+    // The pattern becomes the whole rule. `2026-02-30` matches `\\d{4}-\\d{2}-\\d{2}`
+    // and `Date.parse` reads it - as 2026-03-02, because the parser rolls the
+    // day over - so `Number.isFinite` alone lets it through. The round trip is
+    // the arm that catches it, measured on 2026-09-13, which is why the rule is
+    // not the pattern.
+    name: "a date that matches the pattern is a date",
+    file: "src/web/shell/document.ts",
+    find: "  return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === value;",
+    replace: "  return Number.isFinite(at);",
+    unitTest: "is not a date, and puts the task on none",
+  },
+  {
+    // A document carrying a due date that is not a date is accepted. The task
+    // is in the planner, on the list, and on no day of the week - and the only
+    // way back to it is to export the file again.
+    name: "a document may carry a due date that is not a date",
+    file: "src/web/shell/document.ts",
+    find: "  if (value.due !== null && (typeof value.due !== \"string\" || !isDueDate(value.due))) {",
+    replace: "  if (false) {",
+    unitTest: "due date reads",
+  },
+  {
+    // The refusal stops saying what shape a date is, so a person holding a
+    // hand-edited file is told the value is wrong and not what a right one
+    // would look like.
+    name: "the refusal does not say what shape a date is",
+    file: "src/web/shell/document.ts",
+    find: "    return `${at}.due is ${show(value.due)}, and YYYY-MM-DD or null was expected`;",
+    replace: "    return `${at}.due is ${show(value.due)}, and something else was expected`;",
+    unitTest: "due date reads",
+  },
+  {
+    // Every day draws every task. The week looks busy and is useless: putting a
+    // task on a day changes nothing anybody can see, because it was already
+    // drawn on every one of them.
+    name: "every day draws every task",
+    file: "src/web/apps/week/index.tsx",
+    find: "          const due = tasks.filter((task) => task.due === day);",
+    replace: "          const due = tasks;",
+    scenario: "A task moved to another day leaves the one it was on",
+    live: true,
+    browser: true,
+  },
+  {
+    // The control writes the date the card already carries, so choosing a day
+    // does nothing. Caught by the `they put` step's own wait for the card on
+    // the day it named.
+    //
+    // The chosen value is still READ, and §35 is why. `onPick(held)` on its own
+    // leaves `picked` assigned and used by nothing, `noUnusedLocals` fails the
+    // build, and the guard refuses the reading rather than counting it - which
+    // is what happened here on 2026-09-13, the guard's second real use. Only
+    // the "No date" arm still does what it did.
+    name: "the control writes the date the card already carries",
+    file: "src/web/apps/week/index.tsx",
+    find: "        onPick(picked === \"\" ? null : picked);",
+    replace: "        onPick(picked === \"\" ? null : held);",
+    scenario: "A task put on a day is drawn on it",
+    live: true,
+    browser: true,
+  },
+  {
+    // When a task is due never reaches the database. Every scenario that dates
+    // a card and reads the week passes - the store holds it and the panel draws
+    // it - and the planner comes back from the next visit with every date gone.
+    // The one reading that sees it is a reload.
+    //
+    // Aimed at `planner.ts` rather than at the week, because that is where the
+    // claim is: `PLAN.md` step 2 says a sub-app does not know a database
+    // exists, so a date that is not kept is the SHELL failing to keep it.
+    name: "a task's date is not kept",
+    file: "src/web/shell/planner.ts",
+    find: "        for (const task of tasks) store.put(task);",
+    replace: "        for (const task of tasks) store.put({ ...task, due: null });",
+    scenario: "A date survives a reload",
+    live: true,
+    browser: true,
+  },
+  {
+    // The week draws seven empty days while the planner is still being read. A
+    // visitor with a full planner is told nothing is due, and then it fills in.
+    // `PLAN.md` step 2's requirement, on the panel the slate finishes with.
+    // TODO §41 is the class.
+    name: "the week is drawn before the planner has been read",
+    file: "src/web/apps/week/index.tsx",
+    find: '  if (planner.state === "unread") {',
+    replace: '  if (planner.state === "unread" && false) {',
+    scenario: "The week says it is reading before the planner has been read",
+    live: true,
+    browser: true,
+  },
+  {
+    // The week draws its seven days and says nothing about a task due on none
+    // of them. Every count on the page agrees - they are per-day and per-group,
+    // not a total - so the planner holds a task the week does not draw and no
+    // reading anywhere contradicts the page.
+    name: "a task the week cannot place is not reported",
+    file: "src/web/apps/week/index.tsx",
+    find: "  const elsewhere = tasks.filter((task) => task.due !== null && !days.includes(task.due));",
+    replace:
+      "  const elsewhere = tasks.filter((task) => task.due !== null && !days.includes(task.due) && false);",
+    scenario: "A task dated outside this week is reported with the date it carries",
+    live: true,
+    browser: true,
+  },
+  {
+    // A task with no date is drawn nowhere at all. It is in the planner and on
+    // the list, the week holds seven days that do not name it, and the page
+    // says nothing - which is the whole state the No date group exists for.
+    name: "a task with no date is not drawn",
+    file: "src/web/apps/week/index.tsx",
+    find: "  const undated = tasks.filter((task) => task.due === null);",
+    replace: "  const undated = tasks.filter((task) => task.due === null && false);",
+    scenario: "A new task has no date",
+    live: true,
+    browser: true,
+  },
+  {
+    // The week starts a day early, so day 1 is a Sunday. A rolling window is
+    // the mutation this one stands in for, and it is NOT in the array: cutting
+    // the offset makes the week start today, which on a Monday is a no-op - a
+    // mutation whose reading depends on what day the suite was run. This one
+    // shifts every day whatever the date is.
+    name: "the week starts on the wrong day",
+    file: "src/web/apps/week/index.tsx",
+    find: "  const monday = midnight - weekday * DAY_MS;",
+    replace: "  const monday = midnight - (weekday + 1) * DAY_MS;",
+    scenario: "A planner nobody has used yet has seven empty days",
+    live: true,
+    browser: true,
+  },
+  {
+    // The report keeps its count and loses the value. A visitor is told a task
+    // is dated another day and given nothing to look for - and a date that is
+    // not a date is exactly the case where the value is the whole reading.
+    name: "the value a reported task carries is not printed",
+    file: "src/web/apps/week/index.tsx",
+    find: "                    {task.due}",
+    replace: '                    {""}',
+    scenario: "A task whose date is not a date at all is reported as it is",
+    live: true,
+    browser: true,
+  },
+  {
+    // The card whose date is outside the week gets no option for it, so the
+    // select matches none of its options and the browser draws the first. The
+    // page then says No date on a card under a heading that says otherwise.
+    // `{outside ? null : null}` and not `outside && false`, and §35 is why for
+    // the second time on this branch: `outside && false` has type `false`, so
+    // tsc drops the narrowing that made `held` a string inside the branch and
+    // the build fails with TS2322 rather than the mutation running. Measured
+    // 2026-09-13. The condition is still read and the option is still gone.
+    name: "a date outside the week is not offered on its own card",
+    file: "src/web/apps/week/index.tsx",
+    find: "      {outside ? <option value={held}>{held}</option> : null}",
+    replace: "      {outside ? null : null}",
+    scenario: "A task dated outside this week is reported with the date it carries",
+    live: true,
+    browser: true,
+  },
 ];
 
 // The runner, named the long way for the reason playwright.config.ts gives:

@@ -36,12 +36,12 @@ That moves the shell and nothing else. The same command names a sub-app —
 `--app list=eecdb7c6` — and the shell stays exactly where it was; rolling that
 sub-app back afterwards leaves alone whatever was deployed in between.
 
-**Three units, today.** `PLAN.md` step 1 places `list` on `/` and step 4 places
-`board` on `/board`, so `scripts/contract.ts` names three units and `build.ts`
-builds three. Examples naming `hello` are from the slate before step 0 and are
-kept where the reading they illustrate was taken against it; the tree builds
-`shell`, `list` and `board`. `PLAN.md` step 5 adds `week`, and that is the last
-of them.
+**Four units, and that is all of them.** `PLAN.md` step 1 places `list` on `/`,
+step 4 places `board` on `/board` and step 5 places `week` on `/week`, so
+`scripts/contract.ts` names four units and `build.ts` builds four. Examples
+naming `hello` are from the slate before step 0 and are kept where the reading
+they illustrate was taken against it; the tree builds `shell`, `list`, `board`
+and `week`.
 
 **And one change in this project's history was not one JSON write.** Going to
 zero sub-apps means a pointer whose `apps` is `{}`, and the image running at the
@@ -55,24 +55,27 @@ was a deploy of the server, in the rarer schedule the design already has.
 
 ### The application is deliberately almost nothing
 
-The page is a title, a fixed sidenav and five views. **Two of them place a
-unit**: `/` draws `list`, which is every task the planner holds, and `/board`
-draws `board`, one panel per column with a task moving between them. `/week` is
-waiting for one — `PLAN.md` step 5 — and the frame says so on it. `/service` is drawn by the shell itself, from the one reading it
-took of the service, and `/backup` is drawn by the shell too: it writes the
-planner to a JSON file and reads one back over the top, `PLAN.md` step 3.
-Desktop only: there is no breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views. **Three of them place a
+unit**: `/` draws `list`, which is every task the planner holds, `/board` draws
+`board`, one panel per column with a task moving between them, and `/week`
+draws `week`, seven days from Monday to Sunday with every task that has a date.
+`/service` is drawn by the shell itself, from the one reading it took of the
+service, and `/backup` is drawn by the shell too: it writes the planner to a
+JSON file and reads one back over the top, `PLAN.md` step 3. Desktop only:
+there is no breakpoint anywhere in the stylesheet.
 
 A view naming no unit is a legitimate view and not a hole: the frame draws it,
 and nothing is fetched for it. `serving-the-shell.feature` is where that claim
 is written down and where it is measured — the served page names exactly the
 units its views place and warms exactly those, and a browser walking from `/` to
-the three views that place nothing issues no request at all. That second half
-had no teeth at step 0, when there was no bundle a mutation could make the page
-fetch; it has them now, because `/` fetching `list` and `/week` fetching nothing
-is a difference rather than a property of an empty build. `/board` placed a unit
-at step 4, and the walk to it still costs no request — because its files were
-warmed with the page, which is the other thing that scenario now measures.
+every other view issues no request at all. That second half had no teeth at step
+0, when there was no bundle a mutation could make the page fetch; it has them
+now, because `/` fetching `list` and `/service` fetching nothing is a difference
+rather than a property of an empty build. `/board` placed a unit at step 4 and
+`/week` at step 5, and the walk to either still costs no request — because both
+were warmed with the page, which is the other thing that scenario measures.
+`/service` and `/backup` place none and never will, so the claim keeps a subject
+that is finished rather than waiting.
 
 That is the whole application, and it is the point. Everything else in this
 repository is the machinery for shipping it — publishing, composing, promoting,
@@ -198,9 +201,9 @@ unit changes one answer to that question, so the next visitor gets a different
 app from the same running machine — and only the part that moved is different.
 
 The third fetch is what a view placing a sub-app makes. A visitor who lands on
-`/week` makes the first two and stops, because that view places none. One who
-lands on `/board` makes all three, and one who lands on `/` makes all three and
-warms `board`'s two files besides.
+`/service` makes the first two and stops, because that view places none. One who
+lands on `/board` or `/week` makes all three, and one who lands on `/` makes all
+three and warms the four files of the other two units besides.
 
 Note the last two lines. The shell and `list` come from different directories,
 written at different times. **One `assetBase` per unit is the whole feature.**
@@ -327,17 +330,18 @@ The sets are generated, never written:
 
 ```
 $ bun run contract:matrix
-       9d1b0a3  15ed669  1c4a120  f766e10
-shell     fail     pass     pass     pass
-list      fail     fail     pass     pass
-board     fail     fail     fail     pass
+       9d1b0a3  15ed669  1c4a120  f766e10  9e59f0c
+shell     fail     pass     pass     pass     pass
+list      fail     fail     pass     pass     pass
+board     fail     fail     fail     pass     pass
+week      fail     fail     fail     fail     pass
 ```
 
-Four contracts and three units, on 2026-09-12. Every cell against `9d1b0a3`
+Five contracts and four units, on 2026-09-13. Every cell against `9d1b0a3`
 fails and that is the reading: `PLAN.md` step 1 removed the greeting from the
 surface, so a unit built here no longer satisfies the contract the previous
 slate was built against. Nothing is refused for it — the intersection is
-non-empty, all three units share `f766e10` — and `9d1b0a3` stays retained,
+non-empty, all four units share `9e59f0c` — and `9d1b0a3` stays retained,
 because a rollback onto a unit published against it is exactly what retaining is
 for.
 
@@ -541,8 +545,10 @@ sunset — the day it goes and what to move to — so a service that retired
 `reason` would cost this panel nothing, and the reading says so without anybody
 declaring it. `Task.column` and `Task.due` were the same reading the other
 way round: a task HAS them, and nothing on the slate moved either. `PLAN.md`
-step 4 built `board`, which moves one — so `Task.column` is in `board`'s set
-with nobody declaring it, and `Task.due` waits for `week` at step 5.
+step 4 built `board`, which moves one, and step 5 built `week`, which dates the
+other — so each is in one unit's set and in nobody else's, with nothing declared
+anywhere. `Task.createdAt` is the row that still has no user: `planner.ts` sorts
+by it, and that is shell machinery rather than a member a sub-app calls.
 
 The set each unit uses is exactly the row `PLAN.md`'s contract table gives it,
 which is why that table is written as a design constraint rather than as a
@@ -848,13 +854,15 @@ the layout back with it, because they are one unit.
 
 A view that names no app is a legitimate view: the frame draws it, nothing is
 fetched for it, and it is how a route exists before a unit has been built for
-it. Three of the five views are one of those — `PLAN.md` step 1 placed `list` on
-`/` and step 4 placed `board` on `/board`, and `/week`, `/service` and `/backup`
-place nothing.
+it. Two of the five views are one of those — `PLAN.md` step 1 placed `list` on
+`/`, step 4 placed `board` on `/board` and step 5 placed `week` on `/week`, and
+`/service` and `/backup` place nothing and never will. So from step 5 the claim
+is about two views that are FINISHED rather than about three of which one was
+waiting for a unit.
 `serving-the-shell.feature` holds the claim in two places, because the two
 halves fail differently. The served page names exactly the units its views place
 and warms exactly those, which is read off the HTML; and a browser walking from
-`/` to those four issues no request at all, which is read off the network. A
+`/` to the other four issues no request at all, which is read off the network. A
 link that navigated instead of routing would satisfy the first and break the
 second.
 
@@ -888,10 +896,12 @@ caught even though a route that swapped its unit is not.
 
 ## Warming a sub-app's files before its view is opened
 
-Two units are warmed on this slate, and `board` is on `/board` — a route a
-visitor does not land on. So the warm has a subject from `PLAN.md` step 4, and
-the answer is **780 ms**: measured on 2026-09-12, nine runs per arm, the view
-opened in 52 ms with the tags and 832 ms without them.
+Three units are warmed on this slate, and two of them — `board` on `/board` and
+`week` on `/week` — are on routes a visitor does not land on. So the warm has a
+subject from `PLAN.md` step 4, and the answer is **780 ms**: measured on
+2026-09-12, nine runs per arm, the view opened in 52 ms with the tags and 832 ms
+without them. Step 5 doubled the number of files warmed off the landing route,
+from two to four, and the reading is re-taken below rather than carried over.
 
 A sub-app's bundle is fetched when its view first appears, so a navigation used
 to wait on a network fetch that could have happened while the visitor was
@@ -923,6 +933,7 @@ pointer and one build, so nothing but the tags differs. Readings, 2026-09-12:
 | After 10 s on the landing view | 56 ms, median of 5 | 836 ms |
 | The policy | no refusal. `script-src` and `style-src` are already derived from the origins the manifest names | no refusal |
 | Before the view is opened | `board`'s two files are in the browser | neither is |
+| Re-measured 2026-09-13, four units | `board` 55 ms / `week` 60 ms, median of 9 | 822 ms / 839 ms |
 | The digest | each file fetched **once** across the visit. The import reuses the warmed response | once — the import does the one fetch itself |
 | What started them | `link` (stylesheet), `other` (module) | `link` (stylesheet), `script` (the import) |
 | The composition | the URLs follow the override, held by a unit test that composes one and asserts the preload moved with it | — |
@@ -935,16 +946,26 @@ so a median of three was hiding no range, and clicking after ten seconds on the
 landing view — well past the moment Chrome's preload cache is hottest — reads
 56 ms against 836 ms.
 
-**About 530 ms of the control arm's 832 is unaccounted for, and that is said
+**About 420 ms of the control arm's 822 is unaccounted for, and that is said
 rather than filled in.** `loader.ts` awaits the stylesheet and only then imports
 the module, so the control arm pays two cross-origin fetches in series. Measured
-per run: the stylesheet takes 143–167 ms and the module 139–192 ms, and the two
-add up to 284–354 ms. The remaining ~530 ms is not module evaluation or
-rendering either — those happen in both arms, and the warm arm's whole reading
-is 52 ms. `scripts/measure-preload.ts` reports the two durations per run and
-cannot say what the rest is. What follows for the design is narrow: a
-`Promise.all` in `loader.ts` would recover at most the SHORTER of the two
-fetches, about 150 ms of 832, and not half of it. TODO §47.
+per run on 2026-09-13, across both off-screen units, the two add up to
+342–494 ms. The rest is not module evaluation or rendering either — those happen
+in both arms, and the warm arm's whole reading is 45–68 ms.
+`scripts/measure-preload.ts` reports the two durations per run and cannot say
+what the rest is. What follows for the design is narrow: a `Promise.all` in
+`loader.ts` would recover at most the SHORTER of the two fetches, about 200 ms
+of 822, and not half of it. The first reading, on 2026-09-12 at three units, put
+the unaccounted time at 530 ms of 832 — the fetches got slower and the baseline
+did not, which narrows the gap without explaining it. TODO §47.
+
+**And one reading is worse at four units than at three.** `week`'s warm arm ran
+46, 60, 51, 46, 92, 45, 106, 113, 121 ms across nine runs — it climbs, where
+`board`'s stays inside 46–68 on the same machine in the same session. The
+control arm is flat at 822–850 and the two fetches do not climb either. The
+median is 60 ms and the benefit is 779 ms, so nothing about the warm turns on
+it, and what the climb is has not been measured. TODO §47 holds it beside the
+420 ms, because they may be one thing.
 
 `loader.ts` needs no change for any of it: `addStylesheet` and the `loading` map
 still run at mount, and a preload only warms the cache.
@@ -966,7 +987,8 @@ views draws each one and fetches nothing` was a statement about five views that
 placed one unit between them. Step 4 makes the walk open a view that DOES place
 one, and the count is still zero — because the files were already warm.
 Measured on 2026-09-11: 0 requests across the walk, and the `the page warms
-nothing, and the walk pays for it` mutation turns it red.
+nothing, and the walk pays for it` mutation turns it red. Step 5 puts a second
+such view on the walk, and the count is still zero for the same reason.
 
 ## Two failure rules, on purpose
 

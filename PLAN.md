@@ -42,7 +42,7 @@ It also supplies state that persists across a deploy, which is the surface §11'
 | — | `/service` | what the service holds and what it retires. The frame draws it | never |
 | — | `/backup` | export, import, push, pull, and what IndexedDB currently holds. The frame draws it | never |
 
-Two of the five routes name no unit when the slate is finished, so the claim that such a view is legitimate keeps its subject. Two of the three units sit off the landing route, so the claim that preloading an off-screen unit buys something gets its subject back — §31 row 2. Step 4 built the first of those two, and the answer is 780 ms; the reading is in step 4's section below.
+Two of the five routes name no unit now that the slate is finished, so the claim that such a view is legitimate keeps a subject that is finished rather than waiting. Two of the three units sit off the landing route, so the claim that preloading an off-screen unit buys something has its subject back — §31 row 2. Step 4 built the first of those two and measured 780 ms; step 5 built the second, which doubled the files warmed off the landing route from two to four. Both readings are in the sections below.
 
 **The shell owns export, import, push and pull**, rather than a fourth sub-app. All four move the same document, and that document carries the schema version for the whole planner. §15 puts shared state in the shell.
 
@@ -209,7 +209,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 2 | 2026-09-11 | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
 | 3 | 2026-09-11 | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
 | 4 | 2026-09-12 | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
-| 5 |  | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
+| 5 | 2026-09-13 | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
 | 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
 | 7 |  | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
 | 8 |  | Slot history and restore | Data rollback, by the same mechanism as the pointer | `restoring-an-older-snapshot` |
@@ -221,6 +221,56 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 14 |  | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
 | 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
 | 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+
+### What step 5 settled, and what it cost
+
+**The slate's unit list is finished, and the fourth unit cost two published bundles nothing.** `week` draws seven days on `/week` and `setDue` is the one member it adds. Contract `9e59f0c` is additive over `f766e10`, and **both** `list` and `board` came out of the build with the ids they already had - `2adce208`, which step 2 promoted, and `de7a91d7`, which step 4's cold-read fix produced. A whole unit arrived and two of the three published bundles did not move. Step 4 made that claim about one unit; this is the same claim with a second subject, and it is the shape step 9 needs.
+
+**Each of the three sub-apps holds at least one member the other two do not call.** Measured by `bun run build`'s member reading on 2026-09-13, and asserted in `members.test.ts` for all three at once rather than for a pair:
+
+| Unit | Members nothing else calls |
+| --- | --- |
+| `list` | `addTask`, `removeTask`, `setTags`, `goingAway` |
+| `board` | `columns`, `moveTask` |
+| `week` | `setDue` |
+
+That is what step 10 needs. Dropping `moveTask` has to refuse `board` and leave `list` and `week` alone, and "and nothing else" is a claim about the other units rather than about one - so it needed a third before it could be made at all.
+
+**`Task.due` had no user until now, and `Task.createdAt` still has none.** The member reading on 2026-09-11 put both in nobody's set, because a task HAS them and nothing read either. `board` gave `Task.column` a user at step 4 and `week` gives `Task.due` one here, each with nothing declared anywhere. `createdAt` stays in nobody's set on purpose: `planner.ts` sorts the restored list by it, and that is shell machinery rather than a member a sub-app calls. TODO §45 is what that field is still missing.
+
+**The seven days are the unit's own and are NOT on the contract surface.** `columns()` is on it because `board` draws one panel per column and a task moves between them, so two units have to agree on the set. Nothing has to agree with a week: a date is a date, `setDue` takes it, and which seven days are drawn is this panel's reading of the clock. Putting a `days()` on the surface would have been a member no other unit could ever call, which is what `greeting` was.
+
+**Monday to Sunday, and not the next seven days.** A rolling window moves a task to a different panel overnight for no reason a person did anything about. The cost is that the panel is time-dependent, so no scenario may name a date: every one of them names a day by its POSITION, and the harness reads the value off the page rather than working out which Monday it is. A second reading of the week in the harness would pass whenever the two agreed.
+
+**The warm holds with twice as many warmed files, and the second off-screen unit reads the same.** Step 4 measured `board` alone, because it was the only unit off the landing route. Step 5 doubles the files warmed for a landing visitor from two to four, and `scripts/measure-preload.ts` takes `--unit` now and reads the route out of `views.ts` rather than out of a literal. Nine runs per arm, ten seconds on the landing view before the click, 2026-09-13:
+
+| Reading | `board` warm | `board` control | `week` warm | `week` control |
+| --- | --- | --- | --- | --- |
+| click to panel on screen, median of 9 | **55 ms** | **822 ms** | **60 ms** | **839 ms** |
+| what the warm bought | **767 ms** | | **779 ms** | |
+| every run, ms | 46 to 68 | 810 to 842 | 45 to 121 | 822 to 850 |
+| the unit's files in the browser before the view is opened | 2 | 0 | 2 | 0 |
+| files fetched across the visit | 2 | 2 | 2 | 2 |
+| what started them | `link`, `other` | `link`, `script` | `link`, `other` | `link`, `script` |
+| content-policy refusals | 0 | 0 | 0 | 0 |
+
+**One reading here is worse than step 4's and it is said rather than smoothed.** `week`'s warm arm ran 46, 60, 51, 46, 92, 45, 106, 113, 121 - it climbs across the nine runs, where `board`'s stays inside 46 to 68. The median is 60 ms and the benefit is 779 ms either way, so nothing about the warm turns on it. **What the climb is, this script cannot say.** It is not the two fetches, which are reported per run and do not climb, and it is not the control arm, which is flat at 822 to 850. TODO §47 carries it beside the unaccounted time, because they may be one thing.
+
+**And §47's own number moved.** The control arm's two fetches now add up to 342 to 494 ms of a median 822 to 839, so about **420 ms** is neither fetch, where step 4 measured about 530 ms. The fetches got slower and the baseline did not, which narrows the gap without explaining it. A `Promise.all` in `loader.ts` would still recover at most the shorter of the two.
+
+**Sixteen scenarios, fourteen mutations, and all fourteen caught.** Five are `@local` - what a DATE is, in the store and in the document reader, both pure - and nine need a browser. `bun run verify:browser` is what runs the nine; `bun run verify` and `bun run verify:live` reach none of them, which is the reason that command is in `CLAUDE.md`'s table.
+
+**§35's guard fired twice, which is its second and third real use.** Both mutations were written as cuts and both cuts stopped the build rather than the check: `onPick(held)` left the chosen value assigned and read by nothing, and `outside && false` has type `false`, so tsc dropped the narrowing that made `held` a string and the build failed with TS2322. Both are re-aimed to keep the value read. A mutation that does not compile is reported as caught by a check that never ran, which is exactly what that guard refuses.
+
+**One mutation was declined, and the reason is the calendar.** Cutting the Monday offset out of `weekOf` makes the week start today - a no-op on a Monday, so the mutation would be caught six days in seven and the reading would depend on what day the suite was run. What is in the array shifts every day by one whatever the date is. The scenario that catches it asserts three things at once: the seven days are consecutive, day 1 is a Monday, and today is among them.
+
+**Every task the planner holds is on the page once.** A task is on a day, under No date, or under Another date, and never in two of those and never in none. The board's report at step 4 was built for the state where a panel draws a count per group rather than a total, so every number on the page agrees while a task is missing from all of them; this is the same requirement made total. One scenario reads it off the rendered DOM - the cards on the page counted against the number of tasks the planner holds - rather than off the counts the panel drew, because those come out of the same filters the cards do.
+
+**A `due` that is not a date is refused at two doors and reported at the third.** `setDue` refuses it silently, because the control is a select whose options are the seven days and no control on the page can produce another value. `readDocument` refuses it by name and says the shape, and that door is the one a person reaches with a text editor. IndexedDB is the third and guards nothing, for the reason `PLAN.md` gives for the whole planner at steps 15 and 16 - so the week prints the value the task carries and a person can see it. TODO §46 was a door on one field and is a door on two from this step.
+
+**One rule, two callers.** `isDueDate` is in `document.ts` and called from `readTask` and from `setDue`. `2026-02-30` matches `\d{4}-\d{2}-\d{2}` and `Date.parse` reads it - as 2026-03-02, because the parser rolls the day over - so the pattern alone is not the rule and the round trip is the arm that catches it. `api.ts` imports it WITHOUT the `.ts` extension every other import in this tree carries, and that is measured rather than assumed: the surface emit sets `allowImportingTsExtensions: false`, an extensionless specifier resolves under `moduleResolution: bundler`, and `document` appears nowhere in the emitted surface.
+
+**What it cost.** Two `.feature` files carried the unit list as a literal - `serving-the-shell.feature` and `warming-a-unit-before-its-view.feature` both named `"list, board"` - and both went red on a correct composition. That is `e2e:members`'s step-1 unit count again, in a file rather than in a script, and both are now the finished list rather than a count. `bun run pr` could not preview this branch for the same reason step 4's could not: the origin composes from the pointer and ignores an override naming a unit the pointer does not carry, so the order inverts again - promote, shoot the record, and the pull request carries the record's pictures. TODO §34 holds the fix.
 
 ### What step 4 settled, and what it cost
 

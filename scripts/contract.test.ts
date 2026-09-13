@@ -121,8 +121,8 @@ describe("the direction of a surface change", () => {
   );
 
   // The reading this file exists to make good on: not a generated pair, but the
-  // surfaces this repository has actually published. Four of them by
-  // 2026-09-12, and the two tests below take the two readings that matter -
+  // surfaces this repository has actually published. Five of them by
+  // 2026-09-13, and the two tests below take the two readings that matter -
   // one pair that breaks and one that does not. Neither can go stale: a
   // published contract's files are hashed by `verifyRegistry`, so the pairs are
   // the pairs that were minted.
@@ -177,6 +177,7 @@ describe("the direction of a surface change", () => {
       const pairs = [
         ["planner-2026-09", "planner-stored-2026-09"],
         ["planner-stored-2026-09", "planner-board-2026-09"],
+        ["planner-board-2026-09", "planner-week-2026-09"],
       ] as const;
 
       for (const [olderName, newerName] of pairs) {

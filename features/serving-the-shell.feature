@@ -46,9 +46,9 @@ Feature: Serving the application shell from the live manifest
     `/service` and `/backup`, which never get one.
 
     The page is one document for all five routes, so what it may name is exactly
-    the units its views place: `list` and `board`, and nothing else. That is the
-    half read off the HTML. The half about a particular view is read in a
-    browser, below.
+    the units its views place: `list`, `board` and `week`, and nothing else.
+    That is the half read off the HTML. The half about a particular view is read
+    in a browser, below.
 
     What the page WARMS is the same list read a second way, and it moved to
     `warming-a-unit-before-its-view.feature` at step 4 - which is the step that
@@ -60,7 +60,7 @@ Feature: Serving the application shell from the live manifest
     @live @local
     Scenario: The page names the units its views place, and no others
       When a visitor loads the qa origin
-      Then the page names "list, board" for the browser to import, and no other sub-app
+      Then the page names "list, board, week" for the browser to import, and no other sub-app
 
   Rule: The frame drawing those views, in a browser
 

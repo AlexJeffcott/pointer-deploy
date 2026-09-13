@@ -65,4 +65,4 @@ Feature: Warming a unit's files before its view is opened
     @live @local
     Scenario: The page warms exactly the units its views place
       When a visitor loads the qa origin
-      Then the page asks the browser to warm "list, board", and nothing else
+      Then the page asks the browser to warm "list, board, week", and nothing else
