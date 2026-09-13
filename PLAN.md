@@ -1,6 +1,6 @@
 # What is being built on the slate
 
-The slate was cleared on 2026-09-10 and holds two units. This is what goes on it, in what order, and why each step is a step. The process is the subject, so the order is part of the specification and not a schedule.
+The slate was cleared on 2026-09-10 and holds three units. This is what goes on it, in what order, and why each step is a step. The process is the subject, so the order is part of the specification and not a schedule.
 
 The `.feature` files remain the requirements and the acceptance suite. This file names which one each step writes; it does not paraphrase them.
 
@@ -23,7 +23,9 @@ Every task lives in IndexedDB in the visitor's own browser. Nothing leaves it un
 
 ### Why this application
 
-Three views over one collection is the strongest available subject for the claim the project exists to make. The same tasks are drawn by three bundles that were built, published and deployed on three different days, and a visitor moving a task on the board watches the list reorder. Nothing about that is arranged for the demonstration; it is what the application is.
+Three views over one collection is the strongest available subject for the claim the project exists to make. The same tasks are drawn by three bundles that were built, published and deployed on three different days, and a task added on the list is on the board, tagged on the list, moved on the board, and still one task. Nothing about that is arranged for the demonstration; it is what the application is.
+
+This paragraph said "a visitor moving a task on the board watches the list reorder" until 2026-09-12. Step 4 built the board and the list does not reorder: it draws every task the planner holds, in the order the planner holds them, and says nothing about columns. Moving a task changes where it is and not whether it is, which is the scenario `A task moved on the board is still on the list` reads. The sentence described a list nobody specified.
 
 It also supplies state that persists across a deploy, which is the surface §11's family has been missing: a unit against its own past, where a rollback is asymmetric because code moves back and data does not.
 
@@ -34,13 +36,13 @@ It also supplies state that persists across a deploy, which is the surface §11'
 | Unit | Route | Draws | First fetched |
 | --- | --- | --- | --- |
 | `shell` | the frame | title, fixed sidenav, routing, the store, IndexedDB, export, import, push, pull | always |
-| `list` | `/` | every task: add, tag, delete, rename. Completing is `board`'s `moveTask` at step 4, renaming is `renameTask` at step 9 - see below | on the landing route |
+| `list` | `/` | every task: add, tag, delete, rename. Completing is `board`'s, through `moveTask` at step 4; renaming is `renameTask` at step 9 - see below | on the landing route |
 | `board` | `/board` | one column per fixed column, and a task moves between them | preloaded, imported when the route is opened |
 | `week` | `/week` | seven days, and every task that has a due date | preloaded, imported when the route is opened |
 | — | `/service` | what the service holds and what it retires. The frame draws it | never |
 | — | `/backup` | export, import, push, pull, and what IndexedDB currently holds. The frame draws it | never |
 
-Two of the five routes name no unit, so the claim that such a view is legitimate keeps its subject. Two of the three units sit off the landing route, so the claim that preloading an off-screen unit buys something gets its subject back — §31 row 2.
+Two of the five routes name no unit when the slate is finished, so the claim that such a view is legitimate keeps its subject. Two of the three units sit off the landing route, so the claim that preloading an off-screen unit buys something gets its subject back — §31 row 2. Step 4 built the first of those two, and the answer is 780 ms; the reading is in step 4's section below.
 
 **The shell owns export, import, push and pull**, rather than a fourth sub-app. All four move the same document, and that document carries the schema version for the whole planner. §15 puts shared state in the shell.
 
@@ -86,7 +88,7 @@ Dropping `moveTask` refuses `board` and nothing else. Dropping `setDue` refuses 
 
 **A member is declared when a unit calls it, and not before.** The table is the finished surface. What `src/web/shell/api.ts` holds at any step is the rows the units built so far use, because a member no unit calls is surface the member gate cannot refuse anything for - which is what `greeting` and `setGreeting` became at step 0, and why step 1 minted a contract that drops them. So step 1 declares `tasks`, `addTask`, `setTags`, `removeTask` and `goingAway`; steps 4 and 5 add `columns`/`moveTask` and `setDue`; and step 9 adds `renameTask`, which is the last row `list` needs and the one member whose arrival can be additive, because by then there are two other published units that do not call it.
 
-**That is also why `list` does not rename or complete a task at step 1.** The units table says it draws both. Completing is `moveTask`, which is `board`'s, and step 4 gives `list` that. Renaming is `renameTask`, and **step 9 is where it arrives** — as the additive change, because by then `board` and `week` are published against a surface that does not have it, and a member added to `ShellStore` grows no app's use set. That is the whole demonstration: one unit republishes, two do not, and `contract:matrix` stays green across the mint. Step 9's row used to read `setTags`, which step 1 minted; a step demonstrating an additive change to a member that already exists demonstrates nothing.
+**That is also why `list` does not rename or complete a task at step 1.** The units table says it draws both. Completing is `moveTask`, which is `board`'s ALONE - this sentence used to read that step 4 gives `list` that, and a `list` calling `moveTask` would leave step 10 refusing two units where its whole demonstration is that it refuses one. The table is the constraint and it has one tick in that row. A task is completed by moving it to the `done` column on the board. Renaming is `renameTask`, and **step 9 is where it arrives** — as the additive change, because by then `board` and `week` are published against a surface that does not have it, and a member added to `ShellStore` grows no app's use set. That is the whole demonstration: one unit republishes, two do not, and `contract:matrix` stays green across the mint. Step 9's row used to read `setTags`, which step 1 minted; a step demonstrating an additive change to a member that already exists demonstrates nothing.
 
 There is no "done" flag. A task is done when it is in the `done` column, so the board and the list cannot disagree about what done means.
 
@@ -206,7 +208,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 1 | 2026-09-11 | `list` on `/`, in memory only | A second unit, published and promoted alone | `keeping-a-list-of-tasks` |
 | 2 | 2026-09-11 | IndexedDB v1 in the shell | Tasks survive a reload; a fresh browser starts empty | `keeping-the-planner-in-the-browser` |
 | 3 | 2026-09-11 | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
-| 4 |  | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
+| 4 | 2026-09-12 | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
 | 5 |  | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
 | 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
 | 7 |  | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
@@ -219,6 +221,56 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 14 |  | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
 | 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
 | 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+
+### What step 4 settled, and what it cost
+
+**The warm has a subject, and it is worth 780 ms.** `board` is the first unit this repository has placed on a route a visitor does not land on, so the `modulepreload` and style preload the shell has emitted since §17 finally warm a file the landing page is not about to import anyway. `scripts/measure-preload.ts` takes every reading twice - once from the page as served, once from the same page with the warm tags cut out of the HTML on the way to the browser - so both arms run against one origin, one store, one pointer and one build, and nothing but the tags differs.
+
+| Reading | Warm | Control |
+| --- | --- | --- |
+| `board`'s files in the browser before `/board` is opened | 2 | 0 |
+| files fetched across the visit | 2 | 2 |
+| what started them | `link`, `other` | `link`, `script` |
+| click to panel on screen, median of 9 | **52 ms** | **832 ms** |
+| every run, ms | 41 to 68 | 821 to 837 |
+| the same, after 10 s on the landing view, median of 5 | 56 ms | 836 ms |
+| content-policy refusals | 0 | 0 |
+
+**Nine runs and a paused arm, because a cold read named three runs and a hot cache as the weakest points in the branch.** Both objections were right to make and neither changed the number. The spread is 27 ms wide on the warm arm and 16 ms on the control arm, so a median of three was not hiding a range. And the 52 ms is not the moment Chrome's preload cache is hottest: clicking after ten seconds on the landing view reads 56 ms against 836 ms, the same 780 ms.
+
+**Where the control arm's 832 ms goes, and it is not all round trips.** `loader.ts` awaits the STYLESHEET and only then imports the module, so the control arm pays two cross-origin fetches in series. Measured per run: the stylesheet takes 143-167 ms and the module 139-192 ms, and the two add up to 284-354 ms. **So about 530 ms of the 832 is not accounted for by either fetch** - and the warm arm's whole 52 ms says it is not module evaluation or rendering either, because those happen in both arms. This script cannot say what it is. What follows for the design is one thing and not another: a `Promise.all` in `loader.ts` would recover at most the SHORTER of the two fetches, about 150 ms of 832, and not half of it. TODO §47 carries both the unaccounted time and the parallel fetch.
+
+**A scenario CAN read this now, and the one that reads it best was already written.** README's own finding stands - "the bundle was fetched once after the navigation" is true with the warm and without it - so the count is not the reading. What discriminates is `PerformanceResourceTiming`: a file fetched because of a tag reports `initiatorType` `other` for a module and `link` for a stylesheet, and the same file fetched by a dynamic `import()` reports `script`. Measured, not assumed: the first version of `warming-a-unit-before-its-view.feature` asserted `link` for both and went red on the module. What is asserted now is that nothing there was started by an import, which is the design's own claim - a hint fills the cache, and an import would have RUN the module for a visitor who may never open the view.
+
+**And one scenario that measured nothing now measures this.** `Moving between views draws each one and fetches nothing` was a statement about five views placing one unit between them. Step 4 makes the walk open a view that DOES place one, and the count is still zero - because the files were already warm. Measured on 2026-09-11: 0 requests across the walk. The `the page warms nothing, and the walk pays for it` mutation turns it red, so the scenario that was a statement about placement is now also the cheapest reading of the warm there is.
+
+**`list` did not republish, and that is the contract claim.** `f766e10` adds `Column`, `ShellStore.columns` and `ShellStore.moveTask` and is **additive** over `1c4a120`, so nothing published against step 2's surface breaks. `list`'s id came out of the build unchanged at `2adce208` - the id step 2 promoted - while the shell moved. Three units are now published, and the contract matrix reads `board` as compiling against `f766e10` alone, because it is the first surface that has the members it calls.
+
+**Each unit holds a member the other does not call, in both directions.** That is `PLAN.md`'s contract table working as a design constraint rather than a description, and it is measured rather than declared: `bun run build`'s member reading gives `board` `ShellStore.columns` and `ShellStore.moveTask` and gives neither to `list`, and gives `list` `addTask`, `removeTask` and `setTags` and gives none of them to `board`. `members.test.ts` asserts both directions. Step 10 drops `moveTask` and reads the refusal that names `board` and leaves `list` alone; without this, that step would have had nothing to demonstrate.
+
+**`Task.column` had no user until now.** The member reading on 2026-09-11 put `Task.column` and `Task.due` in nobody's set, because a task HAS them and nothing moved either. `board` moves one, so the reading picks it up with no declaration anywhere; `due` stays unused until `week` at step 5.
+
+**A column no column names is refused in two places, and only one of them can be reached.** `moveTask` refuses one silently, because the board draws its buttons from `columns()` and no control can produce one - so a sentence there would be a sentence nothing reaches. `readDocument` refuses one by name, and that one IS reachable: a hand-edited file, or a planner written by a tool. The reason both exist is what such a task would be - in the planner, drawn by `list`, and on no panel of the board, reachable only by exporting the file again. The columns reach `readDocument` as an ARGUMENT from `store.columns()` rather than as an import, because a constant exported from `api.ts` for it to read would be a member no sub-app calls, which is what `greeting` was.
+
+**Twelve mutations, and four of them run on `bun run falsify`.** Measured on 2026-09-12: **4 of 4 `@local` caught**, and **8 of 8 `@browser` caught** under `FALSIFY_LIVE=1`. One needed re-aiming for the reason step 1's tag-box mutation did: cutting `if (planner.state === "unread")` to `if (false)` leaves `planner` read by nothing, `noUnusedLocals` fails the build, and §35's guard refuses the reading rather than counting it. `&& false` keeps the field read and the branch dead.
+
+**And one of the twelve was caught for a reason its own comment got wrong.** `a move is drawn without being written` claimed the card would appear in the new column because the panel re-rendered from a store that changed nothing. This panel cannot do that: it holds no state of its own and draws every card off `store.tasks()`, so the mutation is caught by the move step's own wait and the persistence claim had no mutation behind it at all. Refuted by `devils-advocate-agent` on 2026-09-12. The entry is renamed to what it does and a second one, `a task's column is not kept`, is aimed at `planner.ts` - where the claim actually is, because `PLAN.md` step 2 says a sub-app does not know a database exists.
+
+**Two claims TODO §31 was holding came back, and one of them came back short.** Warming an off-screen unit now buys something measurable, which is the row above. "Two independently deployed sub-apps share one signals runtime" came back as far as this composition allows: `list` and `board` are two separately published bundles over one store, and a task added through one is drawn by the other. What is NOT here is a panel redrawing because ANOTHER panel wrote - the two units are on different routes and never share a view, so no scenario can arrange it. `shared-state.feature` had five panels on one page; nothing on this slate can. TODO §31 carries the difference rather than claiming the row closed.
+
+**Read cold by `devils-advocate-agent` before merge, and it found nine defects and six wrong sentences.** All of them are fixed on this branch.
+
+| What it was | What holds it now |
+| --- | --- |
+| **IndexedDB is a third door on the column value and nothing guards it.** `moveTask` refuses a column no column names and `readDocument` refuses a document carrying one; `planner.ts` contains no occurrence of `column`. A later shell's columns, or steps 15 and 16, put a task in the planner, on the list, on no panel of the board - and the board draws per-column counts rather than a total, so every number on the page agreed | The board REPORTS it: `unplaced` names the task and its column. One `@browser` scenario arranges it by writing straight into the database, one mutation removes the report. Not a refusal, because a shell that deleted a task it did not understand would be destroying data it is not entitled to. TODO §46 is the door |
+| **Nothing asserted that `f766e10` is additive over `1c4a120`.** The claim rested on one line `contract:mint` printed into a terminal, and `contract:matrix` corroborates it by compiling units rather than by reading the direction | `scripts/contract.test.ts` reads the direction on every published pair after the first, named rather than looped, so a mint that is not additive has to be argued for here. Step 9's whole demonstration rests on that reading |
+| A mutation caught for a reason its comment got wrong, and no mutation on the column reaching the database | Re-aimed and renamed, plus `a task's column is not kept` on `planner.ts` |
+| Three runs and a click taken at the hottest cache moment | Nine runs, the spread reported, and a second arm that pauses ten seconds. Both readings are 780 ms |
+| The 780 ms attributed to the warm with no decomposition | The two fetches are reported per run. They are 284-354 ms of 832, so about 530 ms is unaccounted for, and that is said rather than filled in |
+
+The six sentences: `README.md` said in four places that `/board` places no unit, which `views.ts` had stopped being true of; `features/steps/frame.steps.ts` said the subject was the four views that name none, and it is three; `moving-a-task-between-columns.feature` said the warm makes §41's margin NARROWER and `falsify.ts` said WIDER, and the feature file was wrong - a warmed panel mounts sooner, so the requirement is more reachable; `falsify.ts`'s own section comment said five of eight were `@local` where the array held four and four; and `board.steps.ts` called the per-column counts an independent cross-check when the panel computes both from one `held`.
+
+**What it cost.** `e2e:members` checked `Object.keys(baseline).length === 2`, which was step 1's unit count written as a literal, and failed on a composition that was correct. It counts `UNITS.length` now, and both `bun run e2e` and `bun run e2e:members` were green at three units on 2026-09-12. Step 4 opened §46 and §47; step 3's §43, §44 and §45 are all still open.
 
 ### What step 3 settled, and what it cost
 

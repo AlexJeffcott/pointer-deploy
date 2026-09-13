@@ -968,12 +968,41 @@ const MUTATIONS: Mutation[] = [
   // reads. TODO §31 carries what still needs a second sub-app.
 
   // --- warming a sub-app's files -------------------------------------------
+  //
+  // `PLAN.md` step 4 put `board` on `/board`, so there is a unit off the
+  // landing route and the warm has something to buy. Both mutations below take
+  // the tags away; they are separate entries because they name different
+  // readings of one removal, and the second is the one that would otherwise
+  // look like an unrelated scenario going red.
 
-  // Nothing here. Warming is about the bundles for a view nobody has opened,
-  // and the one unit this repository builds is on the view a visitor lands on -
-  // so "the page warms a file no view placed" above is the reading with teeth.
-  // `html.test.ts` covers the tags; the scenario that watched the network for a
-  // warmed bundle comes back at `PLAN.md` step 4, when `board` sits off `/`.
+  {
+    // Every hint gone. The page still works: the import at the navigation
+    // fetches what it needs, a few hundred milliseconds later than it had to.
+    // That is the whole cost, and the reading that sees it is the resource
+    // timing on the landing view, where there is now nothing to see.
+    name: "the page warms nothing at all",
+    file: "src/server/html.ts",
+    find: "  return tags.map((t) => `\\n    ${t}`).join(\"\");",
+    replace: "  return \"\";",
+    scenario: "The board's files are in the browser before the board is opened",
+    live: true,
+    browser: true,
+  },
+  {
+    // The same removal, aimed at the count. `Moving between views draws each
+    // one and fetches nothing` read as a statement about views that place no
+    // unit until step 4; with `board` on `/board` the walk opens one that does,
+    // and the count stays at zero only because the files were already warm.
+    // Measured on 2026-09-11: 0 requests across the walk with the tags, and the
+    // scenario is what says what that costs without them.
+    name: "the page warms nothing, and the walk pays for it",
+    file: "src/server/html.ts",
+    find: "  return tags.map((t) => `\\n    ${t}`).join(\"\");",
+    replace: "  return \"\";",
+    scenario: "Moving between views draws each one and fetches nothing",
+    live: true,
+    browser: true,
+  },
 
   // --- what the service says it holds, §26 ---------------------------------
 
@@ -1054,7 +1083,7 @@ const MUTATIONS: Mutation[] = [
     file: "src/server/html.ts",
     find: "  for (const app of Object.values(appUrls(m))) {",
     replace: "  for (const app of [...Object.values(appUrls(m)), { js: assetUrls(m).js }]) {",
-    scenario: "The page names the units its views place, and no others",
+    scenario: "The page warms exactly the units its views place",
   },
   {
     // The guard `PLAN.md` step 0 removed, put back. A composition of the shell
@@ -1393,8 +1422,8 @@ const MUTATIONS: Mutation[] = [
     // useful, which is where in a file of forty tasks to look.
     name: "the refusal names the first task whatever went wrong",
     file: "src/web/shell/document.ts",
-    find: "    const read = readTask(held, `tasks[${index}]`);",
-    replace: "    const read = readTask(held, `tasks[${index * 0}]`);",
+    find: "    const read = readTask(held, `tasks[${index}]`, columns);",
+    replace: "    const read = readTask(held, `tasks[${index * 0}]`, columns);",
     unitTest: "the refusal names the task that stopped it and not the first one",
   },
   {
@@ -1484,9 +1513,9 @@ const MUTATIONS: Mutation[] = [
     // the page goes on saying nothing was changed.
     name: "the planner is emptied before the file has been read",
     file: "src/web/shell/Shell.tsx",
-    find: "    const read = readDocument(await file.text(), SCHEMA_VERSION);",
+    find: "    const read = readDocument(await file.text(), SCHEMA_VERSION, store.columns());",
     replace:
-      "    store.loadTasks([]);\n    const read = readDocument(await file.text(), SCHEMA_VERSION);",
+      "    store.loadTasks([]);\n    const read = readDocument(await file.text(), SCHEMA_VERSION, store.columns());",
     scenario: "A refused file leaves the database as it was",
     live: true,
     browser: true,
@@ -1656,6 +1685,154 @@ const MUTATIONS: Mutation[] = [
     find: "  if (head === NOTE_PLACEHOLDER) {",
     replace: "  if (false) {",
     unitTest: "the placeholder shoot writes is not a first line",
+  },
+
+  // --- `PLAN.md` step 4, the board ------------------------------------------
+  //
+  // Nine entries here and two under "warming a sub-app's files" above make step
+  // 4's eleven. FIVE are @local, for the same reason step 3's nine are: what a
+  // COLUMN is holds in the store and in the document reader, both pure. Six
+  // need a browser - four of them about the panel, and the warming pair. This
+  // comment said "five of the eight … the three that need a browser" until a
+  // cold read on 2026-09-12 counted the array and found 4 and 4 here; a wrong
+  // count beside the array is exactly the failure `PLAN.md` names.
+
+  {
+    // Every column draws every task. The board looks busy and is useless: a
+    // move changes nothing anybody can see, because the card was already in
+    // the column it was moved to.
+    name: "every column draws every task",
+    file: "src/web/apps/board/index.tsx",
+    find: "          const held = tasks.filter((task) => task.column === column.id);",
+    replace: "          const held = tasks;",
+    scenario: "A task moved to another column leaves the one it was in",
+    live: true,
+    browser: true,
+  },
+  {
+    // The button writes the column the card is ALREADY in, so a move moves
+    // nothing. Caught by the `they move` step's own wait for the card in the
+    // target column, which is why the scenario named is one whose FIRST move is
+    // the thing being measured.
+    //
+    // A cold read on 2026-09-12 refuted the comment that stood here. It said
+    // the card would appear in the new column because the panel re-rendered
+    // from a store that changed nothing - which this panel cannot do, because
+    // it holds no state of its own and draws every card off `store.tasks()`.
+    // The entry is kept and re-aimed; the persistence claim it used to be
+    // pointed at now has a mutation of its own, below.
+    name: "a move writes the column the card is already in",
+    file: "src/web/apps/board/index.tsx",
+    find: "                              onClick={() => store.moveTask(task.id, to.id)}",
+    replace: "                              onClick={() => store.moveTask(task.id, column.id)}",
+    scenario: "A task moved to another column leaves the one it was in",
+    live: true,
+    browser: true,
+  },
+  {
+    // Where a task IS never reaches the database. Every scenario that moves a
+    // card and reads the board passes - the store holds the move and the panel
+    // draws it - and the planner comes back from the next visit with every task
+    // in the first column. The one reading that sees it is a reload.
+    //
+    // Aimed at `planner.ts` rather than at the board, because that is where the
+    // claim is: `PLAN.md` step 2 says a sub-app does not know a database exists,
+    // so a column that is not kept is the SHELL failing to keep it.
+    name: "a task's column is not kept",
+    file: "src/web/shell/planner.ts",
+    find: "        for (const task of tasks) store.put(task);",
+    replace: '        for (const task of tasks) store.put({ ...task, column: "todo" });',
+    scenario: "A move is still there after a reload",
+    live: true,
+    browser: true,
+  },
+  {
+    // The board draws three empty columns while the planner is still being
+    // read. A visitor with a full planner is told the board is empty, and then
+    // it fills in - which is `PLAN.md` step 2's requirement, on the panel that
+    // is fetched last. TODO §41 is the class; the `board` half of it is the
+    // reading the warm makes WIDER, because the bundle is already here.
+    name: "the board is drawn before the planner has been read",
+    file: "src/web/apps/board/index.tsx",
+    find: '  if (planner.state === "unread") {',
+    // `&& false` rather than `false`, and §35 is why. Cutting the whole
+    // condition leaves `planner` read by nothing, `noUnusedLocals` fails the
+    // build, and the guard refuses the reading rather than counting it - which
+    // is what happened here on 2026-09-11, and to the tag box at step 1. The
+    // field is still read and the branch is still dead.
+    replace: '  if (planner.state === "unread" && false) {',
+    scenario: "The board says it is reading before the planner has been read",
+    live: true,
+    browser: true,
+  },
+  {
+    // The board draws its three columns and says nothing about a task in none
+    // of them. Every count on the page agrees - they are per-column, not a
+    // total - so the planner holds a task the board does not draw and no
+    // reading anywhere contradicts the page.
+    name: "a task the board cannot draw is not reported",
+    file: "src/web/apps/board/index.tsx",
+    find: "      {unplaced.length > 0 ? (",
+    replace: "      {false ? (",
+    scenario: "A task in a column the board does not draw is reported",
+    live: true,
+    browser: true,
+  },
+  {
+    // A move that rewrites every task. With one task on the board - which is
+    // where four of the five scenarios in the first Rule start - this is
+    // indistinguishable from a move.
+    name: "a move puts every task in the column",
+    file: "src/web/shell/api.ts",
+    find: "      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column } : t));",
+    replace: "      tasks.value = tasks.value.map((t) => ({ ...t, column }));",
+    unitTest: "moving one task leaves every other task where it was",
+  },
+  {
+    // The guard that stops a task reaching a column the board does not draw.
+    // Nothing a visitor can click produces one, so this costs nothing today and
+    // is the second line if a control ever names a column - `PLAN.md` step 7
+    // pulls a planner written by another browser.
+    name: "a task is moved to a column the board does not draw",
+    file: "src/web/shell/api.ts",
+    find: "      if (!isColumn(column)) return;",
+    // `if (false) return;` leaves `isColumn` declared and called by nothing, so
+    // this mutation would NOT survive `tsc` under `noUnusedLocals`. It is a
+    // unit test, and `runUnitTest` runs `bun test` without a build, so it runs
+    // and is caught. Named here because it is one file away from the trap §35
+    // exists for, and a later move of this entry to a scenario would meet it.
+    replace: "      if (false) return;",
+    unitTest: "a column no column names moves nothing",
+  },
+  {
+    // A new task lands in the last column, which is the one that means done.
+    // Every task the planner has ever held arrives finished.
+    name: "a new task starts in the last column",
+    file: "src/web/shell/api.ts",
+    find: "const DEFAULT_COLUMN = COLUMNS[0]!.id;",
+    replace: "const DEFAULT_COLUMN = COLUMNS[COLUMNS.length - 1]!.id;",
+    scenario: "A new task starts in the first column",
+    live: true,
+    browser: true,
+  },
+  {
+    // A document naming a column this shell does not draw is accepted. The
+    // tasks are in the planner and on the list, and on no panel of the board -
+    // and the only way back to them is to export the file again.
+    name: "a document may put a task in a column the board does not draw",
+    file: "src/web/shell/document.ts",
+    find: "  if (!columns.some((c) => c.id === value.column)) {",
+    replace: "  if (false) {",
+    unitTest: "a task in a column this shell does not draw is refused",
+  },
+  {
+    // The refusal stops naming the columns, so a person holding a hand-edited
+    // file is told the value is wrong and not what a right one would be.
+    name: "the refusal does not say which columns the shell draws",
+    file: "src/web/shell/document.ts",
+    find: "      columns.map((c) => JSON.stringify(c.id)).join(\", \")",
+    replace: '      ""',
+    unitTest: "the refusal names the columns this shell draws",
   },
 ];
 

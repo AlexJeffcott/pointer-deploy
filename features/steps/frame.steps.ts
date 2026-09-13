@@ -2,9 +2,10 @@
 // browser is asked to fetch for them.
 //
 // `PLAN.md` step 0 made this claim about all five routes. Step 1 places `list`
-// on `/`, so the subject is the four that still name none - and the claim gains
-// teeth rather than losing them: with a unit in the tree, "nothing is fetched"
-// is a difference between two views rather than a property of an empty build.
+// on `/` and step 4 places `board` on `/board`, so the subject is the THREE that
+// still name none - and the claim gains teeth rather than losing them: with
+// units in the tree, "nothing is fetched" is a difference between two views
+// rather than a property of an empty build.
 //
 // Two halves, and they fail differently. What the served page NAMES is read off
 // the HTML. What a browser FETCHES while walking the sidenav is counted from
@@ -66,6 +67,23 @@ Then("the frame drew each view under its own title", function () {
   );
 });
 
+/**
+ * The count, and what it measures from `PLAN.md` step 4 onwards.
+ *
+ * Zero was a statement about five views that placed one unit between them. Step
+ * 4 puts `board` on `/board`, so the walk now opens a view that DOES place one -
+ * and the count is still zero, because the shell warmed that unit's files with
+ * the page and the import at the navigation read the warm cache. Measured on
+ * 2026-09-11 against the deployed origin: walking every view after the landing
+ * one issued 0 requests, and `board`'s two files carry resource timings taken
+ * at 5 ms, before a link was clicked.
+ *
+ * So this step now carries two claims at once: a link that navigated instead of
+ * routing fetches the frame again, and a unit whose files were not warmed
+ * fetches them here. `warming-a-unit-before-its-view.feature` reads the second
+ * one directly, off the timings, where the mechanism is visible rather than
+ * inferred from a count that happens to be zero.
+ */
 Then("the browser fetched nothing while they walked", function (this: PointerWorld) {
   if (requestsBefore < 0) throw new Error("no walk was taken, so there is nothing to count");
   const since = this.requests.slice(requestsBefore);

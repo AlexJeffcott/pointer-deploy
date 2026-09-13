@@ -40,14 +40,19 @@ Feature: Serving the application shell from the live manifest
 
     The shell owns placement, and a view may place nothing. Such a view is not a
     hole in the page: the frame draws it, and the browser is told to fetch
-    nothing for it. `PLAN.md` step 1 places `list` on `/`, so the subject of
-    this rule is now the four routes that still name no unit - `/board` and
-    `/week`, waiting for a unit at steps 4 and 5, and `/service` and `/backup`,
-    which never get one.
+    nothing for it. `PLAN.md` step 1 places `list` on `/` and step 4 places
+    `board` on `/board`, so the subject of this rule is now the three routes
+    that still name no unit - `/week`, waiting for a unit at step 5, and
+    `/service` and `/backup`, which never get one.
 
     The page is one document for all five routes, so what it may name is exactly
-    the units its views place: `list`, and nothing else. That is the half read
-    off the HTML. The half about a particular view is read in a browser, below.
+    the units its views place: `list` and `board`, and nothing else. That is the
+    half read off the HTML. The half about a particular view is read in a
+    browser, below.
+
+    What the page WARMS is the same list read a second way, and it moved to
+    `warming-a-unit-before-its-view.feature` at step 4 - which is the step that
+    gave warming a subject of its own.
 
     Background:
       Given the qa channel points at build "alpha"
@@ -55,16 +60,22 @@ Feature: Serving the application shell from the live manifest
     @live @local
     Scenario: The page names the units its views place, and no others
       When a visitor loads the qa origin
-      Then the page names "list" for the browser to import, and no other sub-app
-      And the page asks the browser to warm "list", and nothing else
+      Then the page names "list, board" for the browser to import, and no other sub-app
 
   Rule: The frame drawing those views, in a browser
 
-    The four views that name no unit have to cost the browser nothing. A count
-    taken after the landing view has loaded and before one link is clicked is
-    what says so: a link that navigated instead of routing would fetch the frame
+    A view that names no unit has to cost the browser nothing. A count taken
+    after the landing view has loaded and before one link is clicked is what
+    says so: a link that navigated instead of routing would fetch the frame
     again and read as a page that works, and a view that quietly gained a unit
     would fetch a bundle.
+
+    `PLAN.md` step 4 put a unit on `/board`, so the walk now opens a view that
+    DOES name one - and the count is still zero, because the shell warmed that
+    unit's files with the page. Measured on 2026-09-11 against the deployed
+    origin: 0 requests across the walk. So this scenario carries a second claim
+    from step 4 onwards, and `warming-a-unit-before-its-view.feature` is where
+    that one is read off the mechanism rather than off a count.
 
     Background:
       Given the qa channel points at build "tree"

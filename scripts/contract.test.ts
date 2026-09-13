@@ -121,12 +121,13 @@ describe("the direction of a surface change", () => {
   );
 
   // The reading this file exists to make good on: not a generated pair, but the
-  // two surfaces this repository has actually published. `PLAN.md` step 1
-  // minted the second, so the reading has a subject again - TODO §31's fourth
-  // row. It cannot go stale: a published contract's files are hashed by
-  // `verifyRegistry`, so the pair below is the pair that was minted.
+  // surfaces this repository has actually published. Four of them by
+  // 2026-09-12, and the two tests below take the two readings that matter -
+  // one pair that breaks and one that does not. Neither can go stale: a
+  // published contract's files are hashed by `verifyRegistry`, so the pairs are
+  // the pairs that were minted.
   test(
-    "the two contracts this repository has published are a breaking pair",
+    "the first pair this repository published is a breaking pair",
     async () => {
       const registry = await readRegistry();
       const named = (name: string) => {
@@ -144,6 +145,50 @@ describe("the direction of a surface change", () => {
       // something that is no longer there.
       expect(broken(d)).toEqual(["shell"]);
       expect(d.halves.find((h) => h.half === "shell")?.output).toContain("DEFAULT_GREETING");
+    },
+    SLOW,
+  );
+
+  /**
+   * The other direction, on published surfaces, `PLAN.md` step 4.
+   *
+   * The branch that minted `f766e10` claimed it was additive over `1c4a120` and
+   * had only one place to point at: the line `contract:mint` printed once, into
+   * a terminal. A cold read on 2026-09-12 called that a borrowed claim, and it
+   * was right - `contract:matrix` corroborates it by compiling units against
+   * both, which is not the same reading. This is the reading.
+   *
+   * Step 9's whole demonstration is an additive mint, so the direction reading
+   * on a real pair is the check that step rests on.
+   */
+  test(
+    "every pair this repository published after the first is additive",
+    async () => {
+      const registry = await readRegistry();
+      const named = (name: string) => {
+        const record = registry.contracts.find((c) => c.name === name);
+        if (!record) throw new Error(`the registry no longer holds ${name}`);
+        return record;
+      };
+
+      // Every consecutive pair from the planner's first contract onwards. Named
+      // rather than sliced off the registry, so a mint that is NOT additive has
+      // to be added here by hand and argued for rather than joining a loop.
+      const pairs = [
+        ["planner-2026-09", "planner-stored-2026-09"],
+        ["planner-stored-2026-09", "planner-board-2026-09"],
+      ] as const;
+
+      for (const [olderName, newerName] of pairs) {
+        const d = await directionFrom(
+          await readSurface(named(olderName)),
+          await readSurface(named(newerName)),
+        );
+        expect(`${olderName} -> ${newerName} additive: ${d.additive}`).toBe(
+          `${olderName} -> ${newerName} additive: true`,
+        );
+        expect(broken(d)).toEqual([]);
+      }
     },
     SLOW,
   );

@@ -92,7 +92,7 @@ describe("readMembers, against the surface this repository ships", () => {
       // stops `list` compiling. The set is exactly what `PLAN.md`'s contract
       // table gives the unit, which is the point of that table being a
       // constraint rather than a description.
-      expect(APPS).toEqual(["list"]);
+      expect(APPS).toEqual(["list", "board"]);
       expect(Object.keys(reading.uses.list ?? {}).sort()).toEqual([
         "FieldSunset.instead",
         "FieldSunset.sunset",
@@ -108,6 +108,37 @@ describe("readMembers, against the surface this repository ships", () => {
         "Task.title",
       ]);
 
+      // `PLAN.md` step 4's row of the same table. `Task.column` and `Task.due`
+      // were in nobody's set on 2026-09-11 because nothing moved either; the
+      // board moves one, so the reading picks it up without anybody declaring
+      // it, and `due` stays unused until `week` at step 5.
+      expect(Object.keys(reading.uses.board ?? {}).sort()).toEqual([
+        "Column.id",
+        "Column.label",
+        "PlannerReport.state",
+        "ShellStore.columns",
+        "ShellStore.moveTask",
+        "ShellStore.planner",
+        "ShellStore.tasks",
+        "Task.column",
+        "Task.id",
+        "Task.title",
+      ]);
+
+      // The whole of what step 10 demonstrates, measured here before the
+      // promote can refuse on it: each unit holds at least one member the other
+      // does not call, so dropping that member refuses THAT unit and no other.
+      const usedByList = Object.keys(reading.uses.list ?? {});
+      const usedByBoard = Object.keys(reading.uses.board ?? {});
+      for (const member of ["ShellStore.columns", "ShellStore.moveTask"]) {
+        expect(usedByBoard).toContain(member);
+        expect(usedByList).not.toContain(member);
+      }
+      for (const member of ["ShellStore.addTask", "ShellStore.removeTask", "ShellStore.setTags"]) {
+        expect(usedByList).toContain(member);
+        expect(usedByBoard).not.toContain(member);
+      }
+
       // The other half of §9, and the one `promote` refuses on just as hard: a
       // member the shell PROVIDES that no app calls costs that app nothing.
       // `service` and `setService` are the frame's own, so a shell that dropped
@@ -115,6 +146,7 @@ describe("readMembers, against the surface this repository ships", () => {
       for (const member of ["ShellStore.service", "ShellStore.setService"]) {
         expect(Object.keys(reading.provides)).toContain(member);
         expect(Object.keys(reading.uses.list ?? {})).not.toContain(member);
+        expect(Object.keys(reading.uses.board ?? {})).not.toContain(member);
       }
 
       // The exported constant, which no reading saw until 2026-09-11 because a
@@ -133,6 +165,8 @@ describe("readMembers, against the surface this repository ships", () => {
         "ShellStore.setTags",
         "ShellStore.removeTask",
         "ShellStore.goingAway",
+        "ShellStore.columns",
+        "ShellStore.moveTask",
         "ShellStore.service",
         "ShellStore.setService",
         "Task.title",

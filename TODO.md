@@ -11,7 +11,7 @@ Open items and what is done. Read this first after a context clear.
 
 **Cut back on 2026-09-10.** Every closed item's full text — its measurements, its refuted leads and its reasoning — is in git history, and `TODO.md` at `f7d2318` is the last version that carries it. The index at the bottom keeps every `§N` resolvable, because 119 references to those numbers live in `scripts/`, `src/`, `api/`, `README.md` and `PLAN.md`.
 
-**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`; step 1 added `list` on 2026-09-11 and step 2 put the planner in IndexedDB the same day, so **two** units remain: the shell draws five views, `/` places `list`, and the tasks are in a database the shell owns. A unit name in the index below is a name that was true at the time.
+**The slate was cleared on 2026-09-10.** Two units remained and the object store was rewritten from one build. `PLAN.md` step 0 then removed `hello`; step 1 added `list` on 2026-09-11, step 2 put the planner in IndexedDB the same day, and step 4 added `board` on 2026-09-12, so **three** units remain: the shell draws five views, `/` places `list`, `/board` places `board`, and the tasks are in a database the shell owns. A unit name in the index below is a name that was true at the time.
 
 ## Where things are
 
@@ -21,9 +21,9 @@ Open items and what is done. Read this first after a context clear.
 | Fly app | `pointer-deploy`, two machines since §3: `ams` started, `iad` stopped under `auto_stop_machines`. `min_machines_running = 1` holds `ams` up, and the stopped machine's check reads `the machine hasn't started`, which is that and not a fault |
 | Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite. `prod` is still on step 0's composition and is refused every promote of this surface until `hello` is dropped — §39, and the runbook is in `PLAN.md` |
-| Units | two: `shell` and `list`, the second placed on `/` at `PLAN.md` step 1. `hello` is gone; its published units are still in the store and still promotable |
+| Units | three: `shell`, `list` on `/` at `PLAN.md` step 1, and `board` on `/board` at step 4. `board` is the first unit placed off the landing route, which is what gives the shell's preload tags a subject. `hello` is gone; its published units are still in the store and still promotable |
 | Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
-| Contract | `1c4a120` (`planner-stored-2026-09`), minted at step 2 and **additive** over `15ed669` (`planner-2026-09`), so nothing published against step 1's surface breaks and no channel is stranded by it. `9d1b0a3` (`hello-2026-09`) is retained beside both and no unit this tree builds compiles against it. **Step 3 minted nothing**: `/backup` is the frame's, and the frame writes through `loadTasks` |
+| Contract | `f766e10` (`planner-board-2026-09`), minted at step 4 and **additive** over `1c4a120` (`planner-stored-2026-09`), which is additive over `15ed669` (`planner-2026-09`) - so nothing published against any of them breaks and no channel is stranded. It adds `Column`, `ShellStore.columns` and `ShellStore.moveTask`, and `list`'s id came out of the build unchanged. `9d1b0a3` (`hello-2026-09`) is retained beside the three and no unit this tree builds compiles against it. **Step 3 minted nothing**: `/backup` is the frame's, and the frame writes through `loadTasks` |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Planner | IndexedDB `pointer-planner`, version 1, owned by the shell: `tasks` keyed on `id`, `meta` keyed on `key`. Opened at a fixed version until `PLAN.md` step 16 - which is what gives step 15 a `VersionError` to show. §40 is the write window a reload can beat |
 | Document | `{ format: "pointer-planner", schemaVersion, exportedAt, tasks }`, `src/web/shell/document.ts`. Two of its four doors are built: `/backup` exports a file and imports one. Push and pull are `PLAN.md` steps 6 and 7. An import is a total overwrite in one transaction, and a file that fails `format`, `schemaVersion` or any task is refused by name |
@@ -53,6 +53,12 @@ bun run pr                               # the review URLs and both sets of shot
 ## Open
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
+
+**`PLAN.md` step 4 landed on 2026-09-12.** `board` is the third unit and the first placed off the landing route, so the warm the shell has emitted since §17 finally has something to buy: measured with a control, the view opens in **52 ms** warm and **832 ms** without the tags, median of 9, and the same 780 ms after a ten-second pause. Twelve mutations were added with it, four `@local` and eight `@browser`, and all twelve are caught. It closed §31 row 2 and closed half of row 3.
+
+**The corrected `board` was promoted alone, and that is step 11's claim arriving early.** `deploys/2026-09-12T14-55-30Z-qa`: `board de7a91d7 <- 5900f86c`, `shell` and `list` unchanged, two files warmed. Nobody arranged it - the cold read's fixes touched one bundle, so one bundle moved. Step 11 still has its own subject, which is a `board` built and deployed on a different DAY from the shell rather than minutes later.
+
+**A cold read by `devils-advocate-agent` on 2026-09-12 found nine defects and six wrong sentences, all fixed on the branch.** Two are items of their own: §46, IndexedDB is a third door on the column value and nothing guards it, and §47, 530 ms of the warm's baseline is unaccounted for. The rest were fixed in place - nothing asserted the additive direction on the published pair, a mutation was caught for a reason its comment got wrong and the persistence claim had no mutation at all, the measurement was three runs at the hottest cache moment, `README.md` said in four places that `/board` places no unit, and a `.feature` file and `falsify.ts` disagreed about which way §41's margin moves. `PLAN.md` step 4's section carries the whole reading. §43, §44 and §45 are still step 3's.
 
 **`PLAN.md` step 3 landed on 2026-09-11.** `qa` serves `list=2adce208 shell=6464877b` at contract `1c4a120`, record `deploys/2026-09-11T16-50-15Z-qa`. `list`'s id is the one step 2 promoted: a whole view arrived and no sub-app was rebuilt. It opened three items: §43, one `unstored` state for three different facts; §44, a cold-state step `PLAN.md` specified and nothing built; §45, document fields nothing reads. Sixteen mutations were added with it and **nine of them are `@local`**, so `bun run falsify` runs nine of the sixteen rather than reporting all sixteen as skipped.
 
@@ -85,6 +91,34 @@ Numbers are stable identifiers, so a gap means the item is in the index below an
 
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
+
+### 47. 530 ms of the warm's baseline is unaccounted for, and the loader fetches in series
+
+**Measured on 2026-09-12 by `scripts/measure-preload.ts`, after `devils-advocate-agent` asked what the 780 ms is attributable to.** The control arm - the same page with the warm tags cut out of the HTML - takes 821 to 837 ms from the click to the panel being on screen. The two fetches it makes are 143-167 ms for the stylesheet and 139-192 ms for the module, adding up to 284-354 ms.
+
+So roughly 530 ms of the 832 is neither fetch. It is not module evaluation or rendering: those happen in both arms, and the warm arm's whole reading is 41 to 68 ms.
+
+| | |
+| --- | --- |
+| What is known | The two fetch durations, per run, off `PerformanceResourceTiming`. `startTime` shows them tight in series - the module starts within 1 ms of the stylesheet finishing - so the gap is not between them |
+| What is not known | Where the other 530 ms goes. Candidates nothing has measured: the delay between a stylesheet's resource timing ending and its `onload` firing, which is what `addStylesheet` awaits; SRI verification on a cross-origin file; the route change and the effect that starts the load |
+| Why it matters to the design | `loader.ts:44-45` awaits the stylesheet and THEN imports the module. A `Promise.all` there would cut the control arm towards the LONGER of the two rather than their sum - about 150 ms of 832, not half of it - and it needs no warm tag anywhere. The 780 ms is not at risk from it; what is at risk is the sentence that says a serial loader is why the baseline is what it is |
+| The next reading | Time `addStylesheet`'s promise and the `import()` separately in the page, in both arms. That is the measurement that says whether the 530 ms is the loader's or the browser's |
+| Not a fix | Making `loader.ts` parallel because it is probably faster. The stylesheet is awaited BEFORE the module on purpose: a panel that mounts before its styles arrive draws unstyled and then reflows. That is a trade nobody has measured either |
+
+### 46. IndexedDB is a door on the column value and nothing guards it
+
+**Found by `devils-advocate-agent` on 2026-09-12, on the step 4 branch.** Two doors that write a task's column are guarded: `moveTask` refuses a column no `columns()` entry names, and `readDocument` refuses a document carrying one and names the columns this shell draws. `src/web/shell/planner.ts` contains no occurrence of `column` at all, so the read path takes whatever is in the database.
+
+`PLAN.md`'s "One document, four doors" table lists opening IndexedDB as a door, and the reason given for guarding the other two is exactly the state this one produces: a task in the planner, drawn by `list`, on no panel of the board. The board draws per-column counts rather than a total, so every number on the page agreed and nothing said the task was missing.
+
+| | |
+| --- | --- |
+| What is reachable today | Nothing. `COLUMNS` has not changed and no shell has ever written a different value |
+| What reaches it | A later shell that changes the columns, and steps 15 and 16 - this shell meeting data a newer one wrote. That is the same asymmetry those steps exist for, on a field rather than on a schema version |
+| What stands in front of it now | The board REPORTS it. `unplaced` names the task and its column, one `@browser` scenario arranges it by writing straight into the database, and one mutation removes the report |
+| Why not a refusal | A shell that deleted or rewrote a task it did not understand would be destroying data it is not entitled to, which is the rule `PLAN.md` states for the whole planner. Reporting is what a shell in that position may do |
+| What is open | Whether the SHELL should carry the reading rather than the board. `board` is a separately published unit, so a planner full of unplaceable tasks says nothing at all on `/`, `/week` or `/backup`. That is §43's shape again: the panel is where a person is standing, and it is not the only place |
 
 ### 45. The document declares two fields nothing reads
 
@@ -152,7 +186,7 @@ The scenario now arranges it: `the planner is slow to open` delays the first `in
 
 | | |
 | --- | --- |
-| The guard is not dead code | `PLAN.md` step 4 preloads a unit off the landing route, so a panel will mount sooner. Step 6 pulls a snapshot, which is a slower read than a local open. The margin closes on its own |
+| The guard is not dead code | Step 4 built `board` and warmed it, so that panel mounts SOONER - which makes the requirement MORE reachable, not less: a panel that renders earlier is more likely to render while the planner is unread. That is still not enough to reach it, so `The board says it is reading before the planner has been read` uses the same arranged slow open, and its mutation is caught. The `board` scenario lands directly on `/board`, where the warm and the import happen in one load, so the warm is not the variable in it either way. Step 6 pulls a snapshot, which is a slower read than a local open, and is the first thing that reaches the state without an arrangement |
 | The arrangement is a harness fact, not a visitor's | 1500 ms is chosen to be longer than a bundle fetch, not measured from anything. A visitor on a slow disk or a cold profile is the real case and nothing here measures how often it happens |
 | The class is wider than the planner | Any "before X lands" requirement in this shell has the same shape: the panel that would show it is fetched after the shell paints. `data-api` has the same margin and no scenario about its first paint at all |
 
@@ -177,6 +211,7 @@ Not decided. The first row is cheap and is probably right; the second is the onl
 | Missing | What it costs |
 | --- | --- |
 | `scripts/record.ts` scores 81.12% under mutation | **Measured 2026-09-10, and this is the row that was avoiding the number.** Widening the scope is two lines, not the difficulty this row used to claim: `commandRunner.command` becomes `bun test src/server api scripts/record.test.ts` and `scripts/record.ts` joins `mutate`. Run that way, `record.ts` kills 850 and 198 survive - 103 `StringLiteral`, 54 `ConditionalExpression`, 15 `MethodExpression`, 14 `EqualityOperator`, 11 `Regex` and 10 `LogicalOperator` - and the whole tree falls from 96.51% to 89.35%, under `thresholds.break: 96`. So the scope is unchanged and the reason is now a number rather than a claim about difficulty. The 54 conditionals are worth reading first: that is where the real gaps were in `composition.ts`. Note the runner cannot be `bun test scripts`, because two tests in `changelog.test.ts` read the real archive and the mutation sandbox has no `deploys/` |
+| A branch that ADDS a unit cannot be previewed | **Met on 2026-09-12 at `PLAN.md` step 4, the first branch to add one since the previews were built.** The origin composes from the pointer and replaces only a unit the pointer NAMES - `src/server/index.ts:157` loops `Object.keys(ids)` - so `--override board=<id>` against a `qa` serving `shell, list` is ignored and the page is the channel's own. `overrideRefusal` catches it rather than filing a shot of `qa` as a preview, so nothing is wrong; what is missing is a preview path for a new unit. The order inverted for step 4: promote, shoot the record, and the pull request carries the record's pictures and a sentence. The fix is an override that may ADD a unit the pointer does not name, and `refuseComposition` already runs on whatever the query string composes, so it is not a safety question - it is a change to what an override IS, and it wants a step of its own |
 | `bun run pr` cannot be run twice | It replaces the `<!--REVIEW` marker with the table it generates, so a second run finds no marker and refuses by name: "no way to know where a previous run's section ended". Every promote made after the first run - which is the normal order, because a promote is what fills the production column - needs the template pasted back by hand first. Met twice on 2026-09-11. The fix is to leave a machine-readable end marker after the generated block, which is what the refusal says is missing |
 | A promote nobody commits is a record nobody has | The directory is written into the working tree and left there. `bun run pr` refuses a production column that git does not hold at the commit it links, so the failure is caught - one pull request late |
 | A publish from `pr` uses the asset bucket's key | §4 refuses CI that key because it is a production-origin execution key, and `bun run pr` now uses it on a laptop on every pull request. The second Tigris key §4 wants closes both |
@@ -301,15 +336,15 @@ Clearing the slate to one sub-app took the subject away from four readings, and 
 | A sub-app whose script or stylesheet does not match its digest does not run | The `@browser` Scenario Outline in `checking-what-the-page-loads.feature`, and the `a sub-app's stylesheet digest never reaches the loader` mutation. The import-map half stays aimed at a `@local` scenario, so `bun run falsify` runs it on every run |
 | Each sub-app is fetched from its own unit's directory | `Each unit's files are served from that unit's own directory`, plus `html.test.ts`'s `loads each sub-app from its own unit's base` |
 | A published pair reads as not additive | `scripts/contract.test.ts`: `9d1b0a3` against `15ed669` is not additive on the shell half, and the output names `DEFAULT_GREETING`. The registry holds two contracts now |
-| A separately deployed panel and the frame share one store | `keeping-a-list-of-tasks.feature`, nine `@browser @test-channel` scenarios, and the `task accessor reads the store without subscribing` mutation. One bundle short of the row below. Only `bun run verify:browser` runs any of them, which is why that command is in `CLAUDE.md`'s table from 2026-09-11 and was not before |
+| A separately deployed panel and the frame share one store | `keeping-a-list-of-tasks.feature`, nine `@browser @test-channel` scenarios, and the `task accessor reads the store without subscribing` mutation. Only `bun run verify:browser` runs any of them, which is why that command is in `CLAUDE.md`'s table from 2026-09-11 and was not before |
+| Warming an off-screen unit's files buys something | **Closed at step 4**, and the number is 780 ms. `scripts/measure-preload.ts` takes every reading twice, once from the page as served and once with the warm tags cut out of the HTML on the way to the browser, so nothing but the tags differs: the view opens in 52 ms warm and 832 ms without, median of 9 on 2026-09-12, and 56 against 836 when the click is taken ten seconds after the landing view settles. Two `@browser` scenarios in `warming-a-unit-before-its-view.feature` read the mechanism off the browser's resource timings, and two mutations strip the tags - one aimed there, one at `Moving between views draws each one and fetches nothing`, which measured nothing about the warm until a unit sat off the landing route. §47 is what the baseline is made of, and it does not move the number |
 
 **Still without a subject**, and what each needs:
 
 | Claim | Where it was | Comes back |
 | --- | --- | --- |
 | A dropped member refuses the app that used it **and nothing else** | `scripts/e2e-member-gate.ts` | Step 10. It needs two sub-apps and a member only one of them calls. `members.test.ts` holds the nearest reading available: the set `list` uses, and that `service`/`setService` are not in it |
-| Warming an off-screen unit's files buys something | two `@browser` scenarios, one `falsify` mutation, `scripts/measure-preload.ts` | Step 4. `list` is on the route a visitor lands on, so the warm costs nothing and buys nothing measurable. What IS measured is the page warming exactly the units its views place, with `falsify` warming a file no view placed to prove the check has teeth |
-| **Two** independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | Step 4. The frame-and-one-panel half is back, in `keeping-a-list-of-tasks.feature`; a second SUB-APP is what `shared-state.feature` had that this does not |
+| **Two** independently deployed sub-apps share one signals runtime | `shared-state.feature`, five panels | **Half of it came back at step 4**, and the other half cannot come back on this slate. `list` and `board` are two separately published bundles over one store, and `moving-a-task-between-columns.feature`'s second Rule reads a task added through one and drawn by the other. What is NOT here is a panel redrawing because ANOTHER panel wrote: the two units are on different routes and never share a view, so no scenario can arrange it. `shared-state.feature` had five panels on one page. Nothing on this slate will - `week` at step 5 is a third route, not a third panel - so this row closes only if a view ever places two units |
 | A page draws a field the service holds, and a write to the service changes it | `shared-state.feature`, and `bun run e2e:schema`'s panel readings | Step 6. No unit draws a field of the service: `list` draws the planner's tasks, which live in the browser. `e2e:schema` skips those readings and says so per reading rather than dropping them |
 
 **One record this could not keep.** The promote that removed `hello` reads its `before` through `idsInPointer` now, but that fix came after the pointer had moved, so `deploys/2026-09-10T21-07-27Z-qa` does not name `hello` as dropped.

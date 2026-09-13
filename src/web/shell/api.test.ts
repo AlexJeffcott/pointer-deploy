@@ -44,7 +44,10 @@ describe("the task store", () => {
   test("a task is added where nothing has moved it yet, and with no date", () => {
     const store = createStore();
     store.addTask("Book the ferry");
-    expect(store.tasks()[0]!.column).toBe("todo");
+    // The FIRST column, read off `columns()` rather than written down: a slate
+    // that reorders them moves this with it, and a new task can never land in a
+    // column the board does not draw first.
+    expect(store.tasks()[0]!.column).toBe(store.columns()[0]!.id);
     expect(store.tasks()[0]!.due).toBeNull();
     expect(store.tasks()[0]!.tags).toEqual([]);
   });
@@ -136,6 +139,90 @@ describe("the task store", () => {
 // `keeping-the-planner-in-the-browser.feature`; these are the store's half of
 // it, which is what the shell writes into after the read and what `list` reads
 // to decide which sentence to put on the page.
+// `PLAN.md` step 4. `board`'s two members, and the reading a browser scenario
+// cannot take cheaply: what a move does to the OTHER tasks, and what the store
+// does with a column no column names.
+describe("the board's columns", () => {
+  test("every column carries an id and a label a person reads", () => {
+    const columns = createStore().columns();
+    expect(columns.length).toBeGreaterThan(1);
+    for (const column of columns) {
+      expect(column.id).not.toBe("");
+      expect(column.label).not.toBe("");
+    }
+  });
+
+  test("no two columns carry one id", () => {
+    const ids = createStore().columns().map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // A board with one column has nowhere to move a task to, and a done column is
+  // what "done" means on this slate - there is no flag on a task for it.
+  test("the columns end in the one that means done", () => {
+    const columns = createStore().columns();
+    expect(columns[columns.length - 1]!.id).toBe("done");
+  });
+
+  test("two stores report the same columns", () => {
+    expect(createStore().columns()).toEqual(createStore().columns());
+  });
+});
+
+describe("moving a task between columns", () => {
+  const moved = (to: string): ReturnType<typeof createStore> => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.moveTask(store.tasks()[0]!.id, to);
+    return store;
+  };
+
+  test("a task moved to a column is in it", () => {
+    expect(moved("done").tasks()[0]!.column).toBe("done");
+  });
+
+  // The one `falsify` aims at. A move that rewrote every task looks correct
+  // with one task on the board, which is every scenario's first step.
+  test("moving one task leaves every other task where it was", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.addTask("Renew the passport");
+    const [first] = store.tasks();
+    store.moveTask(first!.id, "doing");
+    expect(store.tasks().map((t) => `${t.title} ${t.column}`)).toEqual([
+      "Book the ferry doing",
+      "Renew the passport todo",
+    ]);
+  });
+
+  test("a move keeps the task's place in the planner, its title and its tags", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.addTask("Renew the passport");
+    const [, second] = store.tasks();
+    store.setTags(second!.id, ["travel"]);
+    store.moveTask(second!.id, "done");
+    expect(titles(store.tasks())).toEqual(["Book the ferry", "Renew the passport"]);
+    expect(store.tasks()[1]!.tags).toEqual(["travel"]);
+  });
+
+  // Silently, the way a blank title is refused. No control on the board can
+  // produce one - the buttons are drawn from `columns()` - so a sentence here
+  // would be a sentence nothing reaches; what a write WOULD produce is a task
+  // in the planner, on the list, and on no panel of the board.
+  test("a column no column names moves nothing", () => {
+    expect(moved("someday").tasks()[0]!.column).toBe("todo");
+  });
+
+  test("a task id nothing holds moves nothing", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.moveTask("no-such-task", "done");
+    expect(store.tasks()[0]!.column).toBe("todo");
+    expect(store.tasks().length).toBe(1);
+  });
+});
+
 describe("the planner the store reports", () => {
   test("a fresh store has not read a planner", () => {
     expect(createStore().planner()).toEqual(NO_PLANNER);
