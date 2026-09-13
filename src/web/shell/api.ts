@@ -1,4 +1,27 @@
 import { signal } from "@preact/signals";
+// No `.ts` extension, unlike every other import in this tree, and the rule is
+// VALUE against TYPE rather than the extension by itself. `emitSurface` sets
+// `allowImportingTsExtensions: false` against a root `tsconfig.json` that sets
+// it true. Measured on 2026-09-13, in an isolated program with that setting:
+//
+//   import { v } from "./b.ts"        value    error TS5097
+//   import type { T } from "./b.ts"   type     no error, and the extension is
+//                                              emitted into the .d.ts
+//
+// So this line needs the extension gone and `document.ts:1` does not, which is
+// why the emit passes now that this import pulls `document.ts` into the emit
+// program for the first time. The earlier version of this comment said the
+// extension alone was the rule, which a cold read on 2026-09-13 asked about.
+//
+// Nothing of `document.ts` reaches the surface: this is a value read inside a
+// function body, and a `.d.ts` carries declarations. That is checked on the
+// output as well - `document` appears nowhere in the emitted surface - and the
+// two checks are different things, so both are worth having.
+//
+// The rule is written there because that is the module holding every other
+// field-shaped refusal a task has. One rule, two callers - `setDue` below and
+// `readTask` - because a second copy is a second reading that can disagree.
+import { isDueDate } from "./document";
 
 /**
  * One task in the planner.
@@ -17,7 +40,13 @@ export type Task = {
   title: string;
   /** A column id. */
   column: string;
-  /** YYYY-MM-DD, or null when the task has no date. */
+  /**
+   * YYYY-MM-DD, or null when the task has no date.
+   *
+   * `week` at `PLAN.md` step 5 is what reads it, through `setDue`. Two doors
+   * write one: `setDue` refuses anything else silently, and `readDocument`
+   * refuses it by name. IndexedDB is a third and guards nothing - TODO §46.
+   */
   due: string | null;
   tags: readonly string[];
   createdAt: string;
@@ -153,6 +182,24 @@ export type ShellStore = {
    * board - which is a task a visitor can only reach by exporting the file.
    */
   moveTask(id: string, column: string): void;
+  /**
+   * Puts one task on a date, or takes it off one, `PLAN.md` step 5.
+   *
+   * `week` alone calls this, the way `board` alone calls `moveTask`: a unit
+   * holding no member of its own leaves the member gate with nothing to refuse
+   * for it, which is the design constraint `PLAN.md`'s contract table states.
+   *
+   * `null` is a value and not a missing argument. A task that had a date and
+   * no longer has one is how it leaves the week, and there is no separate
+   * member for clearing it.
+   *
+   * A string that is not `YYYY-MM-DD`, or names a day that does not exist, is
+   * refused - because a task carrying one is in the planner, drawn by `list`,
+   * and on no day of the week. Silently, because this surface has no way to
+   * report anything: see the implementation for what that does and does not
+   * rest on.
+   */
+  setDue(id: string, due: string | null): void;
   /** Replaces the tags on one task. The rest keep theirs. */
   setTags(id: string, tags: readonly string[]): void;
   removeTask(id: string): void;
@@ -263,12 +310,39 @@ export function createStore(initial: readonly Task[] = []): ShellStore {
     },
     columns: () => COLUMNS,
     moveTask: (id, column) => {
-      // Refused silently, the way a blank title is. There is no visitor input
-      // that produces one - `board` draws its buttons from `columns()` - so a
-      // sentence here would be a sentence nothing can reach, and writing the
-      // column anyway would take the task off every panel of the board.
+      // Refused silently, the way a blank title is: this surface returns
+      // nothing and has no member for reporting a refusal, so the choice is to
+      // write the value or not. Writing it would take the task off every panel
+      // of the board.
+      //
+      // A comment here used to give the reason as `board` drawing its buttons
+      // from `columns()`, so that no visitor input could produce one. A cold
+      // read on 2026-09-13 refused that for `setDue` below and it is the same
+      // argument: `board` is a separately published bundle this shell is
+      // composed with rather than built beside.
       if (!isColumn(column)) return;
       tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column } : t));
+    },
+    setDue: (id, due) => {
+      // Refused silently, and the reason is what this store can DO about it
+      // rather than what a panel happens to draw. `ShellStore` has no channel
+      // to a person: it returns nothing, and a sub-app that wanted to report a
+      // refusal would need a member for it. So the choice is to write the
+      // value or not, and not writing it is the one that keeps the task on a
+      // day of the week rather than on none.
+      //
+      // What is NOT the reason, and stood here until a cold read on
+      // 2026-09-13: that no control on the page can produce another value.
+      // `week` is a separately published bundle and this shell is composed
+      // with one it was not built beside - steps 10 to 12 are that claim - so
+      // a sentence here about which options a panel offers is a sentence about
+      // a file `api.ts` cannot see. It was also false of the panel in the
+      // tree, which offered the task's own out-of-week date as an option.
+      //
+      // `null` passes, and is the only value here that is not a date: it is
+      // how a task leaves the week.
+      if (due !== null && !isDueDate(due)) return;
+      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, due } : t));
     },
     setTags: (id, tags) => {
       tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, tags: [...tags] } : t));

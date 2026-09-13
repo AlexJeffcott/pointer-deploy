@@ -234,6 +234,33 @@ describe("the tasks", () => {
     expect(held(asFile([task({ due: "2026-09-20" })]))[0]!.due).toBe("2026-09-20");
   });
 
+  // `PLAN.md` step 5, and the door on `due` that a person can actually reach.
+  // Until the week existed `due` was a string nothing read and any value was as
+  // good as another; now one panel per day draws the tasks due on it, so a task
+  // carrying "yesterday" is in the planner, on the list, and on no day of the
+  // week. `setDue` is the other door and refuses silently, because the control
+  // on the page is a list of dates; this one is a hand-edited file and names
+  // the field and the shape.
+  test.each(["yesterday", "", "2026-9-20", "20-09-2026", "2026-02-30", "2026-13-01"])(
+    "a task whose due date reads %p is refused",
+    (bad) => {
+      const problem = refusal(asFile([task({ due: bad })]));
+      expect(problem).toContain("tasks[0].due");
+      expect(problem).toContain("YYYY-MM-DD");
+    },
+  );
+
+  test.each(["2026-09-20", "2024-02-29", "2026-01-01", "2026-12-31"])(
+    "a task whose due date reads %p is accepted",
+    (good) => {
+      expect(held(asFile([task({ due: good })]))[0]!.due).toBe(good);
+    },
+  );
+
+  test("a task with no due date at all is accepted", () => {
+    expect(held(asFile([task({ due: null })]))[0]!.due).toBeNull();
+  });
+
   test("a task whose tags are not a list is refused", () => {
     expect(refusal(asFile([{ ...task(), tags: "travel" }]))).toContain("tasks[0].tags");
   });

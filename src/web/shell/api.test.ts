@@ -223,6 +223,102 @@ describe("moving a task between columns", () => {
   });
 });
 
+// `PLAN.md` step 5. `week`'s one member, and the reading a browser scenario
+// cannot take cheaply: which values a date may be, and what a write does to
+// the other tasks. The seven days themselves are the UNIT's, computed from the
+// clock, so nothing here knows what a week is.
+describe("putting a task on a date", () => {
+  const dated = (due: string | null): ReturnType<typeof createStore> => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.setDue(store.tasks()[0]!.id, due);
+    return store;
+  };
+
+  test("a new task starts with no date", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    expect(store.tasks()[0]!.due).toBeNull();
+  });
+
+  test("a task put on a date carries it", () => {
+    expect(dated("2026-09-14").tasks()[0]!.due).toBe("2026-09-14");
+  });
+
+  // `null` is a value here and not a missing argument: it is how a task leaves
+  // the week, and there is no second member for clearing a date.
+  test("a date can be taken off again", () => {
+    const store = dated("2026-09-14");
+    store.setDue(store.tasks()[0]!.id, null);
+    expect(store.tasks()[0]!.due).toBeNull();
+  });
+
+  // The one `falsify` aims at. A write that dated every task looks correct with
+  // one task on the page, which is every scenario's first step.
+  test("dating one task leaves every other task where it was", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.addTask("Renew the passport");
+    const [first] = store.tasks();
+    store.setDue(first!.id, "2026-09-14");
+    expect(store.tasks().map((t) => `${t.title} ${t.due}`)).toEqual([
+      "Book the ferry 2026-09-14",
+      "Renew the passport null",
+    ]);
+  });
+
+  test("a date keeps the task's place in the planner, its column and its tags", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.addTask("Renew the passport");
+    const [, second] = store.tasks();
+    store.setTags(second!.id, ["travel"]);
+    store.moveTask(second!.id, "doing");
+    store.setDue(second!.id, "2026-09-16");
+    expect(titles(store.tasks())).toEqual(["Book the ferry", "Renew the passport"]);
+    expect(store.tasks()[1]!.tags).toEqual(["travel"]);
+    expect(store.tasks()[1]!.column).toBe("doing");
+  });
+
+  // Silently, the way a column no column names is: this surface returns nothing
+  // and has no member for reporting a refusal. The write would take the task
+  // off every day of the week while leaving it in the planner and on the list,
+  // so not writing is the outcome that keeps the page and the planner saying
+  // one thing.
+  //
+  // `2026-02-30` is the one that matters: it matches the pattern and is not a
+  // date, so a rule that stopped at the pattern would let it through.
+  test.each(["yesterday", "", "2026-9-14", "14-09-2026", "2026-02-30", "2026-13-01", "2026-09-31"])(
+    "%p is not a date, and puts the task on none",
+    (bad) => {
+      expect(dated(bad).tasks()[0]!.due).toBeNull();
+    },
+  );
+
+  test.each(["2026-09-14", "2024-02-29", "2026-12-31", "2026-01-01"])(
+    "%p is a date, and the task carries it",
+    (good) => {
+      expect(dated(good).tasks()[0]!.due).toBe(good);
+    },
+  );
+
+  // A refused date leaves the date the task already had, rather than clearing
+  // it: the write does not happen at all.
+  test("a refused date leaves the one the task already carried", () => {
+    const store = dated("2026-09-14");
+    store.setDue(store.tasks()[0]!.id, "someday");
+    expect(store.tasks()[0]!.due).toBe("2026-09-14");
+  });
+
+  test("a task id nothing holds dates nothing", () => {
+    const store = createStore();
+    store.addTask("Book the ferry");
+    store.setDue("no-such-task", "2026-09-14");
+    expect(store.tasks()[0]!.due).toBeNull();
+    expect(store.tasks().length).toBe(1);
+  });
+});
+
 describe("the planner the store reports", () => {
   test("a fresh store has not read a planner", () => {
     expect(createStore().planner()).toEqual(NO_PLANNER);

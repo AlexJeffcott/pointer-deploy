@@ -4,10 +4,15 @@
 //   bun run scripts/measure-preload.ts --runs 5
 //
 // `PLAN.md` step 4 put `board` on `/board`, which is the first unit this
-// repository has placed on a route a visitor does not land on. That is what
-// this script needs: warming a file the landing page is about to import anyway
-// buys nothing, and nothing is what every reading said while `list` was the
-// only unit.
+// repository placed on a route a visitor does not land on. That is what this
+// script needs: warming a file the landing page is about to import anyway buys
+// nothing, and nothing is what every reading said while `list` was the only
+// unit.
+//
+// Step 5 put `week` on `/week`, so there are two of those now and `--unit`
+// says which one to measure. The route is read out of `views.ts` rather than
+// written here, so a unit that moved route is a refusal rather than a reading
+// taken against the wrong page.
 //
 // THE CONTROL IS THE POINT. A scenario was written for this on the previous
 // slate, measured, and deleted: "opening a view costs no further request for
@@ -27,12 +32,49 @@
 // the build this ran.
 
 import { chromium, type Browser, type Page, type Route } from "playwright-core";
-import { APPS, UNITS, type Unit } from "./contract.ts";
+import { APPS, UNITS, type App, type Unit } from "./contract.ts";
+import { DEFAULT_ROUTE, VIEWS } from "../src/web/shell/views.ts";
 
 const CHANNEL = "test-qa";
-/** The unit the landing route does not place. The whole subject. */
-const OFF_SCREEN = "board";
-const VIEW = "/board";
+
+/**
+ * The unit the landing route does not place. The whole subject.
+ *
+ * Named by `--unit`, and `board` when nobody names one - the unit every reading
+ * in `README.md` and `PLAN.md` step 4 was taken against, so the default keeps
+ * those comparable.
+ */
+const unitFlag = process.argv.indexOf("--unit");
+const OFF_SCREEN = (unitFlag === -1 ? "board" : (process.argv[unitFlag + 1] ?? "")) as App;
+if (!(APPS as string[]).includes(OFF_SCREEN)) {
+  console.error(
+    `--unit needs one of ${APPS.join(", ")}, and was given ${JSON.stringify(OFF_SCREEN)}.`,
+  );
+  process.exit(1);
+}
+
+/**
+ * The route that places it, out of `views.ts`.
+ *
+ * Two refusals rather than a literal. A unit placed on no view at all cannot be
+ * opened, and a unit on the LANDING route is warmed by a page that is about to
+ * import it anyway - which is the reading that measures nothing, and the reason
+ * this script did not exist before `PLAN.md` step 4.
+ */
+const placedOn = Object.entries(VIEWS).filter(([, view]) => view.apps.includes(OFF_SCREEN));
+if (placedOn.length !== 1) {
+  console.error(`${OFF_SCREEN} is placed on ${placedOn.length} views, and one was expected.`);
+  process.exit(1);
+}
+const VIEW = placedOn[0]![0];
+if (VIEW === DEFAULT_ROUTE) {
+  console.error(
+    `${OFF_SCREEN} is on ${DEFAULT_ROUTE}, which is the route a visitor lands on. ` +
+      `Warming a file that page is about to import buys nothing, and the reading would say so ` +
+      `for a reason that is not about the warm.`,
+  );
+  process.exit(1);
+}
 /**
  * How many times each arm is taken. Odd, so the median is a reading that was
  * actually taken rather than the mean of two that were not.

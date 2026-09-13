@@ -23,12 +23,19 @@
       "hash": "f766e10",
       "firstSeenCommit": "5d47e5b6b8e7f42d26cdd70bf61868589c083607",
       "firstSeenAt": "2026-09-11T17:08:41.230Z"
+    },
+    {
+      "name": "planner-week-2026-09",
+      "hash": "9e59f0c",
+      "firstSeenCommit": "3c4b15a0231dc2cf83e6dec202a30da9d80e05cf",
+      "firstSeenAt": "2026-09-13T03:17:02.064Z"
     }
   ],
   "retained": [
     "9d1b0a3",
     "15ed669",
     "1c4a120",
-    "f766e10"
+    "f766e10",
+    "9e59f0c"
   ]
 }

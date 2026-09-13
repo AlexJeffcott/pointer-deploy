@@ -12,15 +12,19 @@ export type View = {
  * frame draws it, nothing is fetched for it, and it is how a page exists
  * before a unit has been built for it.
  *
- * `PLAN.md` step 1 places the first one and step 4 the second. `/` names `list`
- * and `/board` names `board`; `/week` is still waiting, for `week` at step 5;
- * `/service` and `/backup` never get one, because the frame draws them from
- * their own state. `placementProblems` below refuses the two ways placement and
- * the build can disagree.
+ * `PLAN.md` step 1 places the first, step 4 the second and step 5 the third,
+ * which is all of them. `/` names `list`, `/board` names `board` and `/week`
+ * names `week`; `/service` and `/backup` never get one, because the frame
+ * draws them from their own state, and the claim that a view naming no unit is
+ * legitimate keeps its subject. `placementProblems` below refuses the two ways
+ * placement and the build can disagree.
  *
- * `board` is the first unit placed OFF the landing route, which is what gives
- * the shell's preload tags a subject: its bundle is warmed on every load and
- * imported only when somebody opens the view.
+ * The shell warms EVERY unit the composition carries - three of them - and two
+ * of those are off the landing route, so four of the six warmed files are for a
+ * view a visitor may never open. `list`'s pair buys nothing, because `/` is
+ * about to import it anyway; that is the reading nothing could take until step
+ * 4 put a unit somewhere else. `board` was the first, and is where the warm was
+ * measured.
  */
 export const VIEWS: Record<string, View> = {
   "/": {
@@ -42,8 +46,13 @@ export const VIEWS: Record<string, View> = {
   },
   "/week": {
     title: "Week",
-    apps: [],
-    note: "No unit is placed here yet. The frame drew this view, and nothing was fetched for it.",
+    apps: ["week"],
+    // Where the tasks are kept is the PANEL's sentence, the same as `/` and
+    // `/board`. What a note can say is the placement fact. This one said no
+    // unit was placed here until step 5 landed, which is the mistake `/` made
+    // at step 2 and `/board` at step 4: a note that goes on contradicting the
+    // panel directly beneath it.
+    note: "Seven days, Monday to Sunday, and every task that has a date.",
   },
   "/service": {
     title: "Service",

@@ -29,13 +29,13 @@ Live: <https://pointer-deploy.fly.dev/>
 
 ## Where the application is now
 
-The page is a title, a fixed sidenav and five views, and two of them place a unit: `/` draws `list`, which is every task the planner holds, and `/board` draws `board`, one panel per column with a task moving between them. `/week` is waiting for one; `/service` and `/backup` are drawn by the frame itself — one from the reading it took of the service, one from the planner as a file. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
+The page is a title, a fixed sidenav and five views, and three of them place a unit: `/` draws `list`, which is every task the planner holds, `/board` draws `board`, one panel per column with a task moving between them, and `/week` draws `week`, seven days from Monday to Sunday with every task that has a date. `/service` and `/backup` are drawn by the frame itself — one from the reading it took of the service, one from the planner as a file — and they never get a unit. A view naming no unit is a legitimate view: the frame draws it, and nothing is fetched for it. Desktop only, and there is no breakpoint anywhere in the stylesheet.
 
-The tasks are in memory and nowhere else, which is `PLAN.md` step 1 rather than an omission: IndexedDB is step 2, so a reload starts the planner empty and the panel says so on the page.
+The tasks are in IndexedDB, `PLAN.md` step 2, and the shell owns the database: a reload comes back to the planner it left and a fresh browser starts empty. `/backup` writes the whole planner to a JSON file and reads one back over the top, step 3. This paragraph said the tasks were in memory and nowhere else until step 5 found it still saying so.
 
-That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app and step 1 added `list`. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
+That is deliberately almost nothing. The slate was cleared on 2026-09-10: the five demo sub-apps and the counters they shared came out, the object store was emptied, and the pointer manifest was written again from one build. `PLAN.md` step 0 then removed the last sub-app; step 1 added `list`, step 4 added `board` and step 5 added `week`, which is all of them. What is left is the machinery — publishing, composing, promoting, rolling back, refusing a composition that cannot work — and that is the subject.
 
-**Examples naming `hello` below are readings taken before step 0.** They are real and they were taken against that tree; what this one builds is `shell` and `list`. TODO §31 lists what is still waiting for a third unit, and `PLAN.md` says which step gives it back.
+**Examples naming `hello` below are readings taken before step 0.** They are real and they were taken against that tree; what this one builds is `shell`, `list`, `board` and `week`. TODO §31 lists what is still waiting, and `PLAN.md` says which step gives each of them back.
 
 What gets built on this slate is documented as it is built. The process is the thing being shown, more than whatever the application turns out to be.
 
@@ -143,7 +143,11 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 
 | Requirement | Asked by | Evidence |
 | --- | --- | --- |
-| The frame and the panel agree about what the page holds, though the bundles were built separately | Visitor | `keeping-a-list-of-tasks.feature`, 9 scenarios, in a real browser, run by `bun run verify:browser` alone |
+| The frame and the panel agree about what the page holds, though the bundles were built separately | Visitor | `keeping-a-list-of-tasks.feature`, 8 scenarios, in a real browser, run by `bun run verify:browser` alone |
+| Three separately published panels write into one store and one signals runtime | Visitor | `moving-a-task-between-columns.feature`, 11 scenarios, and `seeing-the-week.feature`, 16, both `bun run verify:browser` alone |
+| The planner is still here when I come back, and a fresh browser starts empty | Visitor | `keeping-the-planner-in-the-browser.feature`, 12 scenarios |
+| The planner goes out as one file and comes back over the top | Visitor | `backing-up-the-planner.feature`, 15 scenarios |
+| An off-screen panel's files are here before I open its view | Visitor | `warming-a-unit-before-its-view.feature`, 6 scenarios |
 | One panel failing costs me that panel alone | Visitor | `recovering-from-an-error.feature`, 3 scenarios |
 | I see the version live now, never one frozen into the server image | Visitor | `serving-the-shell.feature`, 7 scenarios |
 
@@ -152,6 +156,8 @@ The `.feature` files **are** the requirements. They are also the acceptance suit
 - **The version live now** — the server reads the pointer per request, cached 10 s and served stale while it refreshes.
 
 > **Why this was not assumed:** bundling the UI library into each sub-app was tried on the previous slate, which had five of them. It turned 4 of the 6 browser scenarios red, because each sub-app got its own reactivity runtime and the shell's state silently stopped re-rendering it.
+
+This table named four files and the suite holds twenty-four. The five rows added on 2026-09-13 are the ones a cold read found missing — a third of the whole suite stood behind no row at all, in a section whose own preamble promises that every requirement names the file that holds it.
 
 ### C. A rollback that actually works
 
@@ -261,16 +267,16 @@ Green checks are a necessary condition for shipping and never a sufficient one, 
 
 | Layer | What it covers | Size |
 | --- | --- | --- |
-| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **424 tests**, ~22 s |
-| `bun run verify` | Scenarios needing an injected failure — unreachable store, corrupt manifest, a retired field | **54** `@local` scenarios, ~8 s |
-| `bun run verify:live` | Everything that publishes or promotes, against the **real** store and deployed machines | **45** `@live` scenarios |
-| `bun run verify:browser` | What only a browser sees: two bundles agreeing on one store, a blocked module script, a panel that throws | **13** `@browser` scenarios |
-| `bun run falsify` | 92 deliberate breakages. **Each must turn a named check red** | 92 mutations, 65 run locally, 0 uncaught |
+| `bun test` | Pure logic: the server, the build-time web code, the scripts, the service, the harness | **796 tests**, ~30 s |
+| `bun run verify` | Scenarios needing an injected failure — unreachable store, corrupt manifest, a retired field | **56** `@local` scenarios, ~8 s |
+| `bun run verify:live` | Everything that publishes or promotes, against the **real** store and deployed machines | **47** `@live` scenarios, ~16 min |
+| `bun run verify:browser` | What only a browser sees: three bundles agreeing on one store, a blocked module script, a panel that throws | **78** `@browser` scenarios, ~6 min |
+| `bun run falsify` | 168 deliberate breakages. **Each must turn a named check red** | 168 mutations, 104 run locally, 0 uncaught |
 | `bun run mutate` | Operator and literal mutation over the server's pure logic and the service | 1205 mutants. `src/server` **895 of 895**; `api/service.ts` 268 of 310 |
 | `bun run e2e` | Deploy the panel, deploy the frame, roll the panel back, read off the **rendered page** | the question the project exists to answer |
 | `bun run e2e:schema` | Retire a field on the service, write another, read what the page paints — no unit rebuilt, no id moved | in a real Chrome |
 
-**100 written scenarios** (106 executable, three being outlines) are the specification and the acceptance suite at once.
+**167 written scenarios** (173 executable, six being outlines) are the specification and the acceptance suite at once. Every number in the table above was measured on 2026-09-13; they read 424 / 54 / 45 / 13 / 92 and "100 written scenarios" until then, which is three slates behind and is what a cold read that day found.
 
 Four conventions hold the whole thing up:
 
