@@ -77,6 +77,29 @@ export type ImportOutcome =
  */
 export const DOCUMENT_FORMAT = "pointer-planner";
 
+/**
+ * Whether a string is a date a task may carry, `PLAN.md` step 5.
+ *
+ * `YYYY-MM-DD` and a day that exists: `2026-02-30` matches the pattern and is
+ * not a date, so the pattern alone is not the rule. Written once and called
+ * from two places - here, where a document is read, and `ShellStore.setDue`,
+ * where the page writes one. A second copy of this rule is a second reading
+ * that can disagree with the first, which is the argument `PLAN.md` makes for
+ * the columns arriving as an argument rather than as a constant.
+ *
+ * `api.ts` imports it WITHOUT the `.ts` extension every other import here
+ * carries. `emitSurface` sets `allowImportingTsExtensions: false` against a
+ * root `tsconfig.json` that sets it true, so an extension there fails the
+ * surface emit with TS5097 while an extensionless specifier resolves under
+ * `moduleResolution: bundler`. Nothing of this module reaches the surface: a
+ * `.d.ts` carries declarations, and this is a value read inside a function.
+ */
+export function isDueDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const at = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === value;
+}
+
 /** What the planner is at this moment, ready to be written to disk or pushed. */
 export function documentFrom(tasks: readonly Task[], schemaVersion: number): PlannerDocument {
   return {
@@ -132,8 +155,14 @@ function readTask(value: unknown, at: string, columns: readonly Column[]): Task 
       columns.map((c) => JSON.stringify(c.id)).join(", ")
     );
   }
-  if (value.due !== null && typeof value.due !== "string") {
-    return `${at}.due is ${show(value.due)}, and a date or null was expected`;
+  // `PLAN.md` step 5. Before the week existed, `due` was a string nothing read
+  // and any value was as good as another. Now one panel per day draws the tasks
+  // due on it, so a task carrying `"yesterday"` is in the planner, drawn by
+  // `list`, and on no day of the week. This is the door that is REACHABLE - a
+  // hand-edited file, or a planner written by a tool - and it names the field
+  // and the shape, the way the column refusal names the columns.
+  if (value.due !== null && (typeof value.due !== "string" || !isDueDate(value.due))) {
+    return `${at}.due is ${show(value.due)}, and YYYY-MM-DD or null was expected`;
   }
   if (!Array.isArray(value.tags) || value.tags.some((tag) => typeof tag !== "string")) {
     return `${at}.tags is ${show(value.tags)}, and a list of strings was expected`;

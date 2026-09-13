@@ -92,7 +92,7 @@ describe("readMembers, against the surface this repository ships", () => {
       // stops `list` compiling. The set is exactly what `PLAN.md`'s contract
       // table gives the unit, which is the point of that table being a
       // constraint rather than a description.
-      expect(APPS).toEqual(["list", "board"]);
+      expect(APPS).toEqual(["list", "board", "week"]);
       expect(Object.keys(reading.uses.list ?? {}).sort()).toEqual([
         "FieldSunset.instead",
         "FieldSunset.sunset",
@@ -111,7 +111,7 @@ describe("readMembers, against the surface this repository ships", () => {
       // `PLAN.md` step 4's row of the same table. `Task.column` and `Task.due`
       // were in nobody's set on 2026-09-11 because nothing moved either; the
       // board moves one, so the reading picks it up without anybody declaring
-      // it, and `due` stays unused until `week` at step 5.
+      // it.
       expect(Object.keys(reading.uses.board ?? {}).sort()).toEqual([
         "Column.id",
         "Column.label",
@@ -125,18 +125,38 @@ describe("readMembers, against the surface this repository ships", () => {
         "Task.title",
       ]);
 
+      // `PLAN.md` step 5's row, and the one that takes `Task.due` out of
+      // nobody's set. The days are NOT here: this unit computes its own week
+      // from the clock, because nothing else has to agree with it, which is
+      // exactly the argument that put `columns()` on the surface for `board`.
+      expect(Object.keys(reading.uses.week ?? {}).sort()).toEqual([
+        "PlannerReport.state",
+        "ShellStore.planner",
+        "ShellStore.setDue",
+        "ShellStore.tasks",
+        "Task.due",
+        "Task.id",
+        "Task.title",
+      ]);
+
       // The whole of what step 10 demonstrates, measured here before the
-      // promote can refuse on it: each unit holds at least one member the other
-      // does not call, so dropping that member refuses THAT unit and no other.
-      const usedByList = Object.keys(reading.uses.list ?? {});
-      const usedByBoard = Object.keys(reading.uses.board ?? {});
-      for (const member of ["ShellStore.columns", "ShellStore.moveTask"]) {
-        expect(usedByBoard).toContain(member);
-        expect(usedByList).not.toContain(member);
-      }
-      for (const member of ["ShellStore.addTask", "ShellStore.removeTask", "ShellStore.setTags"]) {
-        expect(usedByList).toContain(member);
-        expect(usedByBoard).not.toContain(member);
+      // promote can refuse on it: each unit holds at least one member NO other
+      // unit calls, so dropping that member refuses THAT unit and no other.
+      // Named per unit rather than looped over a pair, because the claim is
+      // about each one against all the rest and there are three of them now.
+      const uses = (app: string) => Object.keys(reading.uses[app] ?? {});
+      const only: Record<string, string[]> = {
+        list: ["ShellStore.addTask", "ShellStore.removeTask", "ShellStore.setTags"],
+        board: ["ShellStore.columns", "ShellStore.moveTask"],
+        week: ["ShellStore.setDue"],
+      };
+      for (const [app, members] of Object.entries(only)) {
+        for (const member of members) {
+          expect(uses(app)).toContain(member);
+          for (const other of APPS.filter((a) => a !== app)) {
+            expect(uses(other)).not.toContain(member);
+          }
+        }
       }
 
       // The other half of §9, and the one `promote` refuses on just as hard: a
@@ -145,8 +165,7 @@ describe("readMembers, against the surface this repository ships", () => {
       // them would refuse nothing here - which is the reading, not a gap.
       for (const member of ["ShellStore.service", "ShellStore.setService"]) {
         expect(Object.keys(reading.provides)).toContain(member);
-        expect(Object.keys(reading.uses.list ?? {})).not.toContain(member);
-        expect(Object.keys(reading.uses.board ?? {})).not.toContain(member);
+        for (const app of APPS) expect(uses(app)).not.toContain(member);
       }
 
       // The exported constant, which no reading saw until 2026-09-11 because a
@@ -167,10 +186,12 @@ describe("readMembers, against the surface this repository ships", () => {
         "ShellStore.goingAway",
         "ShellStore.columns",
         "ShellStore.moveTask",
+        "ShellStore.setDue",
         "ShellStore.service",
         "ShellStore.setService",
         "Task.title",
         "Task.tags",
+        "Task.due",
         "FieldSunset.sunset",
         "FieldSunset.instead",
         "ServiceReport.serves",

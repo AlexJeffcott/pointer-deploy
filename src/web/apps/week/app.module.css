@@ -1,0 +1,104 @@
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  border-top: 3px solid var(--accent);
+}
+
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.day {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.65rem 0.6rem 0.75rem;
+  min-height: 6rem;
+}
+
+.dayTitle,
+.groupTitle {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.count {
+  font-size: 0.7rem;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.loose {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+  align-items: start;
+}
+
+.group {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.75rem 0.85rem 0.9rem;
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.cardTitle {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.held {
+  font-size: 0.75rem;
+  color: #b4342a;
+  font-variant-numeric: tabular-nums;
+}
+
+.picker {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  max-width: 100%;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.note {
+  margin: 1.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}

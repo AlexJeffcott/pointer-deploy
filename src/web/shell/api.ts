@@ -1,4 +1,15 @@
 import { signal } from "@preact/signals";
+// No `.ts` extension, unlike every other import in this tree. `emitSurface`
+// sets `allowImportingTsExtensions: false` against a root `tsconfig.json` that
+// sets it true, so the extension here fails the surface emit with TS5097 while
+// this specifier resolves under `moduleResolution: bundler`. Nothing of
+// `document.ts` reaches the surface either way: this is a value read inside a
+// function body, and a `.d.ts` carries declarations.
+//
+// The rule is written there because that is the module holding every other
+// field-shaped refusal a task has. One rule, two callers - `setDue` below and
+// `readTask` - because a second copy is a second reading that can disagree.
+import { isDueDate } from "./document";
 
 /**
  * One task in the planner.
@@ -17,7 +28,13 @@ export type Task = {
   title: string;
   /** A column id. */
   column: string;
-  /** YYYY-MM-DD, or null when the task has no date. */
+  /**
+   * YYYY-MM-DD, or null when the task has no date.
+   *
+   * `week` at `PLAN.md` step 5 is what reads it, through `setDue`. Two doors
+   * write one: `setDue` refuses anything else silently, and `readDocument`
+   * refuses it by name. IndexedDB is a third and guards nothing - TODO §46.
+   */
   due: string | null;
   tags: readonly string[];
   createdAt: string;
@@ -153,6 +170,22 @@ export type ShellStore = {
    * board - which is a task a visitor can only reach by exporting the file.
    */
   moveTask(id: string, column: string): void;
+  /**
+   * Puts one task on a date, or takes it off one, `PLAN.md` step 5.
+   *
+   * `week` alone calls this, the way `board` alone calls `moveTask`: a unit
+   * holding no member of its own leaves the member gate with nothing to refuse
+   * for it, which is the design constraint `PLAN.md`'s contract table states.
+   *
+   * `null` is a value and not a missing argument. A task that had a date and
+   * no longer has one is how it leaves the week, and there is no separate
+   * member for clearing it.
+   *
+   * A string that is not `YYYY-MM-DD`, or names a day that does not exist, is
+   * refused - because a task carrying one is in the planner, drawn by `list`,
+   * and on no day of the week.
+   */
+  setDue(id: string, due: string | null): void;
   /** Replaces the tags on one task. The rest keep theirs. */
   setTags(id: string, tags: readonly string[]): void;
   removeTask(id: string): void;
@@ -269,6 +302,17 @@ export function createStore(initial: readonly Task[] = []): ShellStore {
       // column anyway would take the task off every panel of the board.
       if (!isColumn(column)) return;
       tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column } : t));
+    },
+    setDue: (id, due) => {
+      // Refused silently, for the reason above it. `week` draws its control
+      // from the seven days it computed, so no control on the page produces
+      // another value - and writing one would take the task off every day of
+      // the week while leaving it in the planner and on the list.
+      //
+      // `null` passes, and is the only value here that is not a date: it is
+      // how a task leaves the week.
+      if (due !== null && !isDueDate(due)) return;
+      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, due } : t));
     },
     setTags: (id, tags) => {
       tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, tags: [...tags] } : t));
