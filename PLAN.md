@@ -143,6 +143,8 @@ Sharing a planner is handing over the slot id. It is read-only by construction, 
 
 A **second, private bucket**, not `pointer-deploy-assets`, and a **second key**. The asset bucket's key can write the files the origin executes, so a service that held it would turn a service compromise into an origin compromise. The snapshot bucket is private, and the service is its only reader and writer.
 
+**Measured on 2026-09-13, before any of this was built.** `fly storage create` issues a key pair per bucket, and the id it issued for a new bucket is not the asset bucket's - so the second key this step needs exists. Private is the DEFAULT and `--public` is the opt-in. And the CLI is per-APP: it refuses a second Tigris project for an app that already has one, so the snapshot bucket belongs to `pointer-deploy-api` rather than to `pointer-deploy`, which is where this step wanted the key anyway. TODO §4 carries the readings and what taking them cost.
+
 ### The deprecation, at step 13
 
 v1 returns a snapshot as `{ snapshot, digest, createdAt, tasks }`. v2 wraps it: `{ …, document: { tasks, settings } }`, because a planner stores more than tasks once it stores anything. `snapshot.tasks` is deprecated with a notice period, the discovery document says so, every response carrying it says so in RFC 9745 `Deprecation` and RFC 8594 `Sunset`, and the `list` panel reports it through `store.goingAway("snapshot.tasks")` — with no unit rebuilt and no id moved.

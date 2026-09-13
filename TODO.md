@@ -370,7 +370,18 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 
 `verify:live` needs live credentials, and the asset bucket's write key is a production-origin execution key. Needs a second Tigris key scoped to non-prod paths first.
 
-`PLAN.md` step 6 adds a second requirement to the same item: the snapshot bucket needs its own key, held by the service and by nothing else. Whether `fly storage create` issues an independent key pair per bucket is **unverified**.
+`PLAN.md` step 6 adds a second requirement to the same item: the snapshot bucket needs its own key, held by the service and by nothing else.
+
+**Measured on 2026-09-13, and it holds.** A bucket created with `fly storage create` is issued its OWN `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, and the id is not the asset bucket's. So a second key scoped to a second bucket is available, which is what this item and step 6 both wait on.
+
+| Reading | |
+| --- | --- |
+| A key pair per bucket | Yes. The `tid_` id issued for a new bucket differs from the asset bucket's |
+| Private | The DEFAULT. `--public` is the opt-in, so step 6's "private bucket" costs nothing |
+| One project per app | `fly storage create` reads `fly.toml` and refuses a second project for an app that has one: "A Tigris project named pointer-deploy-assets already exists for app pointer-deploy". The snapshot bucket therefore belongs to `pointer-deploy-api`, which is where step 6 wants the key |
+| Run with no `-a` | It sets no secrets and deploys nothing. It prints the five values for an operator to set |
+
+**What it cost to measure.** The first bucket was created and then destroyed, because its secret key reached a transcript: the mask used to hide it matched `[A-Za-z0-9_-]+` and Tigris secrets contain `+`, so the tail printed. Destroying the project is what makes such a key inert, and Tigris holds the name for several minutes afterwards. The rule that came out of it: never mask a secret out of output - redirect the output to a file and print field names, lengths or booleans.
 
 ### 6. `verify:live` fails intermittently in a full run
 
