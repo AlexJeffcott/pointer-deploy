@@ -896,12 +896,22 @@ caught even though a route that swapped its unit is not.
 
 ## Warming a sub-app's files before its view is opened
 
-Three units are warmed on this slate, and two of them — `board` on `/board` and
-`week` on `/week` — are on routes a visitor does not land on. So the warm has a
-subject from `PLAN.md` step 4, and the answer is **780 ms**: measured on
-2026-09-12, nine runs per arm, the view opened in 52 ms with the tags and 832 ms
-without them. Step 5 doubled the number of files warmed off the landing route,
-from two to four, and the reading is re-taken below rather than carried over.
+Three units are warmed on this slate — `list` included, and its pair buys
+nothing because the landing route imports it anyway — and two of them, `board`
+on `/board` and `week` on `/week`, are on routes a visitor does not land on. So
+four of the six warmed files are the subject, and the warm has had one since
+`PLAN.md` step 4.
+
+The answer is **767 ms for `board` and 779 ms for `week`**, measured on
+2026-09-13, nine runs per arm, the click taken ten seconds after the landing
+view settled. Step 4's first reading was 780 ms on 2026-09-12 with `board` the
+only unit off the landing route.
+
+**Those are two runs of one script and not one measurement.** It publishes its
+own build, points `test-qa` at it, starts its own server and its own browser,
+and strips all the warm tags or none — so each unit gets its own
+warm-against-control pair, and no arm anywhere compares two warmed files against
+four. `--unit` says which of the two to measure.
 
 A sub-app's bundle is fetched when its view first appears, so a navigation used
 to wait on a network fetch that could have happened while the visitor was
@@ -924,16 +934,17 @@ server against the real store, and takes every reading twice: once from the page
 as served, and once from the same page with the warm tags cut out of the HTML on
 the way to the browser. Stripping them in a route handler rather than mutating
 the server is the point — both arms then run against one origin, one store, one
-pointer and one build, so nothing but the tags differs. Readings, 2026-09-12:
+pointer and one build, so nothing but the tags differs. Every 2026-09-13 row below was taken with `--runs 9 --pause 10000`, so the click is ten seconds after the landing view settles; the two 2026-09-12 rows are step 4's, and the unpaused one is the 780 ms that is quoted elsewhere.
 
 | | Warm | Control |
 | --- | --- | --- |
-| The benefit | click to panel on screen **52 ms**, median of 9 | **832 ms** |
-| Every run | 41 to 68 ms | 821 to 837 ms |
-| After 10 s on the landing view | 56 ms, median of 5 | 836 ms |
+| The benefit, `board`, 2026-09-13 | click to panel on screen **55 ms**, median of 9 | **822 ms** |
+| The benefit, `week`, 2026-09-13 | **60 ms**, median of 9 | **839 ms** |
+| Every run, 2026-09-13 | `board` 46 to 68 ms, `week` 45 to 121 | 810 to 850 ms |
+| The first reading, `board`, 2026-09-12 | 52 ms, median of 9 | 832 ms |
+| The same, after 10 s on the landing view | 56 ms, median of 5 | 836 ms |
 | The policy | no refusal. `script-src` and `style-src` are already derived from the origins the manifest names | no refusal |
-| Before the view is opened | `board`'s two files are in the browser | neither is |
-| Re-measured 2026-09-13, four units | `board` 55 ms / `week` 60 ms, median of 9 | 822 ms / 839 ms |
+| Before the view is opened | the unit's two files are in the browser, both units | neither is |
 | The digest | each file fetched **once** across the visit. The import reuses the warmed response | once — the import does the one fetch itself |
 | What started them | `link` (stylesheet), `other` (module) | `link` (stylesheet), `script` (the import) |
 | The composition | the URLs follow the override, held by a unit test that composes one and asserts the preload moved with it | — |

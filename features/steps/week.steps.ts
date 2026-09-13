@@ -113,9 +113,13 @@ When(
  * The one control this unit has, and the only caller of `setDue`.
  *
  * A select rather than a button per day: seven buttons on every card is a panel
- * nobody can read. `selectOption` fires the change the panel listens for, and
- * the options are the reachable values - which is the argument that lets
- * `setDue` refuse a bad date silently.
+ * nobody can read. `selectOption` fires the change the panel listens for.
+ *
+ * Every option a visitor can choose is one of the seven days or the empty
+ * value, which `the control on ... offers the date it carries` asserts. That is
+ * a property of this panel and NOT the reason `setDue` refuses silently - a
+ * cold read on 2026-09-13 took that argument out of `api.ts`, because a shell
+ * is composed with a sub-app it was not built beside.
  */
 When(
   "they put {string} on day {int} of the week",
@@ -287,7 +291,7 @@ Then(
  * this is the reading that says so.
  */
 Then(
-  "the control on {string} offers the date it carries",
+  "the control on {string} offers the date it carries, and will not let it be chosen",
   async function (this: PointerWorld, title: string) {
     const page = this.browserPage;
     const chosen = await page.$eval(
@@ -300,6 +304,19 @@ Then(
     );
     expect(carried).not.toBe("");
     expect(`the control reads ${chosen}`).toBe(`the control reads ${carried}`);
+
+    // And every option a visitor can CHOOSE is one of the seven days or the
+    // empty value. Without this the option set holds a value that need not be
+    // a date at all, and the sentence that lets `setDue` refuse silently - an
+    // argument about the option set - is false. Found by a cold read on
+    // 2026-09-13, which is also why the option is `disabled` rather than
+    // merely never re-picked.
+    const days = await daysOn(this);
+    const choosable = await page.$$eval(
+      `${PANEL} [data-due="${title}"] option:not([disabled])`,
+      (nodes) => nodes.map((node) => (node as HTMLOptionElement).value),
+    );
+    expect(choosable).toEqual(["", ...days]);
   },
 );
 
@@ -312,25 +329,42 @@ Then("the week prints {string} beside that task", async function (this: PointerW
 });
 
 /**
- * The accounting claim, read off the rendered page rather than off the counts.
+ * The accounting claim, read against the DATABASE.
  *
  * The panel draws a count per day and two more for the groups, and every one of
  * those comes out of the same filters the cards do - so comparing them with
- * each other measures nothing. What this compares is the number of CARDS on the
- * page with the number of tasks the planner holds, which a task in no group and
- * a task in two both fail.
+ * each other measures nothing. This read `tasks.length` off the panel's own
+ * root until a cold read on 2026-09-13 named it as the correction
+ * `board.steps.ts` already took: one value drawn twice is not a cross-check.
+ *
+ * What it compares now is the titles on the page against the titles in the
+ * planner's object store, which the shell wrote and this panel never saw. A
+ * task in no group and a task in two both fail it, and so does a page drawing
+ * a task the planner does not hold.
+ *
+ * Titles are compared as a SORTED LIST and not as a set. `addTask` permits two
+ * tasks with one title, so a set would turn a legitimate planner red - and
+ * `data-card` is keyed on the title, so two of them are two nodes carrying one
+ * name and the counts still have to agree.
  */
 Then(
   "every task the planner holds is drawn once on the week",
   async function (this: PointerWorld) {
     const page = this.browserPage;
-    const held = Number(
-      await page.$eval(`${PANEL} [data-week-total]`, (n) => n.getAttribute("data-week-total") ?? ""),
+    // What is STORED, so a write still in flight is not read as a missing
+    // task. The same wait every reload step takes, for the same reason.
+    await page.waitForFunction(
+      () => document.documentElement.dataset.plannerPending !== "yes",
+      undefined,
+      { timeout: 10_000 },
     );
-    expect(held).toBeGreaterThan(0);
+    const held = await this.storedTaskTitles("pointer-planner");
+    expect(held.length).toBeGreaterThan(0);
     const drawn = await cardsOn(this);
-    expect(`${drawn.length} cards for ${held} tasks`).toBe(`${held} cards for ${held} tasks`);
-    expect(new Set(drawn).size).toBe(drawn.length);
+    expect(`${drawn.length} cards for ${held.length} tasks`).toBe(
+      `${held.length} cards for ${held.length} tasks`,
+    );
+    expect([...drawn].sort()).toEqual([...held].sort());
   },
 );
 

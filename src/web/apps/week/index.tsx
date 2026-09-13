@@ -1,13 +1,16 @@
 import type { SubAppProps } from "@pointer/subapp";
 import type { Task } from "@pointer/shell";
 import styles from "./app.module.css";
+import { label, weekOf } from "./week.ts";
 
 /**
  * The planner's week, drawn on `/week`.
  *
  * The fourth unit, `PLAN.md` step 5, and the SECOND placed off the landing
- * route - so the page now warms two bundles rather than one, and step 4's
- * reading of what a warm buys has a second subject.
+ * route - so four of the six files the page warms are now for a view a visitor
+ * may never open, and step 4's reading of what a warm buys has a second
+ * subject. The page warms `list` as well, and always did; that pair buys
+ * nothing, because the landing route imports it anyway.
  *
  * It owns no tasks. `tasks()` is the shell's collection and `setDue` is this
  * unit's own member - nothing else on the slate calls it, which is the design
@@ -20,61 +23,24 @@ import styles from "./app.module.css";
  * `/` is given a date here, and the list draws the same task.
  */
 
-const DAY_MS = 86_400_000;
-
-/**
- * The names of the days and months, written out rather than formatted.
- *
- * `toLocaleDateString` reads the browser's locale, so two visitors would see
- * two different pages and two screenshots of one composition would differ for
- * a reason the deploy record cannot name. The set is fixed here instead.
- */
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-] as const;
-
-const iso = (at: number): string => new Date(at).toISOString().slice(0, 10);
-
-/**
- * The seven days of the week `now` falls in, Monday first.
- *
- * Monday to Sunday and not "the next seven days": a week is a window two
- * people can agree on, and a rolling window means a task drawn today is on a
- * different panel tomorrow for no reason a person did anything about.
- *
- * The visitor's own midnight, read through the local getters and then held as
- * UTC. `new Date().toISOString()` alone would put a visitor east of Greenwich
- * on tomorrow's panel for part of every evening.
- *
- * This is the whole of what this unit knows about a week, and it is NOT on the
- * contract surface. The columns are, because `board` draws one panel per
- * column and a task moves between them, so two units have to agree on the set.
- * Nothing has to agree with this one: a date is a date, and `setDue` takes it.
- */
-function weekOf(now: Date): string[] {
-  const midnight = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  const weekday = (new Date(midnight).getUTCDay() + 6) % 7;
-  const monday = midnight - weekday * DAY_MS;
-  return Array.from({ length: 7 }, (_, i) => iso(monday + i * DAY_MS));
-}
-
-/** `2026-09-14` at index 0 reads `Mon 14 Sep`. The index IS the weekday. */
-const label = (day: string, index: number): string =>
-  `${WEEKDAYS[index]} ${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]}`;
-
 /**
  * The one control on this page, and the only caller of `setDue`.
  *
  * A select rather than seven buttons: the board draws one button per OTHER
  * column and there are two of those, and seven on every card is a panel nobody
- * can read. The options ARE the reachable values, which is the argument that
- * lets `setDue` refuse a bad date silently - nothing here can produce one.
+ * can read.
  *
- * A task whose date is not in this week gets its own date at the top, because
- * a select whose value matches no option draws the first one and would tell a
- * visitor the task had no date.
+ * A task whose date is not in this week gets its own date at the top, because a
+ * select whose value matches no option draws the first one and would tell a
+ * visitor the task had no date. **That option is `disabled`**, and a cold read
+ * on 2026-09-13 is why. Without it the option set held a value that is not
+ * necessarily a date - `"yesterday"` is exactly what reaches this branch - and
+ * the sentence "the options are the reachable values" was false in the file
+ * that stated it. What kept a bad value from being written back was that a
+ * select fires no `change` for the option already chosen, which is a DOM event
+ * rule nothing here records and nothing tests. Disabled, the claim is a
+ * property of the markup again: every option a visitor can CHOOSE is one of
+ * the seven days or the empty value.
  */
 function DuePicker({
   task,
@@ -99,10 +65,14 @@ function DuePicker({
       }}
     >
       <option value="">No date</option>
-      {outside ? <option value={held}>{held}</option> : null}
-      {days.map((day, index) => (
+      {outside ? (
+        <option value={held} disabled>
+          {held}
+        </option>
+      ) : null}
+      {days.map((day) => (
         <option key={day} value={day}>
-          {label(day, index)}
+          {label(day)}
         </option>
       ))}
     </select>
@@ -149,9 +119,9 @@ export default function Week({ store }: SubAppProps) {
   const elsewhere = tasks.filter((task) => task.due !== null && !days.includes(task.due));
 
   return (
-    <section class={styles.panel} data-unit-marker={__UNIT_MARKER__} data-week-total={tasks.length}>
+    <section class={styles.panel} data-unit-marker={__UNIT_MARKER__}>
       <div class={styles.days}>
-        {days.map((day, index) => {
+        {days.map((day) => {
           // The tasks due on this day, in the order the store holds them. This
           // panel keeps no order of its own, for the reason the board keeps
           // none: the list, the board and the week are three views of one
@@ -160,7 +130,7 @@ export default function Week({ store }: SubAppProps) {
           return (
             <div key={day} class={styles.day} data-day={day}>
               <h3 class={styles.dayTitle}>
-                {label(day, index)}{" "}
+                {label(day)}{" "}
                 <span class={styles.count} data-day-count={day}>
                   {due.length}
                 </span>

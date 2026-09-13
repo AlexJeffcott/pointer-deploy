@@ -280,10 +280,11 @@ describe("putting a task on a date", () => {
     expect(store.tasks()[1]!.column).toBe("doing");
   });
 
-  // Silently, the way a column no column names is. `week` draws a select whose
-  // options are the seven days it computed, so no control on the page produces
-  // one of these - and the write would take the task off every day of the week
-  // while leaving it in the planner and on the list.
+  // Silently, the way a column no column names is: this surface returns nothing
+  // and has no member for reporting a refusal. The write would take the task
+  // off every day of the week while leaving it in the planner and on the list,
+  // so not writing is the outcome that keeps the page and the planner saying
+  // one thing.
   //
   // `2026-02-30` is the one that matters: it matches the pattern and is not a
   // date, so a rule that stopped at the pattern would let it through.

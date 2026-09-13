@@ -5,9 +5,10 @@ Feature: Seeing the week
 
   `PLAN.md` step 5. `week` is the fourth unit and the last on this slate: its
   own bundle, built, published and promoted on its own, placed by the shell on
-  `/week`. It is the SECOND unit placed off the landing route, so the page now
-  warms two bundles rather than one - measured in
-  `warming-a-unit-before-its-view.feature`, not here.
+  `/week`. It is the SECOND unit placed off the landing route, so four of the
+  six files the page warms are now for a view a visitor may never open - two
+  of them this unit's. `warming-a-unit-before-its-view.feature` is where that
+  is measured, and it reads both off-screen units rather than one.
 
   A week runs Monday to Sunday. Not "the next seven days": a rolling window
   moves a task to a different panel overnight for no reason a person did
@@ -172,10 +173,17 @@ Feature: Seeing the week
     for at step 4.
 
     Two doors that WRITE a date are guarded. `setDue` refuses anything that is
-    not `YYYY-MM-DD`, or names a day that does not exist, silently - the control
-    on the page is a select whose options are the seven days, so nothing there
-    produces one. `readDocument` refuses a document carrying one by name, and
-    that door is the one a person reaches with a text editor.
+    not `YYYY-MM-DD`, or names a day that does not exist, and it refuses
+    silently because `ShellStore` has no way to report anything: it returns
+    nothing, so the choice is to write the value or not. `readDocument` refuses
+    a document carrying one by name, and that door is the one a person reaches
+    with a text editor.
+
+    Every option a visitor can choose on this page is one of the seven days or
+    No date, and a scenario below reads that. It is a property of this panel and
+    not the reason the store refuses: the shell is composed with a `week` it was
+    not built beside, so a rule in the store that rested on what one version of
+    one panel draws would be resting on a file it cannot see.
 
     IndexedDB is a third door and nothing guards it, for the reason `PLAN.md`
     gives for the whole planner at steps 15 and 16: a shell that deleted a task
@@ -197,7 +205,7 @@ Feature: Seeing the week
       When the planner is given a task dated 60 days from now
       And they load the week again
       Then the week reports 1 task dated another day
-      And the control on "Learn to sail" offers the date it carries
+      And the control on "Learn to sail" offers the date it carries, and will not let it be chosen
       And every day of the week is empty
 
     @browser @test-channel

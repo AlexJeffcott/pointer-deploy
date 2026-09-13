@@ -88,11 +88,16 @@ export const DOCUMENT_FORMAT = "pointer-planner";
  * the columns arriving as an argument rather than as a constant.
  *
  * `api.ts` imports it WITHOUT the `.ts` extension every other import here
- * carries. `emitSurface` sets `allowImportingTsExtensions: false` against a
- * root `tsconfig.json` that sets it true, so an extension there fails the
- * surface emit with TS5097 while an extensionless specifier resolves under
- * `moduleResolution: bundler`. Nothing of this module reaches the surface: a
- * `.d.ts` carries declarations, and this is a value read inside a function.
+ * carries, and the rule is VALUE against TYPE rather than the extension by
+ * itself. Measured on 2026-09-13 in an isolated program with
+ * `allowImportingTsExtensions: false`: a value import carrying the extension
+ * is TS5097, and a type-only import carrying it is not - the extension is
+ * simply emitted into the `.d.ts`. So `api.ts` needs the extension gone and
+ * line 1 of this file does not, which is why the emit still passes now that
+ * `api.ts` has pulled this module into the emit program for the first time.
+ *
+ * Nothing of this module reaches the surface either way: a `.d.ts` carries
+ * declarations, and this is a value read inside a function.
  */
 export function isDueDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

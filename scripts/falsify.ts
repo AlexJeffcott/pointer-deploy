@@ -1837,11 +1837,19 @@ const MUTATIONS: Mutation[] = [
 
   // --- `PLAN.md` step 5, the week -------------------------------------------
   //
-  // Fourteen entries, counted from the array below rather than remembered:
-  // FIVE are `@local` and nine need a browser. The five are what a DATE is -
-  // in the store and in the document reader, both pure - and the nine are the
-  // panel. The split is step 4's for step 4's reason, and the count beside the
-  // array is the thing a cold read on 2026-09-12 found wrong there.
+  // Twenty entries, counted from the array below rather than remembered:
+  // SEVEN are `@local` and thirteen need a browser. The seven are what a DATE
+  // is and what a WEEK is - the store, the document reader and `week.ts`, all
+  // three pure - and the thirteen are the panel. The split is step 4's for
+  // step 4's reason, and the count beside the array is the thing a cold read
+  // on 2026-09-12 found wrong there.
+  //
+  // Six of the twenty were added by a cold read on 2026-09-13, which found the
+  // Rule `PLAN.md` names as this step's demonstration carrying no mutation at
+  // all. A count of mutations is not a count of scenarios covered: eight of
+  // the sixteen scenarios in `seeing-the-week.feature` still have none, and
+  // `runScenario` greps the scenario a mutation NAMES, so a mutation aimed
+  // elsewhere certifies nothing about them.
 
   {
     // A date that writes every task. With one task on the page - which is where
@@ -1854,11 +1862,11 @@ const MUTATIONS: Mutation[] = [
     unitTest: "dating one task leaves every other task where it was",
   },
   {
-    // The guard that stops a task carrying something that is not a date.
-    // Nothing a visitor can choose produces one - the select's options are the
-    // seven days - so this costs nothing today and is the second line if a
-    // control ever names a date. `PLAN.md` step 7 pulls a planner written by
-    // another browser.
+    // The guard that stops a task carrying something that is not a date. No
+    // option a visitor can choose on today's `week` produces one, but this
+    // shell is composed with a `week` it was not built beside - `PLAN.md`
+    // steps 10 to 12 - and step 7 pulls a planner written by another browser.
+    // The guard is the store's, and what it rests on is the store.
     //
     // `&& false` rather than cutting the condition, and §35 is why: cutting it
     // whole leaves `isDueDate` imported and called by nothing, `noUnusedLocals`
@@ -1989,18 +1997,43 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
   {
-    // The week starts a day early, so day 1 is a Sunday. A rolling window is
-    // the mutation this one stands in for, and it is NOT in the array: cutting
-    // the offset makes the week start today, which on a Monday is a no-op - a
-    // mutation whose reading depends on what day the suite was run. This one
-    // shifts every day whatever the date is.
+    // The week starts a day early, so day 1 is a Sunday. Read in a browser, off
+    // the page the panel drew from the clock it was given.
     name: "the week starts on the wrong day",
-    file: "src/web/apps/week/index.tsx",
+    file: "src/web/apps/week/week.ts",
     find: "  const monday = midnight - weekday * DAY_MS;",
     replace: "  const monday = midnight - (weekday + 1) * DAY_MS;",
     scenario: "A planner nobody has used yet has seven empty days",
     live: true,
     browser: true,
+  },
+  {
+    // The week starts TODAY, which is the rolling window the Monday rule
+    // exists to refuse. This was declined on 2026-09-13 because it is a no-op
+    // on a Monday, so a scenario catches it six days in seven and the reading
+    // depends on the day the suite was run. A cold read the same day asked why
+    // the answer was to drop the mutation rather than to test `weekOf` over a
+    // fixed date - which is what `week.test.ts` now does, 365 days a year.
+    name: "the week is the next seven days",
+    file: "src/web/apps/week/week.ts",
+    find: "  const monday = midnight - weekday * DAY_MS;",
+    // `weekday * 0` and not a cut: cutting the term leaves `weekday` assigned
+    // and read by nothing, `noUnusedLocals` fails the build, and §35's guard
+    // refuses the reading rather than counting it.
+    replace: "  const monday = midnight - weekday * 0;",
+    unitTest: "a Sunday belongs to the week that began six days earlier",
+  },
+  {
+    // The weekday name comes off the date, so a heading can contradict the
+    // position it is drawn at. Read from the position instead - which is what
+    // `label` did until 2026-09-13 - it never can, and a week anchored on the
+    // wrong day drew `MON 6 SEP` with nothing on the page or in the deploy
+    // record's pictures saying so.
+    name: "a day is named for the wrong weekday",
+    file: "src/web/apps/week/week.ts",
+    find: "  const weekday = (at.getUTCDay() + 6) % 7;",
+    replace: "  const weekday = at.getUTCDay();",
+    unitTest: "reads",
   },
   {
     // The report keeps its count and loses the value. A visitor is told a task
@@ -2025,9 +2058,70 @@ const MUTATIONS: Mutation[] = [
     // 2026-09-13. The condition is still read and the option is still gone.
     name: "a date outside the week is not offered on its own card",
     file: "src/web/apps/week/index.tsx",
-    find: "      {outside ? <option value={held}>{held}</option> : null}",
+    find: "      {outside ? (\n        <option value={held} disabled>\n          {held}\n        </option>\n      ) : null}",
     replace: "      {outside ? null : null}",
     scenario: "A task dated outside this week is reported with the date it carries",
+    live: true,
+    browser: true,
+  },
+  {
+    // The option carrying a value this week cannot place becomes CHOOSABLE.
+    // Then the option set holds something that is not necessarily a date -
+    // `"yesterday"` reaches this branch - and the sentence that lets `setDue`
+    // refuse silently, which is an argument about the option set, is false in
+    // the file that states it. What kept the value from being written back was
+    // that a select fires no `change` for the option already chosen: a DOM
+    // event rule nothing recorded and nothing tested. Found by a cold read on
+    // 2026-09-13.
+    name: "a date the week cannot place can be chosen again",
+    file: "src/web/apps/week/index.tsx",
+    find: "        <option value={held} disabled>",
+    replace: "        <option value={held}>",
+    scenario: "A task dated outside this week is reported with the date it carries",
+    live: true,
+    browser: true,
+  },
+  {
+    // A move rebuilds the task and drops its date. `board` and `week` are two
+    // separately published bundles over one store, so a member of one that
+    // loses a field the other draws is the failure the whole composition is
+    // built to make impossible - and it is invisible on the board, which draws
+    // no date at all.
+    //
+    // This is the Rule that `PLAN.md` names as what step 5 demonstrates, and a
+    // cold read on 2026-09-13 found it carrying no mutation of its own.
+    name: "a move drops the task's date",
+    file: "src/web/shell/api.ts",
+    find: "      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column } : t));",
+    replace: "      tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column, due: null } : t));",
+    scenario: "A task dated on the week keeps its date when the board moves it",
+    live: true,
+    browser: true,
+  },
+  {
+    // `null` stops being a value and becomes a refusal, so a date can be given
+    // and never taken off. Every scenario that only ADDS a date passes.
+    //
+    // The mutation above it deliberately keeps the null arm working, so this
+    // is the one that measures it. Found by the same cold read.
+    name: "a date cannot be taken off again",
+    file: "src/web/shell/api.ts",
+    find: "      if (due !== null && !isDueDate(due)) return;",
+    replace: '      if (!isDueDate(due ?? "")) return;',
+    scenario: "A date taken off a task puts it back under No date",
+    live: true,
+    browser: true,
+  },
+  {
+    // The Another date group draws EVERY task rather than the ones it is for,
+    // so a task on a day is also drawn below it. Every count on the page still
+    // agrees - they are per group - and the planner holds fewer tasks than the
+    // page shows.
+    name: "the page draws a task twice",
+    file: "src/web/apps/week/index.tsx",
+    find: "              {elsewhere.map((task) => (",
+    replace: "              {tasks.map((task) => (",
+    scenario: "Every task is drawn once, whichever group it falls in",
     live: true,
     browser: true,
   },

@@ -1,10 +1,22 @@
 import { signal } from "@preact/signals";
-// No `.ts` extension, unlike every other import in this tree. `emitSurface`
-// sets `allowImportingTsExtensions: false` against a root `tsconfig.json` that
-// sets it true, so the extension here fails the surface emit with TS5097 while
-// this specifier resolves under `moduleResolution: bundler`. Nothing of
-// `document.ts` reaches the surface either way: this is a value read inside a
-// function body, and a `.d.ts` carries declarations.
+// No `.ts` extension, unlike every other import in this tree, and the rule is
+// VALUE against TYPE rather than the extension by itself. `emitSurface` sets
+// `allowImportingTsExtensions: false` against a root `tsconfig.json` that sets
+// it true. Measured on 2026-09-13, in an isolated program with that setting:
+//
+//   import { v } from "./b.ts"        value    error TS5097
+//   import type { T } from "./b.ts"   type     no error, and the extension is
+//                                              emitted into the .d.ts
+//
+// So this line needs the extension gone and `document.ts:1` does not, which is
+// why the emit passes now that this import pulls `document.ts` into the emit
+// program for the first time. The earlier version of this comment said the
+// extension alone was the rule, which a cold read on 2026-09-13 asked about.
+//
+// Nothing of `document.ts` reaches the surface: this is a value read inside a
+// function body, and a `.d.ts` carries declarations. That is checked on the
+// output as well - `document` appears nowhere in the emitted surface - and the
+// two checks are different things, so both are worth having.
 //
 // The rule is written there because that is the module holding every other
 // field-shaped refusal a task has. One rule, two callers - `setDue` below and
@@ -183,7 +195,9 @@ export type ShellStore = {
    *
    * A string that is not `YYYY-MM-DD`, or names a day that does not exist, is
    * refused - because a task carrying one is in the planner, drawn by `list`,
-   * and on no day of the week.
+   * and on no day of the week. Silently, because this surface has no way to
+   * report anything: see the implementation for what that does and does not
+   * rest on.
    */
   setDue(id: string, due: string | null): void;
   /** Replaces the tags on one task. The rest keep theirs. */
@@ -296,18 +310,34 @@ export function createStore(initial: readonly Task[] = []): ShellStore {
     },
     columns: () => COLUMNS,
     moveTask: (id, column) => {
-      // Refused silently, the way a blank title is. There is no visitor input
-      // that produces one - `board` draws its buttons from `columns()` - so a
-      // sentence here would be a sentence nothing can reach, and writing the
-      // column anyway would take the task off every panel of the board.
+      // Refused silently, the way a blank title is: this surface returns
+      // nothing and has no member for reporting a refusal, so the choice is to
+      // write the value or not. Writing it would take the task off every panel
+      // of the board.
+      //
+      // A comment here used to give the reason as `board` drawing its buttons
+      // from `columns()`, so that no visitor input could produce one. A cold
+      // read on 2026-09-13 refused that for `setDue` below and it is the same
+      // argument: `board` is a separately published bundle this shell is
+      // composed with rather than built beside.
       if (!isColumn(column)) return;
       tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, column } : t));
     },
     setDue: (id, due) => {
-      // Refused silently, for the reason above it. `week` draws its control
-      // from the seven days it computed, so no control on the page produces
-      // another value - and writing one would take the task off every day of
-      // the week while leaving it in the planner and on the list.
+      // Refused silently, and the reason is what this store can DO about it
+      // rather than what a panel happens to draw. `ShellStore` has no channel
+      // to a person: it returns nothing, and a sub-app that wanted to report a
+      // refusal would need a member for it. So the choice is to write the
+      // value or not, and not writing it is the one that keeps the task on a
+      // day of the week rather than on none.
+      //
+      // What is NOT the reason, and stood here until a cold read on
+      // 2026-09-13: that no control on the page can produce another value.
+      // `week` is a separately published bundle and this shell is composed
+      // with one it was not built beside - steps 10 to 12 are that claim - so
+      // a sentence here about which options a panel offers is a sentence about
+      // a file `api.ts` cannot see. It was also false of the panel in the
+      // tree, which offered the task's own out-of-week date as an option.
       //
       // `null` passes, and is the only value here that is not a date: it is
       // how a task leaves the week.

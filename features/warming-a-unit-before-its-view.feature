@@ -11,6 +11,12 @@ Feature: Warming a unit's files before its view is opened
   happen anyway and there was no reading to take. `board` is on `/board`, so
   there is.
 
+  The page warms THREE units and not two. `list` is warmed as well, and its
+  pair buys nothing because the landing route mounts it. Two of the three are
+  off that route - `board` from step 4 and `week` from step 5 - so four of the
+  six warmed files are the subject and two are not. Both off-screen units are
+  read here, because one of them measured is a claim about one bundle.
+
   A hint, never a background `import()`. An import EVALUATES the module, so a
   unit the visitor never opens would have its top-level code run - and when that
   runs is a behaviour a sub-app can notice. A preload fills the HTTP cache and
@@ -53,6 +59,36 @@ Feature: Warming a unit's files before its view is opened
       And they open the board view
       Then each of "board"'s files was fetched once
       And the browser has already fetched "board", started by the page itself
+
+    @browser @test-channel
+    Scenario: The week's files are in the browser before the week is opened
+      The second off-screen unit, `PLAN.md` step 5. Written because a cold read
+      on 2026-09-13 found `seeing-the-week.feature` pointing here for the
+      reading and this file holding none: every scenario above names `board`,
+      so the requirement was a cross-reference to a scenario nobody had written.
+
+      When a visitor opens the frame
+      Then the browser has already fetched "week", started by the page itself
+      And nothing on the landing view imported "week"
+
+    @browser @test-channel
+    Scenario: Opening the week costs no second fetch of its files
+      When a visitor opens the frame
+      And they open the week view
+      Then each of "week"'s files was fetched once
+      And the browser has already fetched "week", started by the page itself
+
+    @browser @test-channel
+    Scenario: Both off-screen units are warmed by one load
+      One reading rather than two, because the claim the shell makes is about
+      every unit the composition carries and not about a favourite. A page that
+      warmed the first sub-app it found would satisfy both scenarios above.
+
+      When a visitor opens the frame
+      Then the browser has already fetched "board", started by the page itself
+      And the browser has already fetched "week", started by the page itself
+      And nothing on the landing view imported "board"
+      And nothing on the landing view imported "week"
 
   Rule: A unit no view places is not warmed
 

@@ -4,7 +4,7 @@
 step 0 then took the application to the frame alone and step 1 put `list` back
 on `/`, so the sub-app half of this walkthrough is live again — against `list`
 rather than `hello`. The counts below carry the frame-alone reading beside it,
-because that is the shape the four views placing no unit still have.
+because that is the shape the two views placing no unit still have. It was four at step 1 and three at step 4; step 5 finished the slate, so two is the number it stays at.
 
 | | With one sub-app, as measured | The frame alone, `PLAN.md` step 0 |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ after the load, and the answer is zero.
     - `<script id="__BUILD__">` — buildId, commit, publishedAt, channel, region, a `units` entry for the shell and every app the manifest carries, each with its id, commit and marker (`src/server/html.ts:17-22`), the contract hash, and `apiBase`. Four units here.
     - `<script id="__APPS__">` — each sub-app's JS URL, CSS URL and CSS digest.
     - `<script type="module" src="…units/shell/<id>/index-<hash>.js" integrity="sha384-…">`.
-    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). Three and three in this composition. `list`'s pair warms nothing that is not about to be fetched anyway, because this route mounts it. The other two pairs are the ones that buy something: this route mounts neither, and a visitor who later opens `/board` gets the panel in 52 ms instead of 832 (`scripts/measure-preload.ts`, 2026-09-12). A further sub-app in the pointer produces a further pair from the deployed binary, unrebuilt - which is what `week` did at `PLAN.md` step 5.
+    - `<link rel="modulepreload">` for **every** sub-app the manifest carries, and `<link rel="preload" as="style">` for each of those that declares a stylesheet (`src/server/html.ts:190-205`). Three and three in this composition. `list`'s pair warms nothing that is not about to be fetched anyway, because this route mounts it. The other two pairs are the ones that buy something: this route mounts neither, and a visitor who later opens `/board` gets the panel in 55 ms instead of 822, and one who opens `/week` gets it in 60 instead of 839 (`scripts/measure-preload.ts`, nine runs per arm, 2026-09-13). A further sub-app in the pointer produces a further pair from the deployed binary, unrebuilt - which is what `week` did at `PLAN.md` step 5.
 13. The `content-security-policy` header: `default-src 'none'`; `script-src` = the store origin plus the **sha256 of the import map's own bytes**; `style-src` = the store origin; `connect-src` = the service origin and nothing else; `base-uri`, `form-action`, `frame-ancestors` all `'none'`.
 14. Four reading headers: `x-manifest-age`, `x-manifest-refresh`, `x-shell-blocks`, `x-shell-api`.
 15. `handedOut.record()` adds this composition to what `GET /compositions` reports.
@@ -66,7 +66,7 @@ after the load, and the answer is zero.
 16. The CSP applies to everything below it.
 17. The shell stylesheet is fetched from the store, checked against its sha384, and blocks the first paint.
 18. The import map is read. It must be parsed before any module import.
-19. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — four in this composition, and two of them are for a panel this route does not mount. All are `public, max-age=31536000, immutable`.
+19. The parser reaches the end of `<body>` and starts two more store fetches for each sub-app the manifest carries, the bundle and its stylesheet — six in this composition, and four of them are for a panel this route does not mount. All are `public, max-age=31536000, immutable`.
 20. The shell module is fetched and checked. Its imports of `preact` and the rest resolve through the map to more files in the shell's directory, each checked against the map's integrity entry.
 21. Any file whose bytes do not match its digest is **not executed**. That is the only place the refusal is observable.
 
@@ -117,16 +117,16 @@ after the load, and the answer is zero.
 
 ## The shape
 
-Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for. Measured in this composition: **1**, then **13**, then **2**.
+Three request fans in sequence, not one chain: the server, then the store, then the service. One of the three counts is fixed. The server fan is always **1**. The store fan is the shell's own files plus two per sub-app, and the service fan is what the shell asks for. Measured in this composition: **1**, then **15**, then **2**.
 
 | Fan | What sets the count | Here | What |
 | --- | --- | --- | --- |
 | Server | always 1 | 1 | The HTML |
-| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 13 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files each for `list` and `board` |
+| Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 15 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files each for `list`, `board` and `week` |
 | Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1/greeting` |
 
-Only the shell's own files are needed to paint — 9 of them here. Of the four panel files, `list`'s two are fetched AND run, because that unit is on the route a visitor lands on. `board`'s two are fetched and never imported: the module has not executed, and a visitor who never opens `/board` pays two requests for nothing. What that buys the visitor who does open it is 780 ms: the view draws in 52 ms rather than 832, median of 9 on 2026-09-12, and the same after ten seconds on this view. About 530 ms of that baseline is not the two fetches and nothing has said what it is - TODO §47. `scripts/measure-preload.ts` takes it with a control.
+Only the shell's own files are needed to paint — 9 of them here. Of the six panel files, `list`'s two are fetched AND run, because that unit is on the route a visitor lands on. The four belonging to `board` and `week` are fetched and never imported: neither module has executed, and a visitor who opens neither view pays four requests for nothing. What that buys the visitor who does open one is 767 ms for `board` — the view draws in 55 ms rather than 822, median of 9 on 2026-09-13, after ten seconds on this view — and 779 ms for `week`, 60 against 839. About 420 ms of that baseline is not the two fetches and nothing has said what it is - TODO §47. `scripts/measure-preload.ts` takes it with a control, and `--unit` says which of the two to measure.
 
-Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-12. It read **11** with the two-unit composition of 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
+Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-13. It read **13** at three units on 2026-09-12 and **11** with the two-unit composition of 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
 
 That reading was taken while the deployed service still answered the previous slate's surface, so `GET /v1/greeting` returned 404. The count is the same either way — the page makes the call and draws the default when it fails, which is the behaviour, not a fault in the measurement.

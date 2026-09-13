@@ -19,10 +19,12 @@ export type View = {
  * legitimate keeps its subject. `placementProblems` below refuses the two ways
  * placement and the build can disagree.
  *
- * TWO of the three are OFF the landing route now, so the shell's preload tags
- * warm two bundles on every load and each is imported only when somebody opens
- * its view. `board` was the first, at step 4, and is where the 780 ms that warm
- * buys was measured.
+ * The shell warms EVERY unit the composition carries - three of them - and two
+ * of those are off the landing route, so four of the six warmed files are for a
+ * view a visitor may never open. `list`'s pair buys nothing, because `/` is
+ * about to import it anyway; that is the reading nothing could take until step
+ * 4 put a unit somewhere else. `board` was the first, and is where the warm was
+ * measured.
  */
 export const VIEWS: Record<string, View> = {
   "/": {

@@ -30,8 +30,8 @@ export const REGISTRY = join(CONTRACTS_DIR, "registry.json");
  *
  * Four, on this slate, and that is all of them: the frame, `list` on `/` from
  * `PLAN.md` step 1, `board` on `/board` from step 4 and `week` on `/week` from
- * step 5. Two of the three sub-apps sit off the landing route, so the page
- * warms two bundles.
+ * step 5. Two of the three sub-apps sit off the landing route, so four of the
+ * six files the page warms are for a view a visitor may never open.
  *
  * The element type is derived rather than widened to `string`, deliberately: a
  * site that only compiles because an app MIGHT exist is a site that goes on

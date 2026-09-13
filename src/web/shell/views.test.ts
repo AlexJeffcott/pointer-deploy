@@ -26,7 +26,8 @@ describe("placement", () => {
   // that is NOT on the route a visitor lands on. Warming a file the landing
   // page is about to import buys nothing, which is why nothing measured the
   // warm while `list` was the only unit. Step 5 makes it two of three, so the
-  // page warms two bundles and this reading is a count rather than a name.
+  // page warms four files for views a visitor may never open, out of the six
+  // it warms in all. This reading is a count rather than a name.
   it("places two units somewhere a visitor does not land", () => {
     expect(VIEWS["/"]!.apps).not.toContain("board");
     expect(VIEWS["/"]!.apps).not.toContain("week");

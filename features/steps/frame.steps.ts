@@ -2,10 +2,11 @@
 // browser is asked to fetch for them.
 //
 // `PLAN.md` step 0 made this claim about all five routes. Step 1 places `list`
-// on `/` and step 4 places `board` on `/board`, so the subject is the THREE that
-// still name none - and the claim gains teeth rather than losing them: with
-// units in the tree, "nothing is fetched" is a difference between two views
-// rather than a property of an empty build.
+// on `/`, step 4 places `board` on `/board` and step 5 places `week` on
+// `/week`, so the subject is the TWO that name none - and the claim gains teeth
+// rather than losing them: with units in the tree, "nothing is fetched" is a
+// difference between two views rather than a property of an empty build. The
+// slate is finished at step 5, so two is the number this stays at.
 //
 // Two halves, and they fail differently. What the served page NAMES is read off
 // the HTML. What a browser FETCHES while walking the sidenav is counted from
