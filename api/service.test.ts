@@ -4,13 +4,13 @@ import {
   ROUTES,
   SERVES,
   answered,
-  createState,
   deprecationHeaders,
   deprecationsFor,
   discovery,
   handle,
   parseDeprecations,
 } from "./service.ts";
+import { memoryStore } from "./store.ts";
 
 const get = (path: string) => new Request(`http://api.test${path}`);
 const post = (path: string, body: unknown) =>
@@ -24,7 +24,7 @@ const bodyOf = async (res: Response) => (await res.json()) as Record<string, unk
 
 describe("the discovery document", () => {
   test("names every version this build answers", async () => {
-    const res = await handle(get("/versions"), createState());
+    const res = await handle(get("/versions"), memoryStore());
     expect(res.status).toBe(200);
     // `serves` keeps its shape whatever else is added beside it. A shell
     // published before §26 reads this member and no other, so changing it is
@@ -37,7 +37,7 @@ describe("the discovery document", () => {
     expect(Object.keys(doc.versions as object)).toEqual(["v1"]);
     const v1 = (doc.versions as Record<string, { fields: unknown[]; routes: unknown[] }>).v1!;
     expect(v1.fields).toEqual(FIELDS.v1!);
-    expect(v1.routes).toContainEqual({ method: "GET", path: "/v1/greeting" });
+    expect(v1.routes).toContainEqual({ method: "POST", path: "/v1/snapshots" });
   });
 
   test("a version it does not answer is not described", () => {
@@ -47,24 +47,24 @@ describe("the discovery document", () => {
 
   test("a field going away is said on the field, not beside it", () => {
     const going = {
-      path: "greeting.audience",
+      path: "snapshot.tasks",
       since: "2026-09-10",
       sunset: "2026-12-10",
-      reason: "the audience moves onto the visitor",
+      reason: "a planner stores more than tasks",
       instead: null,
     };
     const v1 = (discovery(["v1"], [going]).versions as Record<string, { fields: Record<string, unknown>[] }>).v1!;
-    expect(v1.fields.find((f) => f.path === "greeting.audience")).toEqual({
-      path: "greeting.audience",
-      type: "string",
+    expect(v1.fields.find((f) => f.path === "snapshot.tasks")).toEqual({
+      path: "snapshot.tasks",
+      type: "array",
       deprecated: {
         since: "2026-09-10",
         sunset: "2026-12-10",
-        reason: "the audience moves onto the visitor",
+        reason: "a planner stores more than tasks",
         instead: null,
       },
     });
-    expect(v1.fields.find((f) => f.path === "greeting.text")).not.toHaveProperty("deprecated");
+    expect(v1.fields.find((f) => f.path === "snapshot.createdAt")).not.toHaveProperty("deprecated");
   });
 });
 
@@ -73,10 +73,10 @@ describe("the operator's decision, read from the environment", () => {
   const one = (over: Record<string, unknown> = {}) =>
     JSON.stringify([
       {
-        path: "greeting.audience",
+        path: "snapshot.tasks",
         since: "2026-09-10",
         sunset: "2026-12-10",
-        reason: "the audience moves onto the visitor",
+        reason: "a planner stores more than tasks",
         instead: null,
         ...over,
       },
@@ -90,15 +90,15 @@ describe("the operator's decision, read from the environment", () => {
   test("a well-formed entry is read", () => {
     expect(parseDeprecations(one(), known)).toEqual([
       {
-        path: "greeting.audience",
+        path: "snapshot.tasks",
         since: "2026-09-10",
         sunset: "2026-12-10",
-        reason: "the audience moves onto the visitor",
+        reason: "a planner stores more than tasks",
         instead: null,
       },
     ]);
-    expect(parseDeprecations(one({ instead: "greeting.text" }), known)[0]!.instead).toBe(
-      "greeting.text",
+    expect(parseDeprecations(one({ instead: "snapshot.createdAt" }), known)[0]!.instead).toBe(
+      "snapshot.createdAt",
     );
   });
 
@@ -107,10 +107,10 @@ describe("the operator's decision, read from the environment", () => {
   // who set the variable cannot tell that from a service that read it.
   test("a value this service cannot act on stops it, and says which part", () => {
     expect(() => parseDeprecations("{", known)).toThrow(/is not JSON/);
-    expect(() => parseDeprecations('{"path":"greeting.audience"}', known)).toThrow(/is not an array/);
+    expect(() => parseDeprecations('{"path":"snapshot.tasks"}', known)).toThrow(/is not an array/);
     expect(() => parseDeprecations("[1]", known)).toThrow(/\[0\] is not an object/);
-    expect(() => parseDeprecations(one({ path: "greeting.audiance" }), known)).toThrow(
-      /names greeting\.audiance, which this service does not answer/,
+    expect(() => parseDeprecations(one({ path: "snapshot.tasksss" }), known)).toThrow(
+      /names snapshot\.tasksss, which this service does not answer/,
     );
     expect(() => parseDeprecations(one({ reason: "  " }), known)).toThrow(/has to say why/);
     expect(() => parseDeprecations(one({ sunset: "10-12-2026" }), known)).toThrow(
@@ -136,25 +136,25 @@ describe("the operator's decision, read from the environment", () => {
 
 describe("what a response says about a field that is going away", () => {
   const audience = {
-    path: "greeting.audience",
+    path: "snapshot.tasks",
     since: "2026-09-10",
     sunset: "2026-12-10",
-    reason: "the audience moves onto the visitor",
+    reason: "a planner stores more than tasks",
     instead: null,
   };
   const text = {
-    path: "greeting.text",
+    path: "snapshot.createdAt",
     since: "2026-09-10",
     sunset: "2026-10-01",
-    reason: "the text moves to a translated resource",
+    reason: "the stamp moves onto the document",
     instead: null,
   };
 
   test("a deprecation reaches the responses that carry the field", () => {
-    expect(deprecationsFor("greeting", [audience])).toEqual([audience]);
-    expect(deprecationsFor("greeting", [audience, text])).toEqual([audience, text]);
+    expect(deprecationsFor("snapshot", [audience])).toEqual([audience]);
+    expect(deprecationsFor("snapshot", [audience, text])).toEqual([audience, text]);
     expect(deprecationsFor("nothing", [audience])).toEqual([]);
-    expect(deprecationsFor("greeting", [])).toEqual([]);
+    expect(deprecationsFor("snapshot", [])).toEqual([]);
   });
 
   test("the two headers are the two RFCs, and the dates are the field's", () => {
@@ -178,102 +178,292 @@ describe("what a response says about a field that is going away", () => {
   });
 
   test("a page on another origin is allowed to read them", async () => {
-    const res = await handle(get("/v1/greeting"), createState());
+    const res = await handle(get("/v1/slots/nope"), memoryStore());
     const exposed = res.headers.get("access-control-expose-headers") ?? "";
     expect(exposed).toContain("sunset");
     expect(exposed).toContain("deprecation");
   });
 
   test("health depends on nothing", async () => {
-    const res = await handle(get("/healthz"), createState());
+    const res = await handle(get("/healthz"), memoryStore());
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
   });
 });
 
-describe("the greeting", () => {
-  const bodyAfter = async (patch: unknown, state = createState()) =>
-    bodyOf(await handle(post("/v1/greeting", patch), state));
 
-  test("starts at a default a page can render before anyone writes", async () => {
-    expect(await bodyOf(await handle(get("/v1/greeting"), createState()))).toEqual({
-      text: "Hello",
-      audience: "world",
-    });
+// `PLAN.md` step 6. The service holds nothing between requests, so every test
+// here hands `handle` a store and reads what is in it afterwards. That is also
+// what `api/Dockerfile` needs: it runs `bun test api` inside the image build,
+// where there is no credential and there should not be one.
+describe("pushing a snapshot", () => {
+  const planner = { format: "pointer-planner", schemaVersion: 1, tasks: [{ id: "a" }] };
+  const push = async (store = memoryStore(), body: unknown = planner) =>
+    handle(post("/v1/snapshots", body), store);
+
+  test("answers 201 with the address, the digest and when it was kept", async () => {
+    const body = await bodyOf(await push());
+    expect(typeof body.snapshot).toBe("string");
+    expect(body.digest).toBe(body.snapshot);
+    expect(typeof body.createdAt).toBe("string");
+    expect(Number.isFinite(Date.parse(body.createdAt as string))).toBe(true);
   });
 
-  test("the text moves and the audience stays", async () => {
-    expect(await bodyAfter({ text: "Bonjour" })).toEqual({ text: "Bonjour", audience: "world" });
+  // The whole of "a snapshot is written under the hash of its own bytes". It
+  // is what makes pushing twice cost one write, and what makes an address a
+  // claim about bytes rather than a name somebody chose.
+  test("the address is the sha256 of the bytes pushed", async () => {
+    const raw = JSON.stringify(planner);
+    const body = await bodyOf(await push());
+    expect(body.digest).toBe(new Bun.CryptoHasher("sha256").update(raw).digest("hex"));
   });
 
-  test("the audience moves and the text stays", async () => {
-    expect(await bodyAfter({ audience: "Berlin" })).toEqual({ text: "Hello", audience: "Berlin" });
+  test("the same planner pushed twice is one address and one object", async () => {
+    const store = memoryStore();
+    const first = await bodyOf(await push(store));
+    const second = await bodyOf(await push(store));
+    expect(second.snapshot).toBe(first.snapshot);
+    expect(store.keys()).toHaveLength(1);
   });
 
-  test("both at once", async () => {
-    expect(await bodyAfter({ text: "Hei", audience: "Oslo" })).toEqual({
-      text: "Hei",
-      audience: "Oslo",
-    });
+  test("two different planners are two addresses", async () => {
+    const store = memoryStore();
+    const a = await bodyOf(await push(store, { ...planner, tasks: [{ id: "a" }] }));
+    const b = await bodyOf(await push(store, { ...planner, tasks: [{ id: "b" }] }));
+    expect(a.snapshot).not.toBe(b.snapshot);
+    expect(store.keys()).toHaveLength(2);
   });
 
-  // Empty is how a greeting is addressed to nobody in particular. It is a
-  // value the page draws, so the route has to accept it.
-  test("an empty audience is accepted, and an empty text is not", async () => {
-    expect(await bodyAfter({ audience: "" })).toEqual({ text: "Hello", audience: "" });
-    expect(await bodyAfter({ text: "" })).toEqual({ error: "text is not a non-empty string" });
+  test("a body that is not a JSON object is refused rather than kept", async () => {
+    const store = memoryStore();
+    expect(await bodyOf(await push(store, "{"))).toEqual({ error: "body is not a JSON object" });
+    expect(await bodyOf(await push(store, [1]))).toEqual({ error: "body is not a JSON object" });
+    expect(store.keys()).toEqual([]);
   });
 
-  test("a field that is not a string is refused, by name", async () => {
-    expect(await bodyAfter({ text: 7 })).toEqual({ error: "text is not a non-empty string" });
-    expect(await bodyAfter({ audience: 7 })).toEqual({ error: "audience is not a string" });
+  // The bucket is written on the strength of one unauthenticated POST, so the
+  // cap is what stands between it and anything worth sending.
+  test("a body longer than the cap is refused, and nothing is written", async () => {
+    const store = memoryStore();
+    const huge = { ...planner, pad: "x".repeat(1024 * 1024 + 1) };
+    const said = await bodyOf(await push(store, huge));
+    expect(String(said.error)).toContain("is longer than");
+    expect(store.keys()).toEqual([]);
+  });
+});
+
+describe("reading a snapshot back", () => {
+  const planner = { format: "pointer-planner", schemaVersion: 1, tasks: [{ id: "a" }] };
+
+  test("the address a push returned reads the planner it pushed", async () => {
+    const store = memoryStore();
+    const pushed = await bodyOf(await handle(post("/v1/snapshots", planner), store));
+    const back = await bodyOf(await handle(get(`/v1/snapshots/${pushed.snapshot}`), store));
+    expect(back.tasks).toEqual(planner.tasks);
+    expect(back.digest).toBe(pushed.digest);
+    expect(back.createdAt).toBe(pushed.createdAt);
   });
 
-  test("a body naming neither field is refused", async () => {
-    expect(await bodyAfter({ salutation: "Hello" })).toEqual({
-      error: "body names no field of the greeting",
-    });
+  test("an address nothing was pushed to is 404", async () => {
+    const missing = "0".repeat(64);
+    const res = await handle(get(`/v1/snapshots/${missing}`), memoryStore());
+    expect(res.status).toBe(404);
   });
 
-  test("a body that is not JSON at all is refused rather than thrown", async () => {
-    expect(await bodyAfter("{")).toEqual({ error: "body is not an object" });
-  });
+  // An id that is not a sha256 cannot address a snapshot this service wrote,
+  // so it is refused by shape rather than looked up. That keeps a bucket read
+  // off the path of anything a stranger types.
+  test.each(["latest", "0".repeat(63), "0".repeat(65), "0".repeat(63) + "G"])(
+    "an address of %p is refused by name",
+    async (bad) => {
+      const res = await handle(get(`/v1/snapshots/${bad}`), memoryStore());
+      expect(await bodyOf(res)).toEqual({ error: "digest is not a sha256" });
+    },
+  );
 
-  test("a body that parses but is not an object is refused", async () => {
-    expect(await bodyAfter([1])).toEqual({ error: "body is not an object" });
-    expect(await bodyAfter(null)).toEqual({ error: "body is not an object" });
-  });
+  // And a path that RESOLVES away before it reaches the router is a plain 404,
+  // because `new URL` normalises it and the route never matches. Measured on
+  // 2026-09-13: `/v1/snapshots/../../etc/passwd` becomes `/etc/passwd` and
+  // `/v1/snapshots/%2e%2e` becomes `/v1/` - the parser decodes AND resolves.
+  // The refusal above is about a digest and this one is about a path this
+  // service does not answer; the first version of this test expected the
+  // wrong one of the two for both.
+  test.each(["../../etc/passwd", "%2e%2e"])(
+    "a traversal of %p resolves away and is a 404, not a digest refusal",
+    async (path) => {
+      const res = await handle(get(`/v1/snapshots/${path}`), memoryStore());
+      expect(res.status).toBe(404);
+      expect(await bodyOf(res)).toEqual({ error: "not found" });
+    },
+  );
 
-  test("a write is what the next read returns", async () => {
-    const state = createState();
-    await handle(post("/v1/greeting", { text: "Hei", audience: "Oslo" }), state);
-    expect(await bodyOf(await handle(get("/v1/greeting"), state))).toEqual({
-      text: "Hei",
-      audience: "Oslo",
-    });
-  });
-
-  test("a write moves the clock the service keeps", async () => {
-    const state = createState();
-    const before = state.changedAt;
-    await Bun.sleep(2);
-    await handle(post("/v1/greeting", { audience: "Berlin" }), state);
-    expect(state.changedAt).not.toBe(before);
-  });
-
-  test("a method this route does not answer is refused, and says so", async () => {
+  test("a method this route does not answer is refused", async () => {
     const res = await handle(
-      new Request("http://api.test/v1/greeting", { method: "DELETE" }),
-      createState(),
+      new Request(`http://api.test/v1/snapshots/${"0".repeat(64)}`, { method: "DELETE" }),
+      memoryStore(),
     );
     expect(res.status).toBe(405);
-    expect(await bodyOf(res)).toEqual({ error: "method not allowed" });
+  });
+});
+
+describe("a slot, and the two capabilities over it", () => {
+  const planner = { format: "pointer-planner", schemaVersion: 1, tasks: [{ id: "a" }] };
+  const mint = async (store: ReturnType<typeof memoryStore>) =>
+    bodyOf(await handle(new Request("http://api.test/v1/slots", { method: "POST" }), store));
+  const move = (slot: string, key: string, snapshot: string) =>
+    new Request(`http://api.test/v1/slots/${slot}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-write-key": key },
+      body: JSON.stringify({ snapshot }),
+    });
+
+  test("minting answers an address and a write key, and holds nothing yet", async () => {
+    const store = memoryStore();
+    const slot = await mint(store);
+    expect(typeof slot.slot).toBe("string");
+    expect(typeof slot.writeKey).toBe("string");
+    expect(slot.slot).not.toBe(slot.writeKey);
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(seen).toEqual({ snapshot: null, history: [] });
+  });
+
+  // The whole of "two capabilities over one resource". A slot file carrying
+  // its own write key would hand the move to every reader, because the id
+  // already grants the read.
+  test("the write key is in the minting response and in nothing else", async () => {
+    const store = memoryStore();
+    const slot = await mint(store);
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(JSON.stringify(seen)).not.toContain(slot.writeKey as string);
+    const stored = (await store.read(`slots/${slot.slot}.json`)) ?? "";
+    expect(stored).not.toContain(slot.writeKey as string);
+    expect(stored).toContain("writeKeyHash");
+  });
+
+  test("two slots are two addresses and two keys", async () => {
+    const store = memoryStore();
+    const a = await mint(store);
+    const b = await mint(store);
+    expect(a.slot).not.toBe(b.slot);
+    expect(a.writeKey).not.toBe(b.writeKey);
+  });
+
+  test("the write key moves the slot, and the move is what the next read gives", async () => {
+    const store = memoryStore();
+    const pushed = await bodyOf(await handle(post("/v1/snapshots", planner), store));
+    const slot = await mint(store);
+    const moved = await handle(move(slot.slot as string, slot.writeKey as string, pushed.snapshot as string), store);
+    expect(moved.status).toBe(200);
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(seen.snapshot).toBe(pushed.snapshot);
+  });
+
+  test("without the write key the slot does not move, and the refusal is 403", async () => {
+    const store = memoryStore();
+    const pushed = await bodyOf(await handle(post("/v1/snapshots", planner), store));
+    const slot = await mint(store);
+    for (const offered of ["", "not-the-key", (slot.slot as string)]) {
+      const res = await handle(move(slot.slot as string, offered, pushed.snapshot as string), store);
+      expect(`${JSON.stringify(offered)} ${res.status}`).toBe(`${JSON.stringify(offered)} 403`);
+    }
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(seen.snapshot).toBeNull();
+  });
+
+  // 403 and not 404. The id already granted the read, so pretending the slot
+  // is missing would tell its holder something false about their own slot.
+  test("a slot that exists says the key is wrong rather than that it is missing", async () => {
+    const store = memoryStore();
+    const slot = await mint(store);
+    const res = await handle(move(slot.slot as string, "wrong", "0".repeat(64)), store);
+    expect(res.status).toBe(403);
+    expect(await bodyOf(res)).toEqual({ error: "the write key does not move this slot" });
+  });
+
+  test("a slot nothing minted is 404, on read and on move alike", async () => {
+    const store = memoryStore();
+    expect((await handle(get("/v1/slots/nope"), store)).status).toBe(404);
+    expect((await handle(move("nope", "any", "0".repeat(64)), store)).status).toBe(404);
+  });
+
+  test("a slot id that is not an id is refused by shape", async () => {
+    const res = await handle(get("/v1/slots/..%2F..%2Fetc"), memoryStore());
+    expect(await bodyOf(res)).toEqual({ error: "slot is not a slot id" });
+  });
+
+  test("a slot cannot be moved to a snapshot this service does not hold", async () => {
+    const store = memoryStore();
+    const slot = await mint(store);
+    const res = await handle(move(slot.slot as string, slot.writeKey as string, "0".repeat(64)), store);
+    expect(await bodyOf(res)).toEqual({
+      error: "snapshot names no snapshot this service holds",
+    });
+  });
+
+  test("a move to something that is not a digest is refused by name", async () => {
+    const store = memoryStore();
+    const slot = await mint(store);
+    const res = await handle(move(slot.slot as string, slot.writeKey as string, "latest"), store);
+    expect(await bodyOf(res)).toEqual({ error: "snapshot is not a sha256" });
+  });
+});
+
+// `PLAN.md` step 8 restores from this, by the same mechanism the pointer rolls
+// back by: an older id is named and the slot moves to it.
+describe("what a slot held before", () => {
+  const planner = (n: number) => ({ format: "pointer-planner", schemaVersion: 1, tasks: [{ id: `t${n}` }] });
+
+  const moved = async () => {
+    const store = memoryStore();
+    const slot = await bodyOf(
+      await handle(new Request("http://api.test/v1/slots", { method: "POST" }), store),
+    );
+    const put = async (snapshot: string) =>
+      handle(
+        new Request(`http://api.test/v1/slots/${slot.slot}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-write-key": slot.writeKey as string },
+          body: JSON.stringify({ snapshot }),
+        }),
+        store,
+      );
+    const digests: string[] = [];
+    for (const n of [1, 2, 3]) {
+      const pushed = await bodyOf(await handle(post("/v1/snapshots", planner(n)), store));
+      digests.push(pushed.snapshot as string);
+      await put(pushed.snapshot as string);
+    }
+    return { store, slot, digests, put };
+  };
+
+  test("the history is what it held before, newest first", async () => {
+    const { store, slot, digests } = await moved();
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(seen.snapshot).toBe(digests[2]);
+    expect(seen.history).toEqual([digests[1], digests[0]]);
+  });
+
+  test("moving to what it already holds writes no history entry", async () => {
+    const { store, slot, digests, put } = await moved();
+    await put(digests[2]!);
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(seen.history).toEqual([digests[1], digests[0]]);
+  });
+
+  // Restoring is naming an older digest, and the one being left goes to the
+  // front. The history is a record of what was served, not a stack.
+  test("moving back to an older snapshot records the one it is leaving", async () => {
+    const { store, slot, digests, put } = await moved();
+    await put(digests[0]!);
+    const seen = await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store));
+    expect(seen.snapshot).toBe(digests[0]);
+    expect(seen.history).toEqual([digests[2], digests[1], digests[0]]);
   });
 });
 
 describe("what a browser needs before it hands over a body", () => {
   test("a read carries the cross-origin headers", async () => {
-    const res = await handle(get("/v1/greeting"), createState());
+    const res = await handle(get("/v1/slots/nope"), memoryStore());
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("content-type")).toContain("application/json");
@@ -281,8 +471,8 @@ describe("what a browser needs before it hands over a body", () => {
 
   test("a preflight is answered with the methods and the header the write uses", async () => {
     const res = await handle(
-      new Request("http://api.test/v1/greeting", { method: "OPTIONS" }),
-      createState(),
+      new Request("http://api.test/v1/slots", { method: "OPTIONS" }),
+      memoryStore(),
     );
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-methods")).toContain("POST");
@@ -292,29 +482,50 @@ describe("what a browser needs before it hands over a body", () => {
 
 test("the routes it answers are exactly the versions it advertises", async () => {
   for (const v of SERVES) {
-    expect((await handle(get(`/${v}/greeting`), createState())).status).toBe(200);
+    expect((await handle(get(`/${v}/slots/nope`), memoryStore())).status).toBe(404);
   }
-  expect((await handle(get("/v0/greeting"), createState())).status).toBe(404);
+  // A version this build does not serve is a 404 on the VERSION, which reads
+  // the same as a missing slot here - so the discovery document is what says
+  // which it was, and the next test reads it.
+  expect((await handle(get("/v0/slots/nope"), memoryStore())).status).toBe(404);
 });
 
 test("a path this service does not answer is a 404, not a guess", async () => {
-  const res = await handle(get("/v2/greeting"), createState());
+  const res = await handle(get("/v2/snapshots"), memoryStore());
   expect(res.status).toBe(404);
   expect(await bodyOf(res)).toEqual({ error: "not found" });
 
-  const inside = await handle(get("/v1/greeting/extra"), createState());
+  const inside = await handle(get("/v1/nothing-here"), memoryStore());
   expect(inside.status).toBe(404);
 });
 
+// The document is a promise, and this is the reading that holds it to it.
 test("every route the document names answers, and every field it names is returned", async () => {
-  const state = createState();
-  for (const route of ROUTES.v1!) {
-    if (route.method !== "GET") continue;
-    const res = await handle(get(`/v1${route.path}`), state);
-    expect(`${route.path} ${res.status}`).toBe(`${route.path} 200`);
-  }
-  const body = await bodyOf(await handle(get("/v1/greeting"), state));
+  const store = memoryStore();
+  const planner = { format: "pointer-planner", schemaVersion: 1, tasks: [] };
+  const pushed = await bodyOf(await handle(post("/v1/snapshots", planner), store));
+  const slot = await bodyOf(
+    await handle(new Request("http://api.test/v1/slots", { method: "POST" }), store),
+  );
+  await handle(
+    new Request(`http://api.test/v1/slots/${slot.slot}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-write-key": slot.writeKey as string },
+      body: JSON.stringify({ snapshot: pushed.snapshot }),
+    }),
+    store,
+  );
+
+  const bodies: Record<string, Record<string, unknown>> = {
+    snapshot: await bodyOf(await handle(get(`/v1/snapshots/${pushed.snapshot}`), store)),
+    slot: await bodyOf(await handle(get(`/v1/slots/${slot.slot}`), store)),
+  };
   for (const f of FIELDS.v1!) {
-    expect(`${f.path} ${f.path.split(".")[1]! in body}`).toBe(`${f.path} true`);
+    const [top, field] = f.path.split(".") as [string, string];
+    expect(`${f.path} ${field in (bodies[top] ?? {})}`).toBe(`${f.path} true`);
+  }
+  // And every route it names is a route, rather than a path nobody serves.
+  for (const route of ROUTES.v1!) {
+    expect(`${route.method} ${route.path}`).toMatch(/^(GET|POST|PUT) \/(snapshots|slots)/);
   }
 });

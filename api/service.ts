@@ -17,9 +17,29 @@
 // a warning, never a refusal - and for the same reason: a page that stops
 // working on the day a field is deprecated is worse than the fault it reports.
 //
-// One resource, and that is the point of the slate: the machinery above is
-// what this service is for, and the greeting is the smallest thing it can
-// carry that a page can draw and an operator can change.
+// TWO resources, `PLAN.md` step 6, and the machinery above is still what this
+// service is for. `greeting` was the smallest thing it could carry while the
+// slate had no data to move; snapshots and slots are what it carries now.
+//
+// **The service holds nothing between requests.** It holds a bucket key, and
+// the bucket holds the snapshots. That is why `handle` takes a `Store` where
+// it used to take an `ApiState`, and why `api/fly.toml` no longer has to keep
+// a machine up to protect state in memory.
+//
+// The same mechanism as the pointer, applied twice:
+//
+//   a snapshot   written under the hash of its own bytes, never overwritten,
+//                permanent. Like `units/<name>/<id>/`.
+//   a slot       a small JSON file naming one snapshot. Like
+//                `manifests/<region>/<channel>.json`.
+//
+// Two capabilities over one resource. Holding the SLOT ID grants read: the
+// slot, and every snapshot it names. Holding the WRITE KEY grants the move.
+// There is no account, no login and no user record anywhere, and a page that
+// shares a planner says in those words that anyone holding the slot id can
+// read it.
+
+import type { Store } from "./store.ts";
 
 export const SERVES: string[] = (Bun.env.API_SERVES ?? "v1")
   .split(",")
@@ -27,23 +47,31 @@ export const SERVES: string[] = (Bun.env.API_SERVES ?? "v1")
   .filter(Boolean);
 
 /**
- * What the page greets, and who it greets.
+ * A snapshot, as this version returns one.
  *
- * Two fields rather than one. A single field could be deprecated and never
- * replaced, so the service could publish no `instead` that means anything -
- * and the notice period is the part of §26 worth having.
+ * `snapshot` is the id and `digest` is what the id is - the same value twice,
+ * and deliberately. The id is an ADDRESS a page holds and passes around; the
+ * digest is a claim about the bytes. Step 8 restores an older snapshot by
+ * naming a digest, and step 12 rolls a unit back by naming an id, which is the
+ * same sentence about two things.
+ *
+ * `tasks` is the field step 13 retires in favour of `document`, because a
+ * planner stores more than tasks once it stores anything. It is declared in
+ * `FIELDS` so `API_DEPRECATED` can name it with no code change at all.
  */
-export type ApiGreeting = { text: string; audience: string };
-
-export type ApiState = {
-  greeting: ApiGreeting;
-  changedAt: string;
+export type ApiSnapshot = {
+  snapshot: string;
+  digest: string;
+  createdAt: string;
+  tasks: unknown;
 };
 
-export const createState = (): ApiState => ({
-  greeting: { text: "Hello", audience: "world" },
-  changedAt: new Date().toISOString(),
-});
+/** A slot, as this version returns one. The write key is never in it. */
+export type ApiSlot = {
+  snapshot: string | null;
+  /** Every snapshot this slot held before, newest first. */
+  history: readonly string[];
+};
 
 /** What one version of this service returns. Declared, not measured. */
 export type ApiField = { path: string; type: string };
@@ -51,15 +79,22 @@ export type ApiRoute = { method: string; path: string };
 
 export const FIELDS: Record<string, ApiField[]> = {
   v1: [
-    { path: "greeting.text", type: "string" },
-    { path: "greeting.audience", type: "string" },
+    { path: "snapshot.snapshot", type: "string" },
+    { path: "snapshot.digest", type: "string" },
+    { path: "snapshot.createdAt", type: "string" },
+    { path: "snapshot.tasks", type: "array" },
+    { path: "slot.snapshot", type: "string" },
+    { path: "slot.history", type: "array" },
   ],
 };
 
 export const ROUTES: Record<string, ApiRoute[]> = {
   v1: [
-    { method: "GET", path: "/greeting" },
-    { method: "POST", path: "/greeting" },
+    { method: "POST", path: "/snapshots" },
+    { method: "GET", path: "/snapshots/:digest" },
+    { method: "POST", path: "/slots" },
+    { method: "GET", path: "/slots/:slot" },
+    { method: "PUT", path: "/slots/:slot" },
   ],
 };
 
@@ -259,17 +294,60 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
 
 const refuse = (field: string, why: string) => json({ error: `${field} ${why}` }, 400);
 
-const str = (value: unknown): string | null =>
-  typeof value === "string" && value.length > 0 ? value : null;
-
-const readBody = async (req: Request): Promise<Record<string, unknown> | null> => {
-  const body = (await req.json().catch(() => null)) as unknown;
-  return body && typeof body === "object" && !Array.isArray(body)
-    ? (body as Record<string, unknown>)
-    : null;
+/**
+ * An address nobody can guess, in the alphabet a URL and a JSON string share.
+ *
+ * `crypto.getRandomValues` and not `Math.random`: a slot id is the ONLY thing
+ * standing between a planner and a stranger, because holding it is what grants
+ * read. 16 bytes for an id and 32 for a write key, base64url so neither needs
+ * escaping anywhere it is carried.
+ */
+const secret = (bytes: number): string => {
+  const raw = new Uint8Array(bytes);
+  crypto.getRandomValues(raw);
+  return Buffer.from(raw).toString("base64url");
 };
 
-export async function handle(req: Request, state: ApiState): Promise<Response> {
+/** The sha256 of some bytes, hex. What a snapshot is written under. */
+const digestOf = (body: string): string =>
+  new Bun.CryptoHasher("sha256").update(body).digest("hex");
+
+/**
+ * The write key, as the slot file holds it.
+ *
+ * The HASH and never the key. `GET /slots/:slot` returns the slot to anyone
+ * holding the id - that is the read capability - so a slot file carrying its
+ * own write key would hand the move to every reader and collapse the two
+ * capabilities into one.
+ */
+const keyHash = (key: string): string =>
+  new Bun.CryptoHasher("sha256").update(key).digest("hex");
+
+/** What a slot file holds. Not what `GET` returns: that omits `writeKeyHash`. */
+type StoredSlot = {
+  snapshot: string | null;
+  history: string[];
+  writeKeyHash: string;
+  createdAt: string;
+};
+
+const snapshotKey = (digest: string) => `snapshots/${digest}.json`;
+const slotKey = (slot: string) => `slots/${slot}.json`;
+
+/** Ids this service mints, and the only shape it will look up. */
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+const DIGEST = /^[0-9a-f]{64}$/;
+
+/**
+ * A body, read once and no larger than a planner.
+ *
+ * A cap rather than none, because the bucket is written on the strength of one
+ * unauthenticated POST. 1 MiB is far above any planner this application makes
+ * and far below a payload worth sending.
+ */
+const MAX_BODY = 1024 * 1024;
+
+export async function handle(req: Request, store: Store): Promise<Response> {
   const url = new URL(req.url);
   const { pathname } = url;
 
@@ -286,31 +364,140 @@ export async function handle(req: Request, state: ApiState): Promise<Response> {
 
   const going = (top: string) => deprecationHeaders(deprecationsFor(top), url.origin);
 
-  if (rest === "/greeting") {
-    if (req.method === "GET") return json(state.greeting, 200, going("greeting"));
-    if (req.method === "POST") {
-      const body = await readBody(req);
-      if (!body) return refuse("body", "is not an object");
-      const named = ["text", "audience"].filter((f) => f in body);
-      if (named.length === 0) return refuse("body", "names no field of the greeting");
+  if (rest === "/snapshots" && req.method === "POST") {
+    const raw = await req.text();
+    if (raw.length > MAX_BODY) return refuse("body", `is longer than ${MAX_BODY} bytes`);
+    const body = parseObject(raw);
+    if (!body) return refuse("body", "is not a JSON object");
 
-      const text = "text" in body ? str(body.text) : null;
-      if ("text" in body && text === null) return refuse("text", "is not a non-empty string");
+    // Written under the hash of its own bytes, so pushing the same planner
+    // twice is the same address and costs one write. Never overwritten: the
+    // bytes at a digest ARE that digest, so a second write of them changes
+    // nothing and a write of anything else would be a different address.
+    const digest = digestOf(raw);
+    const created = new Date().toISOString();
+    if (!(await store.has(snapshotKey(digest)))) {
+      await store.write(snapshotKey(digest), JSON.stringify({ createdAt: created, body }));
+    }
+    const held = await readSnapshot(store, digest);
+    if (!held) return json({ error: "the snapshot was not kept" }, 500, going("snapshot"));
+    return json(held, 201, going("snapshot"));
+  }
 
-      // Empty is a legitimate audience: it is how a greeting is addressed to
-      // nobody in particular, so it is checked for type and not for length.
-      let audience = state.greeting.audience;
-      if ("audience" in body) {
-        if (typeof body.audience !== "string") return refuse("audience", "is not a string");
-        audience = body.audience;
+  const snapshot = /^\/snapshots\/(.+)$/.exec(rest);
+  if (snapshot) {
+    if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+    const digest = snapshot[1]!;
+    if (!DIGEST.test(digest)) return refuse("digest", "is not a sha256");
+    const held = await readSnapshot(store, digest);
+    if (!held) return json({ error: "not found" }, 404);
+    return json(held, 200, going("snapshot"));
+  }
+
+  if (rest === "/slots" && req.method === "POST") {
+    // No body. A slot is an empty address: it is minted, and then moved. That
+    // keeps minting and moving two acts, so the write key exists before
+    // anything is at the address it protects.
+    const slot = secret(16);
+    const writeKey = secret(32);
+    const stored: StoredSlot = {
+      snapshot: null,
+      history: [],
+      writeKeyHash: keyHash(writeKey),
+      createdAt: new Date().toISOString(),
+    };
+    await store.write(slotKey(slot), JSON.stringify(stored));
+    // The ONE response that carries the write key. It is not stored, it is not
+    // in any GET, and it cannot be recovered - which is said on the page that
+    // asks for it rather than left to be discovered.
+    return json({ slot, writeKey }, 201, going("slot"));
+  }
+
+  const slotRoute = /^\/slots\/(.+)$/.exec(rest);
+  if (slotRoute) {
+    const slot = slotRoute[1]!;
+    if (!ID.test(slot)) return refuse("slot", "is not a slot id");
+    const stored = await readSlot(store, slot);
+    if (!stored) return json({ error: "not found" }, 404);
+
+    if (req.method === "GET") {
+      // `writeKeyHash` and `createdAt` are not in it. Holding the id grants
+      // read of the slot and of every snapshot it names, and nothing else.
+      const seen: ApiSlot = { snapshot: stored.snapshot, history: [...stored.history] };
+      return json(seen, 200, going("slot"));
+    }
+
+    if (req.method === "PUT") {
+      const offered = req.headers.get("x-write-key") ?? "";
+      // Compared as HASHES, and refused with 403 rather than 404. The slot's
+      // existence is not the secret - the id already granted read - so
+      // pretending it is missing would tell a holder of the id something
+      // false about their own slot.
+      if (!offered || keyHash(offered) !== stored.writeKeyHash) {
+        return json({ error: "the write key does not move this slot" }, 403);
+      }
+      const body = parseObject(await req.text());
+      if (!body) return refuse("body", "is not a JSON object");
+      const named = typeof body.snapshot === "string" ? body.snapshot : "";
+      if (!DIGEST.test(named)) return refuse("snapshot", "is not a sha256");
+      if (!(await store.has(snapshotKey(named)))) {
+        return refuse("snapshot", "names no snapshot this service holds");
       }
 
-      state.greeting = { text: text ?? state.greeting.text, audience };
-      state.changedAt = new Date().toISOString();
-      return json(state.greeting, 200, going("greeting"));
+      // The id it held goes to the front of the history, and the history is
+      // what step 8 restores from. A move to the snapshot it already names
+      // writes no history entry: nothing moved.
+      const history =
+        stored.snapshot && stored.snapshot !== named
+          ? [stored.snapshot, ...stored.history]
+          : [...stored.history];
+      const next: StoredSlot = { ...stored, snapshot: named, history };
+      await store.write(slotKey(slot), JSON.stringify(next));
+      const seen: ApiSlot = { snapshot: next.snapshot, history: [...next.history] };
+      return json(seen, 200, going("slot"));
     }
+
     return json({ error: "method not allowed" }, 405);
   }
 
   return json({ error: "not found" }, 404);
 }
+
+/** One snapshot out of the bucket, as this version returns it. */
+async function readSnapshot(store: Store, digest: string): Promise<ApiSnapshot | null> {
+  const raw = await store.read(snapshotKey(digest));
+  if (raw === null) return null;
+  const held = parseObject(raw);
+  if (!held) return null;
+  const body = held.body as Record<string, unknown> | undefined;
+  return {
+    snapshot: digest,
+    digest,
+    createdAt: typeof held.createdAt === "string" ? held.createdAt : "",
+    tasks: body?.tasks ?? [],
+  };
+}
+
+async function readSlot(store: Store, slot: string): Promise<StoredSlot | null> {
+  const raw = await store.read(slotKey(slot));
+  if (raw === null) return null;
+  const held = parseObject(raw);
+  if (!held) return null;
+  return {
+    snapshot: typeof held.snapshot === "string" ? held.snapshot : null,
+    history: Array.isArray(held.history) ? held.history.filter((h) => typeof h === "string") : [],
+    writeKeyHash: typeof held.writeKeyHash === "string" ? held.writeKeyHash : "",
+    createdAt: typeof held.createdAt === "string" ? held.createdAt : "",
+  };
+}
+
+const parseObject = (raw: string): Record<string, unknown> | null => {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+};

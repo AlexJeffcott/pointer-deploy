@@ -19,11 +19,16 @@ primary_region = "ams"
   internal_port = 8080
   force_https = true
   auto_start_machines = true
-  # Not "suspend", and not zero machines. The state is in memory, so a machine
-  # that stopped would answer the next request with a default name and no
-  # counters - a data loss dressed as a cold start.
-  auto_stop_machines = "off"
-  min_machines_running = 1
+  # `PLAN.md` step 6 made this service stateless: it holds a bucket key, and
+  # the bucket holds the snapshots. Nothing is in memory between requests, so
+  # a machine that stops loses nothing and the next request starts one.
+  #
+  # It said `off` with `min_machines_running = 1` until then, and the comment
+  # gave the reason: the state was in memory, so a stopped machine would have
+  # answered with a default greeting and no counters - a data loss dressed as
+  # a cold start. That reason is gone with the greeting.
+  auto_stop_machines = "suspend"
+  min_machines_running = 0
 
   [[http_service.checks]]
     interval = "15s"
