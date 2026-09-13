@@ -54,6 +54,18 @@ bun run pr                               # the review URLs and both sets of shot
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
 
+**§42 and §44 closed on 2026-09-13, and building each one refuted a sentence about it.**
+
+§42 asked for a `BeforeAll` that names a split test channel instead of letting 41 Backgrounds fail on it. Built, and then arranged - `bun run verify:split`, 10 readings: it splits `test-prod`, the check reports it naming the channel, the unit that differs and the promote that fixes it, that printed command is run as printed, and both regions serve what the base served before. The reading is once per WORKER and not once per run, and a sentence claimed the second until the same cold read: Playwright discards a worker after a failing job, so a split channel prints the report again for each feature file that meets it. The arrangement found a defect in the check itself - it ran before `recordRealChannels`, so `AfterAll` threw a SECOND error about the deploy guard not running, and a person met two errors where the whole point is one. The order is swapped.
+
+§44 asked for `indexedDB.deleteDatabase("pointer-planner")` in the browser world's setup. **That step hangs the case it exists for.** Measured with two pages in one browser context: a delete issued while another page holds the database open is blocked, deletes nothing, and queues every later `open` on that name behind it - so the second page's shell never got a connection and the panel sat on "Reading the planner…". What is built instead is the reading, `indexedDB.databases()`, which opens nothing and blocks nothing. `bun run verify:cold` is the arrangement, 11 readings, and it RE-RUNS the refutation rather than quoting it: it issues the specified delete while the first page holds the database open and reads back `blocked` and a database still there. The same script also shows the shape where the delete WOULD have worked - a page that has closed holds nothing open - so the refutation is about the concurrent shape and not about the step being useless everywhere.
+
+**A cold read by `devils-advocate-agent` on 2026-09-13 found twelve items on that branch, and the first of them was the alarm.** `runUnitTest` in `falsify.ts` spawned `bun test src/server src/web scripts` while `package.json` names five homes, so the three mutations aimed at `features/support/__tests__/cold-planner.test.ts` ran against a `bun test` that could not load them. Bun exits 1 with `matched 0 tests`; `code === 0` is false; falsify counted all three CAUGHT. That is §35's trap reached from the other side - a check that never ran, reported as a check that went red - and it would have hidden any future `unitTest` mutation aimed at `api/` or `features/support`. Fixed, and the whole array re-run: 111 of 175, each caught, so no other mutation was vacuous.
+
+What else it found, all fixed on the branch: `readProbe("")` was 0 and `readProbe("0x10")` was 16, because `Number` reads both - so an empty reading was "cold" and the test that covered it happened to pick three strings `Number` also rejects; `usePage` was not awaited in the `@browser` hook, so the probe's installation raced the first navigation and a probe that missed it fails silently open; the recovery command could not fix a unit only the split region serves, because a promote MERGES and that needs `--drop` - the one case the message already describes in words; a sentence claimed `regionDrift` needs its `known.length < 2` guard and `splitChannelReport` does not, which is false of both - each is a TYPE guard, and one was deleted on a reachability argument that cuts the other way; a three-line branch about a base region with no pointer could not be produced by any valid input and was reachable only through an unchecked cast, so `REGION` is validated now and the branch is one line; two of the eight §42 tests were named for behaviour their own bodies contradicted; the advice in the cold-planner message named `fullyParallel` and a worker count, neither of which can share a context - more workers is more isolation; one of `verify:cold`'s nine readings was `check(true, ...)`; and `verify:cold` had no refusal when the composition places no `list`, so it died on a 30 s selector timeout instead.
+
+**Both items were the shape the memory calls a check that cannot reach its state.** A mutation removing either hook stays green, because no test channel is split and no context is reused while the suite is healthy. So the MESSAGE in each was made a pure function with its own tests and its own mutations - 11 tests and 4 mutations for §42, 29 and 3 for §44 - and the hook around it is measured by a committed script that arranges the state: `bun run verify:split` and `bun run verify:cold`. `~/projects/CLAUDE.md` asks for the artefact next to the feature and runnable in one command, and §42 had only prose until a cold read said so.
+
 **`PLAN.md` step 5 landed on 2026-09-13, and the slate's unit list is finished.** `week` is the fourth unit and the second placed off the landing route: `/week` draws seven days, Monday to Sunday, and every task that has a date. `setDue` is its own member and nothing else calls it, so each of the three sub-apps now holds at least one member the other two do not - which is what step 10 needs in order to refuse ONE unit and name it. The contract is `9e59f0c`, additive over `f766e10`, and **both** `list` and `board` came out of the build with the ids they already had: a fourth unit arrived and two published bundles did not move. Twenty mutations were added, seven `@local` and thirteen `@browser`, and all twenty are caught. Eight of the sixteen scenarios still have none of their own, which is the reading a count of mutations does not give.
 
 **§35's guard fired twice on the step 5 branch, which is its second and third real use.** Both times a mutation was written as a cut and the cut stopped the build rather than the check: `onPick(held)` left the chosen value assigned and read by nothing, and `outside && false` has type `false`, so tsc dropped the narrowing that made `held` a string and the build failed with TS2322. Both are re-aimed to keep the value read, and both are caught. A mutation that does not compile is reported as caught by a check that never ran, which is the thing that guard exists to refuse.
@@ -143,18 +155,6 @@ So a hand-edited file carrying `"createdAt": "yesterday"` is accepted and reorde
 | The fix for `exportedAt` | Either read it - refuse a file with no stamp - or stop declaring it required. A field a document must carry and nothing checks is a field a writer can omit with no consequence |
 | Why not at step 3, or at step 5 | Both are new rules on a door step 3 built, and neither is reachable from a file this application writes. `due` was different: `week` gave it a reader, so a value that is not a date became a task on no day of the week rather than a field nothing looks at. These two still have no reader. They belong with step 6, which adds two more doors to the same rule |
 
-### 44. A cold-state step the plan specified and nothing built
-
-**Found by `devils-advocate-agent` on 2026-09-11.** `PLAN.md`'s "What this costs the suite" says `indexedDB.deleteDatabase("pointer-planner")` goes in the browser world's setup, "once, so no scenario can forget it", with one `falsify` mutation that removes it and a named scenario that must go red. `deleteDatabase` appears nowhere outside that table. Step 2 did not build it and step 3 did not notice.
-
-Every browser scenario does start cold, because Playwright gives each test a fresh context and IndexedDB is per profile. That is a DEFAULT and not a decision: nothing in this repository asserts it, and `workers: 1` and `fullyParallel: false` are set for the pointer rather than for the planner.
-
-| | |
-| --- | --- |
-| What it costs today | Nothing measurable. The isolation holds |
-| What it costs later | A change to `playwright.config.ts` - reusing a context to make the suite faster is the obvious one - silently makes every planner scenario order-dependent, and the first failure looks like a race |
-| The fix | The step `PLAN.md` already specifies, plus the mutation it already specifies. One `Before` hook and one array entry |
-
 ### 43. One `unstored` state for three different facts
 
 **Measured on 2026-09-11, by arranging a write failure for the first time.** `PlannerReport.state` is `unread | stored | unstored`, and three paths in `startPlanner` set the last of those: a browser with no IndexedDB, a database that would not open, and a **write that failed after a successful read**. `list` draws one sentence for all three - "These tasks are kept in this page alone. A reload starts again with none." - and in the third case it is false. A reload starts again with whatever was last written.
@@ -167,27 +167,6 @@ Every browser scenario does start cold, because Playwright gives each test a fre
 | The fix | A fourth value, or `unstored` plus a reading of whether anything was ever read, and a second sentence in `list`. Additive on the contract, and it republishes `list` |
 | Why not at step 3 | Step 3 is a frame change with no unit rebuilt, which is the claim it exists to make. Republishing `list` to correct a sentence would have spent that claim |
 | Not a fix | Leaving the truth on `/backup` alone. The panel is where a person is standing when the write fails |
-
-### 42. An interrupted live suite leaves a channel refusing every promote
-
-**Measured on 2026-09-11.** `bun run verify:live` was killed by a signal at scenario 9 of 46. The `After` hook that puts a moved region back never ran, so `test-qa` was left with `list f1fdb597` in `eu` and `4a8fa04b` in `us`. The next run failed **41 of 46**, every one of them in its Background, on
-
-```
-eu and us serve different compositions: list f1fdb597 != 4a8fa04b.
-Writing both would replace one with a composition nobody chose for it.
-Name one with --region <eu|us>. Nothing was changed.
-```
-
-That refusal is §3's region rule working correctly - it is the whole point of refusing a split - and the reading it does not give is **why** the channel is split. A person meeting 41 red scenarios reads it as a code failure, and the recovery is one command: `bun run promote test-qa --region us --shell <id> --app <name>=<id>`, naming what the other region already serves.
-
-| | |
-| --- | --- |
-| What is missing | Nothing detects a split at the START of a run. The suite discovers it one Background at a time, 41 times |
-| The cheap fix | A `BeforeAll` that reads both regions of every test channel and fails with one message naming the recovery command, rather than letting every scenario fail on its own |
-| The fuller fix | The same check restores parity itself, the way `restoreRegionParity` does at the end of a scenario. It knows both compositions and which region is the base |
-| Not a fix | Making the promote write both regions anyway. That is exactly what §3 refuses, and for the right reason |
-
-This is distinct from §6, which is a superseded composition inside a healthy run.
 
 ### 41. A first-paint requirement that no composition can reach
 
@@ -410,7 +389,11 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 
 **The reading that matters, captured 2026-08-28.** `x-manifest-age` of 27464 ms against a 10 s TTL, `lastError` null. A store serving a superseded pointer would show a small age, because the age is measured from `fetchedAt` and only a successful refresh advances it. A failing refresh would set `lastError`. So for 27 s **no refresh completed at all** — neither succeeded nor failed — which means `beginRefresh`'s promise did not settle and `e.inflight` stayed non-null. `MANIFEST_TIMEOUT_MS` is not set in `fly.toml`, so the deployed timeout is the 3000 ms default and a refresh should settle within about 3 s either way.
 
-**What closes it.** The next occurrence, with the whole run output kept to a file. Runs since the fixes: 7 of 7 green, then 41 of 41 green on 2026-08-30.
+**It occurred again on 2026-09-13, and the output is the first that was kept.** `The qa origin serves the build the qa channel points at` failed as scenario 1 of 47: the shell identified `41b4a4a3` where the pointer named `a953a36a`. Re-run alone it passed, and the next full run of the same tree was 47 of 47 - so the composition was superseded inside a healthy run, which is this item's symptom exactly and not the branch it happened on.
+
+What that occurrence adds and does not add. It confirms the symptom survives at four units and that it is the FIRST scenario of a run, which the 2026-08-28 reading was not. It adds nothing about the cause: `x-manifest-age` was not captured, and without it there is no way to tell a stalled refresh from a store serving a superseded pointer. **The next occurrence has to read that header**, and a step that captured it on failure would turn every occurrence into evidence rather than one in five.
+
+**What closes it.** An occurrence with `x-manifest-age` read at the moment of failure. Runs since the fixes: 7 of 7 green, then 41 of 41 green on 2026-08-30, then 1 failure in 3 full runs on 2026-09-13.
 
 ### 29. The live suite writes to the deployed service
 
@@ -508,4 +491,6 @@ Titles and dates only. The full text of each is in git history; `TODO.md` at `f7
 | 27 | 2026-08-31 | What the service offers, and who reads which field |
 | 28 | 2026-08-31 | A `falsify` mutation that proved nothing |
 | 30 | 2026-09-10 | A pull request gets a URL |
+| 42 | 2026-09-13 | A split test channel is refused at the start of a run, with the promote that fixes it. `splitChannelReport` in `scripts/regions.ts`, 11 tests, 4 mutations. `bun run verify:split` is the arrangement: it splits `test-prod`, reads the report, runs the command the report printed, and puts the channel back. Read once per WORKER rather than once per run |
+| 44 | 2026-09-13 | The cold state every browser scenario starts from is READ and reported, not cleared. `PLAN.md`'s `deleteDatabase` was built and refuted - a delete blocked by another page's connection deletes nothing and queues every later open behind it. `bun run verify:cold` is the arrangement, and it re-runs the refutation rather than quoting it |
 | — | 2026-09-10 | The version switcher is removed, and the page it was on |

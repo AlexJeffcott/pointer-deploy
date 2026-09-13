@@ -1,7 +1,14 @@
 // §3, the second region. Which regions a promote writes, and when it refuses.
 
 import { describe, expect, test } from "bun:test";
-import { REGIONS, manifestKeys, regionDrift, regionsFor, unitsThatDiffer } from "./regions.ts";
+import {
+  REGIONS,
+  manifestKeys,
+  regionDrift,
+  regionsFor,
+  splitChannelReport,
+  unitsThatDiffer,
+} from "./regions.ts";
 
 const ids = (shell: string, hello = "aaaa1111") => ({ shell, hello });
 
@@ -76,6 +83,101 @@ describe("when two regions disagree", () => {
     expect(unitsThatDiffer({ shell: "a", hello: "b" }, { shell: "a", hello: "c" })).toEqual([
       "hello",
     ]);
+  });
+});
+
+// TODO §42. The same split `regionDrift` refuses a promote for, read at the
+// START of a suite run instead of one Background at a time. What a person needs
+// there is not "two regions disagree" - they get that 41 times - but which
+// channel, what an earlier run left behind, and the command that puts it back.
+describe("a channel a killed run left split", () => {
+  const split = [
+    { region: "eu" as const, ids: { shell: "62d6b53a", list: "f1fdb597" } },
+    { region: "us" as const, ids: { shell: "62d6b53a", list: "4a8fa04b" } },
+  ];
+
+  test("two regions in agreement have nothing to report", () => {
+    const same = { shell: "62d6b53a", list: "f1fdb597" };
+    expect(
+      splitChannelReport("test-qa", [
+        { region: "eu", ids: same },
+        { region: "us", ids: { ...same } },
+      ], "eu"),
+    ).toBeNull();
+  });
+
+  // A region with no pointer is the state a first promote exists to fix, not a
+  // split. `regionDrift` takes the same reading and for the same reason.
+  test("a region with no pointer is not a split", () => {
+    expect(
+      splitChannelReport("test-qa", [
+        { region: "eu", ids: { shell: "62d6b53a" } },
+        { region: "us", ids: null },
+      ], "eu"),
+    ).toBeNull();
+  });
+
+  test("names the channel", () => {
+    expect(splitChannelReport("test-qa", split, "eu")).toContain("test-qa is split across regions");
+  });
+
+  test("names the unit that differs and both ids, and no unit that does not", () => {
+    const said = splitChannelReport("test-qa", split, "eu")!;
+    expect(said).toContain("us serves list 4a8fa04b");
+    expect(said).toContain("eu serves list f1fdb597");
+    expect(said).not.toContain("shell 62d6b53a where");
+  });
+
+  // The whole point of the item. A message that says a channel is split and
+  // stops there leaves a person to work out the flags from two manifests.
+  test("names the promote that puts it back, with every unit the base serves", () => {
+    const said = splitChannelReport("test-qa", split, "eu")!;
+    expect(said).toContain("bun run promote test-qa --region us --shell 62d6b53a --app list=f1fdb597");
+  });
+
+  test("says the run did not cause it", () => {
+    expect(splitChannelReport("test-qa", split, "eu")).toContain("Nothing in this run caused it");
+  });
+
+  // The base is what every other region is put back TO. With two regions, a
+  // base that names nothing leaves one known region, and a set of one differs
+  // from nothing - so this is not a split and there is nothing to say. The
+  // test was named "reports the split and offers no command" until a cold read
+  // on 2026-09-13 read its body, which asserts the opposite.
+  test("a base region with no pointer is not a split", () => {
+    expect(
+      splitChannelReport("test-qa", [
+        { region: "eu", ids: null },
+        { region: "us", ids: { shell: "62d6b53a" } },
+      ], "eu"),
+    ).toBeNull();
+  });
+
+  test("one command per region that differs, and no more", () => {
+    const said = splitChannelReport("test-qa", [
+      { region: "eu", ids: { shell: "aaaa1111" } },
+      { region: "us", ids: { shell: "bbbb2222" } },
+    ], "eu")!;
+    expect(said.split("bun run promote")).toHaveLength(2);
+  });
+
+  // A promote MERGES, so a unit the split region serves and the base does not
+  // is carried and the channel stays split. That is the one case the message
+  // already describes in words - "us serves hello aaaa1111 where eu serves
+  // hello none" - and the command under it could not fix until 2026-09-13.
+  test("a unit the base does not serve is dropped, not left to be carried", () => {
+    const said = splitChannelReport("test-qa", [
+      { region: "eu", ids: { shell: "aaaa1111" } },
+      { region: "us", ids: { shell: "aaaa1111", hello: "bbbb2222" } },
+    ], "eu")!;
+    expect(said).toContain("hello bbbb2222");
+    expect(said).toContain("bun run promote test-qa --region us --shell aaaa1111 --drop hello");
+  });
+
+  test("a unit both regions serve is named by --app and never dropped", () => {
+    const said = splitChannelReport("test-qa", split, "eu")!;
+    expect(said).toContain("--app list=f1fdb597");
+    expect(said).not.toContain("--drop");
   });
 });
 

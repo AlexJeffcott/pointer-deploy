@@ -11,6 +11,8 @@
 //   the region flag   `--region us` writes one, for a deliberate difference
 //   the drift check   two regions already serving different compositions is a
 //                     state a promote must not flatten by accident
+//   the split report  the same state read at the START of a suite run, with the
+//                     one command that fixes it. TODO §42
 //
 // Pure. The store reads are in promote.ts.
 
@@ -57,6 +59,10 @@ export function regionDrift(compositions: RegionComposition[]): string | null {
   const known = compositions.filter((c) => c.ids !== null) as Array<
     RegionComposition & { ids: Record<string, string> }
   >;
+  // A TYPE guard rather than a reachability one, and that is worth saying
+  // because a cold read on 2026-09-13 asked why one like it was deleted below.
+  // With fewer than two known regions the loop never runs and this returns null
+  // anyway; what the guard buys is that `known[0]!` is not a lie.
   if (known.length < 2) return null;
 
   const first = known[0]!;
@@ -73,6 +79,99 @@ export function regionDrift(compositions: RegionComposition[]): string | null {
     );
   }
   return null;
+}
+
+/**
+ * Why a channel cannot be promoted at all, and the one command that fixes it.
+ *
+ * A DIFFERENT reading from `regionDrift`, which is what a promote prints when
+ * it refuses. This is what a person needs at the START of a run: `regionDrift`
+ * says two regions disagree, and a person meeting it 41 times reads it as a
+ * code failure. This says which channel, what an earlier run left behind, and
+ * the promote that puts it back.
+ *
+ * TODO §42. Measured on 2026-09-11: `bun run verify:live` was killed at
+ * scenario 9 of 46, its `After` hook never put the moved region back, and the
+ * next run failed 41 of 46 - every one of them in its Background, on
+ * `regionDrift`'s message. The refusal is correct and the reading it does not
+ * give is why.
+ *
+ * `base` is the region whose composition the recovery names, because that is
+ * the one the suite reads and the one every other region is put back TO.
+ * Returns null when there is nothing to say.
+ */
+export function splitChannelReport(
+  channel: string,
+  compositions: RegionComposition[],
+  base: Region,
+): string | null {
+  const known = compositions.filter((c) => c.ids !== null) as Array<
+    RegionComposition & { ids: Record<string, string> }
+  >;
+
+  // No `known.length < 2` guard here, and `regionDrift`'s is a type guard
+  // rather than a reachability one. A sentence claiming an asymmetry of
+  // REACHABILITY stood here until a cold read on 2026-09-13 and was false:
+  // neither guard is reachable, and the one above earns its place by making
+  // `known[0]!` honest.
+  const baseComposition = known.find((c) => c.region === base);
+  // Unreachable for a `Region`, and kept for the same reason `regionDrift`'s
+  // is: `baseComposition.ids` below would otherwise be read off `undefined`.
+  // With two regions, a base that is not among the known ones leaves at most
+  // one known region, and nothing differs from a set of one.
+  //
+  // What stood here instead was a three-line message about a base with no
+  // pointer. It could not be produced by any valid input - the same cold read
+  // found it - and was reachable only through an unchecked cast in
+  // `hooks.ts`, where it would have told a person "eu1 has no pointer" when
+  // the truth was that REGION is not a region. The cast is gone and so is the
+  // message.
+  if (!baseComposition) return null;
+
+  const split = known
+    .filter((c) => c.region !== base)
+    .map((c) => ({ region: c.region, differing: unitsThatDiffer(baseComposition.ids, c.ids), ids: c.ids }))
+    .filter((c) => c.differing.length > 0);
+  if (split.length === 0) return null;
+
+  // The shell first and the apps in name order, which is how `promote` prints a
+  // composition and how every other command in the documents is written. The
+  // flags are order-free to the promoter; a person reading two of them side by
+  // side is not.
+  const flags = Object.entries(baseComposition.ids)
+    .sort(([a], [b]) => (a === "shell" ? -1 : b === "shell" ? 1 : a < b ? -1 : a > b ? 1 : 0))
+    .map(([unit, id]) => (unit === "shell" ? `--shell ${id}` : `--app ${unit}=${id}`))
+    .join(" ");
+
+  const lines = split.map(
+    (c) =>
+      `  ${c.region} serves ` +
+      c.differing.map((u) => `${u} ${c.ids[u] ?? "none"}`).join(", ") +
+      ` where ${base} serves ` +
+      c.differing.map((u) => `${u} ${baseComposition.ids[u] ?? "none"}`).join(", "),
+  );
+
+  // A promote MERGES, so a unit the split region serves and the base does not
+  // is CARRIED and the channel stays split. `--drop` is the only way off it,
+  // and `promote` refuses an inferred removal on purpose: removal is said,
+  // never guessed. A cold read on 2026-09-13 found the command being printed
+  // for exactly the case the line above it describes in words.
+  const commands = split.map((c) => {
+    const carried = Object.keys(c.ids)
+      .filter((unit) => !(unit in baseComposition.ids))
+      .sort();
+    const drops = carried.map((unit) => ` --drop ${unit}`).join("");
+    return `  bun run promote ${channel} --region ${c.region} ${flags}${drops}`;
+  });
+
+  return (
+    `${channel} is split across regions, and every promote to it is refused until it is not.\n` +
+    `${lines.join("\n")}\n` +
+    `  Nothing in this run caused it. A run that was killed before its After hook ran ` +
+    `leaves a region where a scenario moved it.\n` +
+    `  Put it back, naming what ${base} already serves:\n` +
+    `${commands.join("\n")}`
+  );
 }
 
 /** One pointer and one history, per region per channel. */
