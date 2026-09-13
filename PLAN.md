@@ -143,7 +143,11 @@ Sharing a planner is handing over the slot id. It is read-only by construction, 
 
 A **second, private bucket**, not `pointer-deploy-assets`, and a **second key**. The asset bucket's key can write the files the origin executes, so a service that held it would turn a service compromise into an origin compromise. The snapshot bucket is private, and the service is its only reader and writer.
 
-**Measured on 2026-09-13, before any of this was built.** `fly storage create` issues a key pair per bucket, and the id it issued for a new bucket is not the asset bucket's - so the second key this step needs exists. Private is the DEFAULT and `--public` is the opt-in. And the CLI is per-APP: it refuses a second Tigris project for an app that already has one, so the snapshot bucket belongs to `pointer-deploy-api` rather than to `pointer-deploy`, which is where this step wanted the key anyway. TODO §4 carries the readings and what taking them cost.
+**Measured on 2026-09-13, before any of this was built.** `fly storage create` issues a key pair per bucket, and the id it issued for a new bucket is not the asset bucket's. Private is the DEFAULT and `--public` is the opt-in. And the CLI is per-APP: it refuses a second Tigris project for an app that already has one, so the snapshot bucket belongs to `pointer-deploy-api` rather than to `pointer-deploy`, which is where this step wanted the key anyway.
+
+**And the security argument itself is measured, not inferred from there being two keys.** A second key pair carrying org-wide permission would satisfy "two keys" and defeat the reason for two. `bun run verify:keys` aims the snapshot key at `pointer-deploy-assets`: the write is **403** and the delete is **403**. The READ is not scoped and cannot be - that bucket is public because browsers fetch unit files from it - so the script prints an UNSIGNED read beside the signed one, and both return the same 3519 bytes. A signed read succeeding is not evidence, and saying so is the reading.
+
+The bucket is `pointer-deploy-data`. `pointer-deploy-snapshots` was the first name and Tigris held it after the bucket taken for the earlier reading was destroyed; `data` is the better name anyway, because it holds slots as well as snapshots and this section's own table is headed Code against Data. TODO §4 carries every reading and what taking the first one cost.
 
 ### The deprecation, at step 13
 

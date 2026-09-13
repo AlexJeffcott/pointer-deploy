@@ -44,6 +44,7 @@ Nothing regenerates a shot. A picture of what was served on a date is falsified 
 | `bun run verify:live` | when the change touches the store, the pointer or the server |
 | `bun run verify:cold` | when the change touches `features/support/cold-planner.ts`, `usePage`, or `playwright.config.ts`. Two pages in one browser context, and it drives `list`'s controls on the deployed origin - it refuses when the composition places no `list` |
 | `bun run verify:split` | when the change touches `splitChannelReport` or `refuseSplitChannels`. It splits `test-prod`, reads the report, runs the command the report printed, and puts the channel back in a `finally` |
+| `bun run verify:keys` | when the change touches which bucket a key is used against. It aims the snapshot key at `pointer-deploy-assets` and requires 403 on the write and the delete. `PLAN.md` step 6's security argument is that reading and nothing else |
 
 `verify:browser` is in that table from 2026-09-11 and was missing before it. Every scenario in `keeping-a-list-of-tasks.feature`, `moving-a-task-between-columns.feature` and `seeing-the-week.feature` is `@browser @test-channel`, and so is `Moving between views draws each one and fetches nothing` — which carries the whole per-view half of `PLAN.md` step 0's claim. `verify` runs `@local` and `verify:live` runs `@live`, so neither reaches any of them: the requirement a step ships is written in a file the documented gate never opened.
 

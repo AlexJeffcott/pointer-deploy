@@ -37,7 +37,8 @@
     "e2e:preview": "bun run scripts/e2e-pr-preview.ts",
     "measure:preload": "bun run scripts/measure-preload.ts",
     "verify:cold": "bun run scripts/probe-cold-planner.ts",
-    "verify:split": "bun run scripts/probe-split-channel.ts"
+    "verify:split": "bun run scripts/probe-split-channel.ts",
+    "verify:keys": "bun run scripts/probe-key-scope.ts"
   },
   "dependencies": {
     "preact": "^10.29.8",

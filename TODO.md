@@ -381,6 +381,17 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 | One project per app | `fly storage create` reads `fly.toml` and refuses a second project for an app that has one: "A Tigris project named pointer-deploy-assets already exists for app pointer-deploy". The snapshot bucket therefore belongs to `pointer-deploy-api`, which is where step 6 wants the key |
 | Run with no `-a` | It sets no secrets and deploys nothing. It prints the five values for an operator to set |
 
+**And the reading that matters, taken on 2026-09-13 against the real buckets.** A key pair per bucket is not the property step 6 needs: a second pair carrying org-wide permission would satisfy "two keys" and defeat the reason for two. `bun run verify:keys` measures the reach, and `pointer-deploy-data` exists for it.
+
+| Aimed at `pointer-deploy-assets` | |
+| --- | --- |
+| Write | **403** |
+| Delete | **403** |
+| Read, signed with the snapshot key | 3519 bytes of `manifests/eu/qa.json` |
+| Read, UNSIGNED, as a control | the same 3519 bytes |
+
+The READ is not scoped and cannot be: that bucket is public because browsers fetch unit files from it, so an unsigned GET returns the object to anyone. The signed read says nothing the control does not already give, and `verify:keys` prints both rather than quoting the signed one as evidence. What discriminates is the write and the delete, which no public bucket grants a stranger.
+
 **What it cost to measure.** The first bucket was created and then destroyed, because its secret key reached a transcript: the mask used to hide it matched `[A-Za-z0-9_-]+` and Tigris secrets contain `+`, so the tail printed. Destroying the project is what makes such a key inert, and Tigris holds the name for several minutes afterwards. The rule that came out of it: never mask a secret out of output - redirect the output to a file and print field names, lengths or booleans.
 
 ### 6. `verify:live` fails intermittently in a full run
