@@ -36,6 +36,25 @@ const LIVE_ADDRESS = Bun.env.LIVE_ADDRESS ?? "https://pointer-deploy.fly.dev";
 const MANIFEST_BASE =
   Bun.env.MANIFEST_BASE ?? "https://pointer-deploy-assets.fly.storage.tigris.dev/manifests";
 /**
+ * The service a `@test-channel` page is told about, `PLAN.md` step 6.
+ *
+ * The DEPLOYED one, and the same one a visitor's page is told about. A
+ * `@test-channel` server is spawned from this tree so that the browser loads
+ * the bundles this edit produced; the service it reaches is not part of that
+ * edit, and a second local service would be a second deploy schedule nobody is
+ * measuring.
+ *
+ * It was unset until step 6 and nothing noticed, because no door on the page
+ * reached the service: the frame took one reading and drew it. Push and pull
+ * are controls, and `/backup` disables all four of its doors when the page was
+ * served without a service to call - so the push scenarios waited three minutes
+ * each for a button that could never be enabled.
+ *
+ * What the suite writes there is one immutable object per run. TODO §48 carries
+ * that; §29 was the mutable version of it and is closed.
+ */
+const API_BASE = Bun.env.API_BASE ?? "https://pointer-deploy-api.fly.dev";
+/**
  * The region this harness reads and writes, and every other region is put back
  * to it. Refused rather than trusted: `REGION=eu1` typed as a plain string used
  * to reach `splitChannelReport` through an unchecked cast, where it produced a
@@ -323,6 +342,7 @@ export class PointerWorld {
       MANIFEST_BASE,
       MANIFEST_TTL_MS: "1000",
       MANIFEST_TIMEOUT_MS: "10000",
+      API_BASE,
     });
     this.localServer = true;
   }

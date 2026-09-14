@@ -1620,10 +1620,17 @@ const MUTATIONS: Mutation[] = [
     // sorts the restored list by `createdAt` as a string, so a task stamped
     // "yesterday" is drawn where the document put it and somewhere else after
     // the next reload.
+    //
+    // Written as a CUT and not as `false &&`, and §35's guard is why. Measured
+    // on 2026-09-14: `if (false && !isMoment(...))` inside `readTask` fails the
+    // build with two TS18046s on the lines BELOW it - TypeScript stops
+    // analysing the unreachable branch and the narrowing of `value` that the
+    // `isRecord` check above established goes with it. A mutation that does not
+    // compile is reported as caught by a check that never ran.
     name: "a task may be stamped with something that is not a moment",
     file: "src/web/shell/document.ts",
-    find: "  if (!isMoment(value.createdAt as string)) {",
-    replace: "  if (false && !isMoment(value.createdAt as string)) {",
+    find: "  if (!isMoment(value.createdAt as string)) {\n    return `${at}.createdAt is ${show(value.createdAt)}, and a moment was expected`;\n  }\n",
+    replace: "",
     scenario: "A task stamped with something that is not a moment is refused",
     live: true,
     browser: true,
@@ -1631,10 +1638,11 @@ const MUTATIONS: Mutation[] = [
   {
     // The other half of §45. The field was required by the type from step 3 and
     // read by nothing until step 6.
+    // A cut, for the same reason the one above is.
     name: "a document with no stamp is accepted",
     file: "src/web/shell/document.ts",
-    find: '  if (typeof value.exportedAt !== "string" || !isMoment(value.exportedAt)) {',
-    replace: '  if (false && typeof value.exportedAt !== "string") {',
+    find: '  if (typeof value.exportedAt !== "string" || !isMoment(value.exportedAt)) {\n    return refuse(`exportedAt is ${show(value.exportedAt)}, and a moment was expected`);\n  }\n',
+    replace: "",
     scenario: "A file with no stamp on it is refused, and the field is named",
     live: true,
     browser: true,
