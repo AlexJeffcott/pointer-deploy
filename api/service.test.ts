@@ -6,6 +6,7 @@ import {
   answered,
   deprecationHeaders,
   deprecationsFor,
+  deprecationsIn,
   discovery,
   handle,
   parseDeprecations,
@@ -196,6 +197,66 @@ describe("what a response says about a field that is going away", () => {
 // here hands `handle` a store and reads what is in it afterwards. That is also
 // what `api/Dockerfile` needs: it runs `bun test api` inside the image build,
 // where there is no credential and there should not be one.
+describe("the version's own root", () => {
+  // The route a page calls to learn that the version it was BUILT against is
+  // answered by the deploy in front of it. `/versions` cannot give that
+  // reading: it sits outside every version prefix, so it says what this deploy
+  // claims and not whether a request at `/v1` lands.
+  test("a served version answers with its own routes and fields", async () => {
+    const res = await handle(get("/v1"), memoryStore());
+    expect(res.status).toBe(200);
+    const body = await bodyOf(res);
+    expect(body.fields).toEqual(FIELDS.v1!);
+    expect(body.routes).toContainEqual({ method: "GET", path: "/v1" });
+  });
+
+  test("the trailing slash is the same route", async () => {
+    expect((await handle(get("/v1/"), memoryStore())).status).toBe(200);
+  });
+
+  // The reading only exists because the two answers differ. A version this
+  // deploy does not serve is 404, and that is what a page is distinguishing
+  // from the 200 above.
+  test("a version this deploy does not serve is 404", async () => {
+    const res = await handle(get("/v2"), memoryStore());
+    expect(res.status).toBe(404);
+    expect(await bodyOf(res)).toEqual({ error: "not found" });
+  });
+
+  test("a method this route does not answer is 405, not a 404", async () => {
+    const res = await handle(new Request("http://api.test/v1", { method: "POST" }), memoryStore());
+    expect(res.status).toBe(405);
+  });
+
+  test("it reads no bucket at all", async () => {
+    const store = memoryStore();
+    await handle(get("/v1"), store);
+    expect(store.keys()).toEqual([]);
+  });
+
+  // What keeps `ServiceReport.headerSunset` filled on a page that has pushed
+  // nothing. Every other data response is about one resource and carries the
+  // retirements sharing a body with it; this one is about the version, so it
+  // carries the version's.
+  test("it carries the retirements inside that version", async () => {
+    const going = JSON.stringify([
+      {
+        path: "snapshot.tasks",
+        since: "2026-09-10",
+        sunset: "2026-12-10",
+        reason: "a planner stores more than tasks",
+        instead: "snapshot.document",
+      },
+    ]);
+    const declared = parseDeprecations(going, answered(["v1"]));
+    expect(deprecationsIn("v1", declared).map((d) => d.path)).toEqual(["snapshot.tasks"]);
+    expect(deprecationsIn("v2", declared)).toEqual([]);
+    expect(deprecationHeaders(deprecationsIn("v1", declared), "http://api.test").sunset).toBe(
+      "Thu, 10 Dec 2026 00:00:00 GMT",
+    );
+  });
+});
+
 describe("pushing a snapshot", () => {
   const planner = { format: "pointer-planner", schemaVersion: 1, tasks: [{ id: "a" }] };
   const push = async (store = memoryStore(), body: unknown = planner) =>
@@ -264,6 +325,40 @@ describe("reading a snapshot back", () => {
     expect(back.createdAt).toBe(pushed.createdAt);
   });
 
+  // The two fields the shell's pull door reads before it writes anything, and
+  // the reason they are on the wire at all: `PLAN.md`'s four-doors table says
+  // a pulled document is refused by the same rule as an imported file, and a
+  // response carrying tasks alone leaves the shell nothing to apply it to.
+  test("it carries the format and the schema version the push declared", async () => {
+    const store = memoryStore();
+    const pushed = await bodyOf(await handle(post("/v1/snapshots", planner), store));
+    const back = await bodyOf(await handle(get(`/v1/snapshots/${pushed.snapshot}`), store));
+    expect(back.format).toBe("pointer-planner");
+    expect(back.schemaVersion).toBe(1);
+  });
+
+  // And a body that is not a planner is answered as what it is. This service
+  // takes any JSON object, so `{"x":1}` has an address; filling either field in
+  // here would hand the shell a document claiming to be a planner at the
+  // shell's own version, which is the claim the pull door exists to test.
+  test("a body that is not a planner carries no format and no version", async () => {
+    const store = memoryStore();
+    const pushed = await bodyOf(await handle(post("/v1/snapshots", { x: 1 }), store));
+    const back = await bodyOf(await handle(get(`/v1/snapshots/${pushed.snapshot}`), store));
+    expect(back.format).toBe("");
+    expect(back.schemaVersion).toBeNull();
+    expect(back.tasks).toEqual([]);
+  });
+
+  test("a schema version that is not a number is carried as absent", async () => {
+    const store = memoryStore();
+    const pushed = await bodyOf(
+      await handle(post("/v1/snapshots", { ...planner, schemaVersion: "1" }), store),
+    );
+    const back = await bodyOf(await handle(get(`/v1/snapshots/${pushed.snapshot}`), store));
+    expect(back.schemaVersion).toBeNull();
+  });
+
   test("an address nothing was pushed to is 404", async () => {
     const missing = "0".repeat(64);
     const res = await handle(get(`/v1/snapshots/${missing}`), memoryStore());
@@ -281,21 +376,28 @@ describe("reading a snapshot back", () => {
     },
   );
 
-  // And a path that RESOLVES away before it reaches the router is a plain 404,
-  // because `new URL` normalises it and the route never matches. Measured on
-  // 2026-09-13: `/v1/snapshots/../../etc/passwd` becomes `/etc/passwd` and
-  // `/v1/snapshots/%2e%2e` becomes `/v1/` - the parser decodes AND resolves.
-  // The refusal above is about a digest and this one is about a path this
-  // service does not answer; the first version of this test expected the
-  // wrong one of the two for both.
-  test.each(["../../etc/passwd", "%2e%2e"])(
-    "a traversal of %p resolves away and is a 404, not a digest refusal",
-    async (path) => {
-      const res = await handle(get(`/v1/snapshots/${path}`), memoryStore());
-      expect(res.status).toBe(404);
-      expect(await bodyOf(res)).toEqual({ error: "not found" });
-    },
-  );
+  // And a path that RESOLVES away before it reaches the router is not a digest
+  // refusal at all, because `new URL` normalises it and the snapshot route
+  // never matches. Measured on 2026-09-13: `/v1/snapshots/../../etc/passwd`
+  // becomes `/etc/passwd` and `/v1/snapshots/%2e%2e` becomes `/v1/` - the
+  // parser decodes AND resolves. The first version of this test expected a
+  // digest refusal for both.
+  //
+  // The two land differently, and they did not until the version root was
+  // added: `/v1/` is a route this service answers, so the second is a 200
+  // carrying the version document. Neither reads the bucket and neither looks
+  // up an id, which is the property both halves are here for.
+  test("a traversal out of the service is a 404", async () => {
+    const res = await handle(get("/v1/snapshots/../../etc/passwd"), memoryStore());
+    expect(res.status).toBe(404);
+    expect(await bodyOf(res)).toEqual({ error: "not found" });
+  });
+
+  test("a traversal back to the version root answers the version, not a digest", async () => {
+    const res = await handle(get("/v1/snapshots/%2e%2e"), memoryStore());
+    expect(res.status).toBe(200);
+    expect(Object.keys(await bodyOf(res)).sort()).toEqual(["fields", "routes"]);
+  });
 
   test("a method this route does not answer is refused", async () => {
     const res = await handle(
@@ -524,8 +626,10 @@ test("every route the document names answers, and every field it names is return
     const [top, field] = f.path.split(".") as [string, string];
     expect(`${f.path} ${field in (bodies[top] ?? {})}`).toBe(`${f.path} true`);
   }
-  // And every route it names is a route, rather than a path nobody serves.
+  // And every route it names is a route, rather than a path nobody serves. The
+  // version root is the one with an empty path: it is `/v1` itself.
   for (const route of ROUTES.v1!) {
-    expect(`${route.method} ${route.path}`).toMatch(/^(GET|POST|PUT) \/(snapshots|slots)/);
+    expect(`${route.method} ${route.path}`).toMatch(/^(GET|POST|PUT) (\/(snapshots|slots)|$)/);
   }
+  expect((await handle(get("/v1"), store)).status).toBe(200);
 });

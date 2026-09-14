@@ -1217,8 +1217,8 @@ because the query string looks like one. A flag picks a branch for a visitor who
 did not choose it; this picks a bundle for a visitor who typed the URL. There is
 no cohort and no percentage, and adding one would put product state in the thing
 that serves the pointer. This repository already has a flag channel and it is
-the **service**: what it holds comes out of `GET /v1/greeting`, which an
-operator changes with no unit rebuilt and no image deployed. The other kind of
+the **service**: `API_SERVES` and `API_DEPRECATED` are what an operator changes
+with no unit rebuilt and no image deployed, and every page reads the difference. The other kind of
 flag - the one that exists only because a release is all-or-nothing - is what
 the per-unit deploy replaces.
 
@@ -1407,7 +1407,7 @@ So every shot is gated three ways, and nothing is written until all three pass:
 | the instant the page says it was composed at must equal the pointer's | the same trap where the ids cannot see it: promoting the ids a channel already serves moves `composedAt` and moves nothing else, so for as long as the TTL lasts the page from before that promote is correct on every id |
 | every view in the run must report the same ids, and the pointer must not have moved by the end | one record holding two compositions, each correct on its own |
 
-**What the gate does NOT cover, said in the record rather than implied.** It proves the composition the page was built from. It proves nothing about the pixels: the panels draw what the service answered, `/service` draws the time it read, and the renderer is whatever Chrome this machine has. `shots.json` therefore carries `unchecked.apiBase`, `unchecked.renderer` and that sentence, so a reader comparing two records can tell which of those moved instead of taking a difference for a change in the code. §29 is the sharp case: the live browser suite writes the greeting audience to the deployed service, so a shoot overlapping a `verify:browser` run files a suite-mutated page - and every gate passes, because every gate is about the pointer.
+**What the gate does NOT cover, said in the record rather than implied.** It proves the composition the page was built from. It proves nothing about the pixels: the panels draw what the service answered, `/service` draws the time it read, and the renderer is whatever Chrome this machine has. `shots.json` therefore carries `unchecked.apiBase`, `unchecked.renderer` and that sentence, so a reader comparing two records can tell which of those moved instead of taking a difference for a change in the code. §29 was the sharp case: the live browser suite wrote the greeting audience to the deployed service, so a shoot overlapping a `verify:browser` run filed a suite-mutated page - and every gate passed, because every gate is about the pointer. `PLAN.md` step 6 removed the shape rather than the risk: a snapshot is immutable and addressed by its own bytes, so what the suite pushes cannot change what any page draws. A slot can still be moved, and step 7 is where that comes back.
 
 **The routes come from the deployed nav, not from `VIEWS` in this tree.** The shell owns placement and the shell being shot is the deployed one. Reading this tree's `VIEWS` meant that a branch adding `/board` asked the origin for a path its shell had never heard of - `Shell.tsx:103` falls back to `DEFAULT_ROUTE` in silence - and the run died twenty seconds later on a bare selector timeout. Every `PLAN.md` step that adds a view is that case. The panel wait is read from the page for the same reason: every panel the deployed shell placed is either mounted or in its error state, and one still loading is named.
 
@@ -1600,8 +1600,8 @@ to start on anything it cannot act on:
 
 ```sh
 fly secrets set -a pointer-deploy-api API_DEPRECATED='[{
-  "path": "greeting.audience", "since": "2026-09-10", "sunset": "2026-12-10",
-  "reason": "the audience moves onto the visitor", "instead": null
+  "path": "snapshot.tasks", "since": "2026-09-10", "sunset": "2026-12-10",
+  "reason": "a planner stores more than tasks", "instead": "snapshot.document"
 }]'
 ```
 
@@ -1609,7 +1609,7 @@ Refusing is the point. A service that ignored a malformed value would publish
 "nothing is going away", and that is not silence — it is a false reading, and the
 operator who set the variable cannot tell it from a service that read it. So a
 path this deploy does not answer stops it, and names what it does answer:
-`greeting.audiance` is a plausible thing to type, and accepted it would
+`snapshot.taks` is a plausible thing to type, and accepted it would
 deprecate a field nobody has while the one the operator meant went on being
 served with no warning at all. `instead` may be `null` and may not be absent, for the reason
 `contract:deprecate --instead none` exists: no successor is a legitimate reading
@@ -1681,26 +1681,29 @@ The member gate reads the difference. `list` records no use of
 and it records two of the four members of a sunset, so a service retiring
 `reason` costs it nothing.
 
-**`list` asks about `snapshot.tasks`, which the service does not answer yet.**
-The call is `store.goingAway("snapshot.tasks")` and it returns null on this
-slate, so nothing is drawn for it — the service holds a greeting until `PLAN.md`
-step 6 puts snapshots in it, and step 13 is where that field is retired with
-notice. What holds the call meanwhile is `bun run e2e:members`, which drops the
-member and reads the refusal naming `list`. That is stated here rather than left
-as plumbing a reader would have to infer.
+**`list` asks about `snapshot.tasks`, and from `PLAN.md` step 6 the service
+answers that field.** The call is `store.goingAway("snapshot.tasks")`. It
+returns null on a live page, because the field is not retired until step 13 —
+but `bun run e2e:schema` arranges the retirement and reads what the panel then
+draws, which is §26's own claim and had no subject on this slate until the
+service held snapshots. What held the call from step 0 to step 6 was
+`bun run e2e:members`, which drops the member and reads the refusal naming
+`list`, and that still holds it.
 
 **Proved end to end by `bun run e2e:schema`**, in a real Chrome, against the real
-store and the real bundles. It builds and publishes both units, promotes them to
-`test-qa`, reads `/service`, then retires `greeting.audience` on the service
-alone — no build, no publish, no promote — and reads it again. Two of its checks
-are the whole claim: the page changed, and **not one unit id moved between the
-two readings**. It finishes by taking the service away entirely, because a page
-that cannot reach it must be a different page and never a blank one.
+store and the real bundles. It builds and publishes every unit, promotes them to
+`test-qa`, reads `/service`, then retires `snapshot.tasks` on the service alone —
+no build, no publish, no promote — and reads it again. Two of its checks are the
+whole claim: the page changed, and **not one unit id moved between the two
+readings**. It finishes by taking the service away entirely, because a page that
+cannot reach it must be a different page and never a blank one.
 
-Its PANEL readings are skipped, and the run says so per reading rather than
-dropping them. No panel on this slate draws a field of the service: `list` draws
-the planner's tasks, which live in this browser and which the service holds none
-of. They get a subject at step 6.
+Its PANEL readings were printed as skipped from step 0 to step 6, per reading
+rather than dropped, and the reason changed on the way: first no unit existed,
+then `list` existed and asked about a field the service did not answer. They are
+taken now, and the one that matters is a retirement decided on the service
+reaching a bundle that was published before the decision and is not rebuilt for
+it.
 
 The service is a LOCAL process in that run, and that is the one thing it does not
 prove. Changing `API_DEPRECATED` twice in a run against the deployed service
@@ -1709,28 +1712,54 @@ would be changing what the live site is told while a visitor is reading it.
 
 ## What the service offers, and who reads which field
 
-§26 gave the service a way to say what it holds. What it holds now is one
-resource of two fields, over two routes:
+§26 gave the service a way to say what it holds. What it holds since `PLAN.md`
+step 6 is the planner's snapshots and the slots that name them:
 
 | Resource | Fields | Written at runtime |
 | --- | --- | --- |
-| `greeting` | `text`, `audience` | `POST /v1/greeting`, merged per field |
+| `snapshot` | `snapshot`, `digest`, `createdAt`, `format`, `schemaVersion`, `tasks` | `POST /v1/snapshots`, and never overwritten |
+| `slot` | `snapshot`, `history` | `PUT /v1/slots/:slot`, with the write key |
 
-Two fields rather than one, and that is deliberate. A single field cannot be
-retired in favour of anything, so the service could only ever publish a
-deprecation with nothing to move to — and the notice period is the part of §26
-worth having.
+`greeting` was what stood here until then, and the mechanism above it did not
+change when the resource did: `SERVES`, `FIELDS`, `ROUTES`, the discovery
+document and the two RFC headers are the same code answering about a different
+subject. The greeting was the smallest thing the service could hold while the
+slate had no data to move.
 
 Beside them, outside any version prefix: `GET /versions`, the discovery
-document, and `GET /healthz`, which depends on nothing.
+document, and `GET /healthz`, which depends on nothing. Inside the prefix and
+taking no id: `GET /v1`, the version's own routes and fields.
 
-**No unit draws it.** The greeting was the panel's on the slate before
-`PLAN.md` step 0, and it has been read-and-drawn-by-nothing since. The shell
-still makes ONE data call at `/v1/greeting`, because the response is what says
-whether the version this shell CALLS answers - `/versions` sits outside any
-version prefix and cannot - and because only a data response carries the `Sunset`
-header `/service` draws. `readData` in `src/web/shell/service.ts` says so at the
-call. Step 6 is where the resource goes and snapshots take its place.
+**The service holds nothing between requests.** It holds a bucket key, and the
+bucket holds the snapshots — a SECOND bucket and a SECOND key, `pointer-deploy-data`,
+because the asset bucket's key can write the files the origin executes and a
+service holding it would turn a service compromise into an origin compromise.
+Two commands measure that rather than inferring it from there being two keys:
+`bun run verify:keys` requires 403 on a write and a delete against
+`pointer-deploy-assets`, and `bun run e2e:snapshots` pushes a planner through the
+deployed service and requires the public asset origin not to serve it.
+
+**The shell makes ONE data call, and it is `GET /v1`.** The reading is whether
+the version this shell CALLS answers - `/versions` sits outside every version
+prefix and cannot say - and the `Sunset` header a data response carries and a
+document does not. It was `/v1/greeting` until step 6; what replaced it had to be
+a route that answers without being given an id, and snapshots and slots are both
+addressed by one. `readData` in `src/web/shell/service.ts` says so at the call.
+
+**Two capabilities over one resource, and no account anywhere.**
+
+| Holding | Grants |
+| --- | --- |
+| the address of a snapshot | read that planner |
+| the slot id | read the slot, and every snapshot it names |
+| the write key | move the slot |
+
+Sharing a planner is handing over an address. It is read-only by construction,
+and there is no login and no user record anywhere — so `/backup` says in those
+words that anyone holding the address can read the planner. The slot file holds
+the sha256 of the write key and never the key: a `GET` returns the slot to
+anyone holding the id, so a slot carrying its own key would collapse the two
+capabilities into one.
 
 ### Ownership comes out at the field, and nobody declared it
 
@@ -1768,31 +1797,53 @@ by the frame alone, so no sub-app records it — a member `provides` holds and n
 One `POST`, no build, no publish, no promote:
 
 ```sh
-curl -sX POST $API/v1/greeting -d '{"text":"Hei","audience":"Oslo"}'
+curl -sX POST $API/v1/snapshots -d @planner.json
+# {"snapshot":"<sha256>","digest":"<sha256>","createdAt":"…","format":"pointer-planner",…}
 ```
 
 | What moves | Because |
 | --- | --- |
-| the next `GET /v1/greeting` reads `Hei, Oslo` | `greeting.text` and `greeting.audience` |
-| nothing on the page moves | No unit draws the greeting on this slate |
+| one object appears in the data bucket, at the hash of those bytes | `POST /v1/snapshots` |
+| the same bytes pushed again move nothing | The address IS the bytes, so the second write has nowhere else to go |
+| nothing on any page moves | A snapshot is read when a person names its address, and never before |
 
-A write naming one field leaves the other where it was, which is the same merge
-rule `promote` follows one layer up. That a page CHANGES for such a write is the
-claim step 6 restores, when the service holds the snapshots the planner pushes;
-`bun run e2e:schema` skips those readings and says so per reading rather than
-counting them.
+That last row is the difference from the greeting this replaced, and it is a
+property worth having rather than a loss. A greeting was one mutable value every
+visitor read, so every write changed what the next reader saw and the suite had
+to put it back afterwards. A snapshot is immutable and permanent: a run cannot
+change what any other reader sees, and nothing has to be restored.
+
+**The same mechanism as the pointer, on data instead of code.**
+
+| Code | Data |
+| --- | --- |
+| `units/<name>/<id>/` — content-hashed, immutable | `snapshots/<digest>.json` — content-hashed, immutable |
+| `manifests/<region>/<channel>.json` — one id | `slots/<slot>.json` — one id, and the ids it held before |
+| `promote` moves the pointer | `PUT /v1/slots/:slot` moves the slot |
+| Rolling back names an older unit id | Restoring names an older snapshot digest |
+
+It inherits the same known hole with it: read-modify-write with no
+compare-and-set, now with a second instance.
 
 ### Three rules the boundary keeps
 
 | | |
 | --- | --- |
-| **Strict about what the page cannot draw without, tolerant about the rest** | `greeting.text` is required. `audience` was added later, so absent means an OLDER deploy and not a fault — while an `audience` that IS present and wrong is still refused, by field |
-| **A route that does not answer costs that route** | The reads are separate: a service that does not answer `/v1/greeting` yet costs the page that reading and not the discovery document. Losing a working resource because another is not deployed would make every addition to the service a breaking change for every shell already published |
+| **Strict about what the page cannot draw without, tolerant about the rest** | A push answer must carry `snapshot.snapshot`, because that is the address a person copies and a response without it would draw `undefined` as the thing to share. A PULLED snapshot is checked by nothing at the boundary: `format` and `schemaVersion` are passed through as they arrived, so the document rule refuses them BY NAME rather than a parser refusing them as an API field |
+| **A route that does not answer costs that route** | The reads are separate: a service that does not answer `/v1` yet costs the page that reading and not the discovery document. Losing a working resource because another is not deployed would make every addition to the service a breaking change for every shell already published |
 | **A service that is not there costs a reading and never the page** | The planner is in this browser. A service that never answers leaves `/service` saying `failed` with the reason, and the tasks exactly where they were |
 
-A value the service cannot act on is refused rather than accepted: a `text` of
-`""` is a greeting no page could draw. An `audience` of `""` is accepted,
-because a greeting addressed to nobody in particular is a thing a page can draw.
+What the service will not take at all is the first thing standing in front of a
+bucket written on the strength of one unauthenticated `POST`: a body that is not
+a JSON object, and a body longer than 1 MiB. What it will not LOOK UP is an
+address that is not a sha256, refused by shape before any bucket is read,
+because such an address cannot name a snapshot this service ever wrote.
+
+What it does not check is the document. A snapshot is bytes under the hash of
+those bytes, so `{"x":1}` has an address and a stranger can hand it over — and
+the thing standing in front of a browser is the pull door, which refuses it by
+naming `format`. That is why `v1` answers with `format` and `schemaVersion` at
+all: without them the shell has nothing to apply its one document rule to.
 
 ## A second region
 

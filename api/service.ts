@@ -63,6 +63,27 @@ export type ApiSnapshot = {
   snapshot: string;
   digest: string;
   createdAt: string;
+  /**
+   * The two fields that make a pulled snapshot refusable, read out of the
+   * pushed body rather than declared by this service.
+   *
+   * The shell has to apply the SAME rule at the pull door that it applies to a
+   * file - `PLAN.md`'s "One document, four doors" says three of the four let in
+   * data this shell has never seen and one rule covers all three - and a
+   * response carrying tasks alone gives it nothing to apply the rule to. A
+   * snapshot pushed by a newer shell would then be read as this shell's own.
+   *
+   * They are also what stands in front of a digest a stranger hands over. This
+   * service takes any JSON object as a snapshot body, so `{"x":1}` has an
+   * address; without these it pulls as an empty planner and overwrites the one
+   * in the browser.
+   *
+   * `format` is "" and `schemaVersion` is null when the body carries neither.
+   * Absent is reported as absent rather than filled in, because the shell's
+   * refusal names the field and the value it met.
+   */
+  format: string;
+  schemaVersion: number | null;
   tasks: unknown;
 };
 
@@ -82,6 +103,8 @@ export const FIELDS: Record<string, ApiField[]> = {
     { path: "snapshot.snapshot", type: "string" },
     { path: "snapshot.digest", type: "string" },
     { path: "snapshot.createdAt", type: "string" },
+    { path: "snapshot.format", type: "string" },
+    { path: "snapshot.schemaVersion", type: "number" },
     { path: "snapshot.tasks", type: "array" },
     { path: "slot.snapshot", type: "string" },
     { path: "slot.history", type: "array" },
@@ -90,6 +113,13 @@ export const FIELDS: Record<string, ApiField[]> = {
 
 export const ROUTES: Record<string, ApiRoute[]> = {
   v1: [
+    // The version's own root, and the one route here that answers without being
+    // given an id. A shell reads it to find out whether the version it CALLS is
+    // answered: `/versions` sits outside every version prefix, so it says what
+    // this deploy claims to serve and not whether a request at `/v1` lands.
+    // `greeting` was that route until `PLAN.md` step 6, and snapshots and slots
+    // are both addressed by an id, so the reading had nothing left to stand on.
+    { method: "GET", path: "" },
     { method: "POST", path: "/snapshots" },
     { method: "GET", path: "/snapshots/:digest" },
     { method: "POST", path: "/slots" },
@@ -201,6 +231,37 @@ export const DEPRECATED: ApiDeprecation[] = parseDeprecations(
   answered(),
 );
 
+/**
+ * What is inside ONE version: its routes, and its fields with any retirement.
+ *
+ * Written once and read by two callers - the discovery document below, and
+ * `GET /<version>`, which is the route a shell calls to find out whether the
+ * version it was built against answers. A second copy of this would be a
+ * second reading, and the two could disagree about a field that is going away.
+ */
+export function versionBody(
+  version: string,
+  deprecated: readonly ApiDeprecation[] = DEPRECATED,
+): Record<string, unknown> {
+  return {
+    routes: (ROUTES[version] ?? []).map((r) => ({ ...r, path: `/${version}${r.path}` })),
+    fields: (FIELDS[version] ?? []).map((f) => {
+      const going = deprecated.find((d) => d.path === f.path);
+      return going
+        ? {
+            ...f,
+            deprecated: {
+              since: going.since,
+              sunset: going.sunset,
+              reason: going.reason,
+              instead: going.instead,
+            },
+          }
+        : f;
+    }),
+  };
+}
+
 /** The discovery document, §26. `serves` stays first and stays a list of strings. */
 export function discovery(
   serves: readonly string[] = SERVES,
@@ -208,28 +269,7 @@ export function discovery(
 ): Record<string, unknown> {
   return {
     serves: [...serves],
-    versions: Object.fromEntries(
-      serves.map((v) => [
-        v,
-        {
-          routes: (ROUTES[v] ?? []).map((r) => ({ ...r, path: `/${v}${r.path}` })),
-          fields: (FIELDS[v] ?? []).map((f) => {
-            const going = deprecated.find((d) => d.path === f.path);
-            return going
-              ? {
-                  ...f,
-                  deprecated: {
-                    since: going.since,
-                    sunset: going.sunset,
-                    reason: going.reason,
-                    instead: going.instead,
-                  },
-                }
-              : f;
-          }),
-        },
-      ]),
-    ),
+    versions: Object.fromEntries(serves.map((v) => [v, versionBody(v, deprecated)])),
   };
 }
 
@@ -259,6 +299,23 @@ export const deprecationsFor = (
   top: string,
   deprecated: readonly ApiDeprecation[] = DEPRECATED,
 ): ApiDeprecation[] => deprecated.filter((d) => d.path.split(".")[0] === top);
+
+/**
+ * The deprecations a response about one VERSION has to declare.
+ *
+ * `GET /<version>` is about the version and not about one resource, so it
+ * carries every retirement inside it rather than the ones sharing a body with
+ * the field. That is what keeps `ServiceReport.headerSunset` filled on a page
+ * that has pushed nothing: the header reading is taken off the one call every
+ * page makes, and after `PLAN.md` step 6 that call is this route.
+ */
+export const deprecationsIn = (
+  version: string,
+  deprecated: readonly ApiDeprecation[] = DEPRECATED,
+): ApiDeprecation[] => {
+  const fields = new Set((FIELDS[version] ?? []).map((f) => f.path));
+  return deprecated.filter((d) => fields.has(d.path));
+};
 
 /**
  * RFC 9745 `Deprecation` and RFC 8594 `Sunset`, for the earliest of them.
@@ -358,11 +415,31 @@ export async function handle(req: Request, store: Store): Promise<Response> {
 
   if (pathname === "/versions") return json(discovery());
 
-  const route = /^\/([^/]+)\/(.*)$/.exec(pathname);
+  // The path after the version is OPTIONAL, so `/v1` and `/v1/` both reach the
+  // version root below. A regex requiring the second slash answered 404 for
+  // `/v1`, which is indistinguishable from the 404 for a version this deploy
+  // does not serve - and telling those two apart is the whole reading the root
+  // route exists to give.
+  const route = /^\/([^/]+)(\/.*)?$/.exec(pathname);
   if (!route || !SERVES.includes(route[1]!)) return json({ error: "not found" }, 404);
-  const rest = `/${route[2]}`;
+  const version = route[1]!;
+  const rest = route[2] ?? "/";
 
   const going = (top: string) => deprecationHeaders(deprecationsFor(top), url.origin);
+
+  // The version's own root. It takes no id, reads no bucket and answers 200
+  // whenever the version is served, which is what makes it the one call a page
+  // can make to find out that the version it CALLS is answered. It carries the
+  // version's retirements in its headers for the same reason: a page that has
+  // pushed nothing has made no other data request to read them off.
+  if (rest === "/") {
+    if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+    return json(
+      versionBody(version),
+      200,
+      deprecationHeaders(deprecationsIn(version), url.origin),
+    );
+  }
 
   if (rest === "/snapshots" && req.method === "POST") {
     const raw = await req.text();
@@ -463,7 +540,17 @@ export async function handle(req: Request, store: Store): Promise<Response> {
   return json({ error: "not found" }, 404);
 }
 
-/** One snapshot out of the bucket, as this version returns it. */
+/**
+ * One snapshot out of the bucket, as this version returns it.
+ *
+ * `format` and `schemaVersion` are read out of the pushed body and never
+ * invented. This service does not check what it is handed - a snapshot is
+ * bytes under the hash of those bytes - so a body carrying neither is answered
+ * with "" and null, and the shell's pull door refuses it by name. Filling
+ * either one in here would hand the shell a document that says it is a planner
+ * at this shell's own version, which is exactly the claim the pull door exists
+ * to test.
+ */
 async function readSnapshot(store: Store, digest: string): Promise<ApiSnapshot | null> {
   const raw = await store.read(snapshotKey(digest));
   if (raw === null) return null;
@@ -474,6 +561,8 @@ async function readSnapshot(store: Store, digest: string): Promise<ApiSnapshot |
     snapshot: digest,
     digest,
     createdAt: typeof held.createdAt === "string" ? held.createdAt : "",
+    format: typeof body?.format === "string" ? body.format : "",
+    schemaVersion: typeof body?.schemaVersion === "number" ? body.schemaVersion : null,
     tasks: body?.tasks ?? [],
   };
 }

@@ -32,6 +32,7 @@
     "verify:browser": "HARNESS=live bun node_modules/playwright-bdd/dist/cli/index.js test --tags @browser && HARNESS=live bun node_modules/@playwright/test/cli.js test",
     "sweep": "bun run scripts/sweep-superseded.ts",
     "e2e:api": "bun run scripts/e2e-api-gate.ts",
+    "e2e:snapshots": "bun run scripts/e2e-snapshots.ts",
     "e2e:deprecation": "bun run scripts/e2e-deprecation.ts",
     "e2e:schema": "bun run scripts/e2e-service-schema.ts",
     "e2e:preview": "bun run scripts/e2e-pr-preview.ts",

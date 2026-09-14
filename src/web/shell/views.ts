@@ -62,12 +62,17 @@ export const VIEWS: Record<string, View> = {
   "/backup": {
     title: "Backup",
     apps: [],
-    // `PLAN.md` step 3 built the first two doors, so this note stopped saying
-    // that none of them was built - which is the mistake `/` made at step 2,
-    // where the note went on contradicting the panel directly beneath it.
-    // Which doors exist is the PANEL's sentence: it can say push and pull are
-    // still missing, and a one-line note cannot say it without going stale.
-    note: "Drawn by the shell. The planner as one file, out and back in. Nothing is fetched for this view.",
+    // Step 3 built the first two doors and step 6 the other two, so this note
+    // no longer says a file is all there is - which is the mistake `/` made at
+    // step 2, where the note went on contradicting the panel directly beneath
+    // it. What the note can say is the placement fact and where the reading is
+    // taken; which doors exist is the PANEL's sentence.
+    //
+    // "Nothing is fetched for this view" is still true and is about the same
+    // thing it was: no UNIT is fetched, because none is placed here. Push and
+    // pull reach the service when a person presses them, which is not a fetch
+    // the view makes to draw itself.
+    note: "Drawn by the shell. The planner out and back in: as a file, or as a snapshot the service keeps. No unit is fetched for this view.",
   },
 };
 

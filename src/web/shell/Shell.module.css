@@ -213,6 +213,21 @@
   max-width: 100%;
 }
 
+/* The address a pull is given. Monospace because what goes in it is a sha256:
+   a person checking a copied address against the one a push printed is reading
+   64 characters, and a proportional font makes two of them look alike. */
+.address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* Read and refused are the same shape on purpose: what a person looks for is
    the sentence, and a refusal that hid in a different corner would be missed. */
 .outcome,

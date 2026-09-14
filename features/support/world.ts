@@ -203,13 +203,27 @@ export class PointerWorld {
   serviceRefusal: { code: number; said: string } | null = null;
   serviceRead: unknown = null;
   /**
-   * What the greeting's audience was before a scenario wrote one.
+   * The address the last push in this scenario was given, and the one before it.
    *
-   * The service is shared by every visitor and every earlier run, so a write
-   * has to be put back. `restoreAudience` does it in an After hook, and null
-   * means this scenario never wrote.
+   * `PLAN.md` step 6. A snapshot is permanent and is written under the hash of
+   * its own bytes, so nothing has to be put back after a scenario writes one -
+   * which is the whole difference from the greeting this replaced, where every
+   * write changed a value the next visitor would read and an After hook had to
+   * undo it.
    */
-  audienceBefore: string | null = null;
+  pushedAddress = "";
+  pushedBefore = "";
+
+  /**
+   * An address a STEP pushed, rather than the page.
+   *
+   * Two of the pull door's refusals are about a snapshot no page in this tree
+   * can produce - one a newer shell wrote, and one that was never a planner -
+   * so those are arranged at the service and the door is then driven through
+   * the page. Kept apart from `pushedAddress` so that a scenario cannot pull an
+   * arranged snapshot while believing it pulled the one it pushed.
+   */
+  arrangedAddress = "";
 
   private ids = BUILD_IDS;
 
@@ -262,6 +276,17 @@ export class PointerWorld {
         PORT: "0",
         API_SERVES: serves,
         API_DEPRECATED: deprecated,
+        // NO bucket, and this is a safety rule rather than a speed one. Bun
+        // loads `.env.local` into this process, and the credential in it is the
+        // ASSET bucket's - the one `PLAN.md` step 6 says a service must never
+        // hold, because that bucket holds the files the origin executes. A
+        // spawned service inheriting it would write every @local planner into
+        // it. Empty means `configFromEnv` returns null and the snapshots live
+        // in that process's memory, which is also what `api/Dockerfile` runs
+        // the service's own tests against.
+        AWS_ACCESS_KEY_ID: "",
+        AWS_SECRET_ACCESS_KEY: "",
+        BUCKET_NAME: "",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -553,37 +578,6 @@ export class PointerWorld {
           `${result.stderr}`,
       );
     }
-  }
-
-  /**
-   * Puts the audience back to what the scenario found.
-   *
-   * Written through the service rather than the page: by the time this runs
-   * the browser may be anywhere, and the service is what holds the value.
-   */
-  async restoreAudience(): Promise<void> {
-    if (this.audienceBefore === null) return;
-    const audience = this.audienceBefore;
-    this.audienceBefore = null;
-    const base = this.serviceBase || (await this.apiBaseOnPage());
-    if (!base) return;
-    await fetch(`${base}/v1/greeting`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ audience }),
-    }).catch(() => {});
-  }
-
-  private async apiBaseOnPage(): Promise<string> {
-    if (!this.page) return "";
-    return this.page
-      .evaluate(() => {
-        const el = document.getElementById("__BUILD__");
-        return el?.textContent
-          ? ((JSON.parse(el.textContent) as { apiBase?: string }).apiBase ?? "")
-          : "";
-      })
-      .catch(() => "");
   }
 
   async promoteUnit(channel: Channel, unit: Unit, id: string): Promise<Run> {

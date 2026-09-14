@@ -98,7 +98,7 @@ after the load, and the answer is zero.
 
 34. Two reads start together, right after `render()`, and neither blocks the paint (`src/web/shell/index.tsx:57-66`).
 35. `readService` → `GET /versions` on `pointer-deploy-api.fly.dev`. Not under a version prefix, because asking at a version needs the answer first.
-36. `readData` → `GET /v1/greeting`. The body is not kept OR PARSED — no unit draws it since step 0 — and the RESPONSE is the point: whether the version this shell calls answers, which goes on `data-api`, and the `Sunset` header it carried. It went through a parser requiring `greeting.text` until 2026-09-11, which made a service answering `v1` correctly report a parse error on `data-api`.
+36. `readData` → `GET /v1`, the version's own root. The body is not kept OR PARSED and the RESPONSE is the point: whether the version this shell calls answers, which goes on `data-api`, and the `Sunset` header it carried. It was `/v1/greeting` until `PLAN.md` step 6; what replaced it had to answer without being given an id, and snapshots and slots are both addressed by one. It went through a parser requiring `greeting.text` until 2026-09-11, which made a service answering `v1` correctly report a parse error on `data-api`.
 37. Every response's `Sunset` header is remembered and folded into the report. It arrives only because the service sends `access-control-expose-headers`.
 38. `data-api` on `<html>` becomes `ok` or the error text.
 39. Client timeout is 5 s per call.
@@ -123,10 +123,10 @@ Three request fans in sequence, not one chain: the server, then the store, then 
 | --- | --- | --- | --- |
 | Server | always 1 | 1 | The HTML |
 | Store | the shell's own files, plus one JS and one CSS for each sub-app the manifest carries | 15 | 9 shell files — `index.js`, `index.css`, five `shared-*.js` chunks, `preact/hooks`, `preact/jsx-runtime` — and 2 panel files each for `list`, `board` and `week` |
-| Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1/greeting` |
+| Service | the 2 this shell asks for at steps 35-36 | 2 | `GET /versions` and `GET /v1` |
 
 Only the shell's own files are needed to paint — 9 of them here. Of the six panel files, `list`'s two are fetched AND run, because that unit is on the route a visitor lands on. The four belonging to `board` and `week` are fetched and never imported: neither module has executed, and a visitor who opens neither view pays four requests for nothing. What that buys the visitor who does open one is 762 to 779 ms, over four arms measured on 2026-09-13 - two per unit, nine runs each, the click taken ten seconds after this view settles. About 430 ms of that baseline is not the two fetches and nothing has said what it is, and neither has anything said why the warm arm scatters between 43 and 125 ms while the control arm holds between 807 and 850 - TODO §47. `scripts/measure-preload.ts` takes it with a control, and `--unit` says which of the two to measure.
 
 Counted in a real Chrome against `https://pointer-deploy.fly.dev/`, one cold page load, 2026-09-13. It read **13** at three units on 2026-09-12 and **11** with the two-unit composition of 2026-09-10. Two numbers move with the build rather than with the design: the five `shared-*.js` chunks are this build's chunking, and `preact` and `@preact/signals` are mapped but never fetched, because nothing the page reaches imports those two specifiers.
 
-That reading was taken while the deployed service still answered the previous slate's surface, so `GET /v1/greeting` returned 404. The count is the same either way — the page makes the call and draws the default when it fails, which is the behaviour, not a fault in the measurement.
+That reading was taken while the deployed service still answered the previous slate's surface, so the data call returned 404. The count is the same either way — the page makes the call and reports the failure on `data-api` when it fails, which is the behaviour, not a fault in the measurement. Nothing is fetched for `/backup` either: its four doors reach the service only when a person presses one.

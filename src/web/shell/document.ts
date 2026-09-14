@@ -105,6 +105,26 @@ export function isDueDate(value: string): boolean {
   return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === value;
 }
 
+/**
+ * Whether a string is a moment, TODO §45, `PLAN.md` step 6.
+ *
+ * Two fields carry one, and until this step neither was read. `createdAt` is
+ * what `planner.ts` SORTS the restored list by - lexicographically, because
+ * `getAll` returns key order and insertion order is what the list draws - so a
+ * hand-edited `"createdAt": "yesterday"` was accepted and reordered the list on
+ * the next reload. `exportedAt` was declared required and looked at by nothing.
+ *
+ * `Date.parse` and not a pattern, because a document is written by an exporter
+ * and by hand and both are entitled to their own format. What it does NOT catch
+ * is a stamp that parses and is wrong: `"2026"` is a moment and so is any year.
+ * The rule is that the field is a time, not that it is the right one.
+ *
+ * Kept apart from `isDueDate` above rather than folded into it. A due date is a
+ * DAY the week draws a panel for, and `2026-02-30` parses in some readings and
+ * is not a day; these two fields are instants nothing draws a panel for.
+ */
+export const isMoment = (value: string): boolean => Number.isFinite(Date.parse(value));
+
 /** What the planner is at this moment, ready to be written to disk or pushed. */
 export function documentFrom(tasks: readonly Task[], schemaVersion: number): PlannerDocument {
   return {
@@ -146,6 +166,13 @@ function readTask(value: unknown, at: string, columns: readonly Column[]): Task 
     if (typeof held !== "string" || held === "") {
       return `${at}.${field} is ${show(held)}, and a string was expected`;
     }
+  }
+  // TODO §45, and the door it matters at is this one. `planner.ts` sorts the
+  // restored list by `createdAt` as a STRING, so a task carrying "yesterday" is
+  // accepted, drawn where the file put it, and somewhere else after the next
+  // reload - a change to the planner nobody asked for and nothing reports.
+  if (!isMoment(value.createdAt as string)) {
+    return `${at}.createdAt is ${show(value.createdAt)}, and a moment was expected`;
   }
   // `PLAN.md` step 4. Before the board existed, `column` was a string nothing
   // read and any value was as good as another. Now one panel per column draws
@@ -205,8 +232,31 @@ export function readDocument(
   } catch (e) {
     return refuse(`the file is not JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
+  return readPlanner(value, schemaVersion, columns);
+}
 
-  if (!isRecord(value)) return refuse(`the file is ${show(value)}, and a JSON object was expected`);
+/**
+ * The same rule, on a document that is already parsed, `PLAN.md` step 6.
+ *
+ * The pull door does not hold bytes. `GET /v1/snapshots/:digest` answers with
+ * JSON the service has already parsed, and the shell rebuilds the document from
+ * the fields of that response - so re-serialising it to hand back to
+ * `readDocument` would be a round trip made only to satisfy a signature.
+ *
+ * One rule, three doors. `PLAN.md`'s four-doors table says the browser enforces
+ * the version on the database and NOTHING enforces it on a file or a snapshot,
+ * so both of those go through this function and neither carries a rule of its
+ * own. A second copy for the pull door is a second reading that can disagree
+ * with the first, which is this repository's standing argument against one.
+ */
+export function readPlanner(
+  value: unknown,
+  schemaVersion: number,
+  columns: readonly Column[],
+): ImportOutcome {
+  if (!isRecord(value)) {
+    return refuse(`the document is ${show(value)}, and a JSON object was expected`);
+  }
 
   if (value.format !== DOCUMENT_FORMAT) {
     return refuse(
@@ -234,6 +284,21 @@ export function readDocument(
       `schemaVersion is ${version}, and this shell reads ${schemaVersion}. ` +
         `Nothing here migrates a planner forward yet`,
     );
+  }
+
+  // TODO §45, the other half. The field was declared required from step 3 and
+  // read by nothing, which made it a field a writer could omit with no
+  // consequence - and this shell's own type says a planner document carries
+  // one. Checked AFTER the version and before the tasks, so that a document
+  // which is wrong about both its version and its stamp still names the version
+  // first: that is the refusal a rollback produces and the one a person can act
+  // on.
+  //
+  // The pull door always has a value for it. `POST /v1/snapshots` records when
+  // it kept the bytes, so a pulled document is stamped by the service rather
+  // than by whoever wrote the planner.
+  if (typeof value.exportedAt !== "string" || !isMoment(value.exportedAt)) {
+    return refuse(`exportedAt is ${show(value.exportedAt)}, and a moment was expected`);
   }
 
   if (!Array.isArray(value.tasks)) {

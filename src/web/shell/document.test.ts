@@ -12,7 +12,7 @@
 // green on a refusal that named the wrong field.
 
 import { describe, expect, test } from "bun:test";
-import { DOCUMENT_FORMAT, documentFrom, readDocument } from "./document.ts";
+import { DOCUMENT_FORMAT, documentFrom, readDocument, readPlanner } from "./document.ts";
 import { createStore } from "./api.ts";
 import type { Column, Task } from "./api.ts";
 
@@ -35,7 +35,23 @@ const task = (over: Partial<Task> = {}): Task => ({
   ...over,
 });
 
-const file = (doc: unknown): string => JSON.stringify(doc);
+/**
+ * A document as bytes, stamped unless the test is about the stamp.
+ *
+ * `exportedAt` became a field the rule READS at `PLAN.md` step 6 - TODO §45 -
+ * and every document below is meant to be valid except in the one field it is
+ * testing. Filling it in here is what keeps that true: a test about the format
+ * would otherwise be refused for its stamp and assert nothing about the format.
+ * A test that IS about the stamp passes its own and this leaves it alone.
+ */
+const STAMP = "2026-09-13T12:00:00.000Z";
+
+const file = (doc: unknown): string =>
+  JSON.stringify(
+    doc && typeof doc === "object" && !Array.isArray(doc) && !("exportedAt" in doc)
+      ? { exportedAt: STAMP, ...(doc as Record<string, unknown>) }
+      : doc,
+  );
 
 const held = (text: string, version = 1, columns = COLUMNS): readonly Task[] => {
   const read = readDocument(text, version, columns);
@@ -146,6 +162,41 @@ describe("the schema version", () => {
     expect(problem).toContain("1");
     expect(problem).toContain("2");
     expect(problem).toContain("migrate");
+  });
+});
+
+describe("the stamp on the document", () => {
+  // TODO §45. The field was required by the type from step 3 and read by
+  // nothing until step 6, so a writer could omit it with no consequence at all.
+  test("a document with no stamp is refused, and the field is named", () => {
+    const problem = refusal(
+      file({ format: DOCUMENT_FORMAT, schemaVersion: 1, exportedAt: undefined, tasks: [] }),
+    );
+    expect(problem).toContain("exportedAt");
+    expect(problem).toContain("missing");
+  });
+
+  test("a stamp that is not a moment is refused", () => {
+    const problem = refusal(
+      file({ format: DOCUMENT_FORMAT, schemaVersion: 1, exportedAt: "yesterday", tasks: [] }),
+    );
+    expect(problem).toContain("exportedAt");
+    expect(problem).toContain("yesterday");
+  });
+
+  // Read after the version, so that a document which is wrong about both names
+  // the version first. That is the refusal a rollback produces, and the one a
+  // person can do something about.
+  test("a document wrong about its version and its stamp names the version", () => {
+    const problem = refusal(
+      file({ format: DOCUMENT_FORMAT, schemaVersion: 9, exportedAt: "yesterday", tasks: [] }),
+    );
+    expect(problem).toContain("schemaVersion");
+    expect(problem).not.toContain("exportedAt");
+  });
+
+  test("what this shell exports carries a stamp this shell reads", () => {
+    expect(held(file(documentFrom([], 1)))).toEqual([]);
   });
 });
 
@@ -261,6 +312,43 @@ describe("the tasks", () => {
     expect(held(asFile([task({ due: null })]))[0]!.due).toBeNull();
   });
 
+  // TODO §45, and the reading that makes it more than tidiness: `planner.ts`
+  // sorts the restored list by `createdAt` as a STRING, because `getAll`
+  // returns key order and insertion order is what the list draws. A task
+  // carrying "yesterday" was accepted, drawn where the file put it, and
+  // somewhere else after the next reload.
+  test.each(["yesterday", "soon", "the 4th", "not a time"])(
+    "a task whose createdAt reads %p is refused",
+    (bad) => {
+      const problem = refusal(asFile([task({ createdAt: bad })]));
+      expect(problem).toContain("tasks[0].createdAt");
+      expect(problem).toContain("moment");
+    },
+  );
+
+  test.each(["2026-09-11T09:00:00.000Z", "2026-09-11", "2026", "Fri, 11 Sep 2026 09:00:00 GMT"])(
+    "a task whose createdAt reads %p is accepted",
+    (good) => {
+      expect(held(asFile([task({ createdAt: good })]))[0]!.createdAt).toBe(good);
+    },
+  );
+
+  // The order the list draws, and the reason the rule above is worth having.
+  // `What was imported is still there after a reload` asserts an order, and
+  // the harness mints ascending stamps for it - so the assertion was true of
+  // the data the harness built and of nothing else.
+  test("the stamps a document carries are what a later sort can read", () => {
+    const read = held(
+      asFile([
+        task({ id: "a", createdAt: "2026-09-11T09:00:00.000Z" }),
+        task({ id: "b", createdAt: "2026-09-11T10:00:00.000Z" }),
+      ]),
+    );
+    expect([...read].sort((x, y) => x.createdAt.localeCompare(y.createdAt)).map((t) => t.id)).toEqual(
+      ["a", "b"],
+    );
+  });
+
   test("a task whose tags are not a list is refused", () => {
     expect(refusal(asFile([{ ...task(), tags: "travel" }]))).toContain("tasks[0].tags");
   });
@@ -289,5 +377,56 @@ describe("the tasks", () => {
     const read = held(asFile([task({ tags })]))[0]!;
     expect(read.tags).toEqual(["travel"]);
     expect(read.tags).not.toBe(tags);
+  });
+});
+
+describe("the same rule on a document that is already parsed", () => {
+  // `PLAN.md` step 6. The pull door holds no bytes: the service answers with
+  // JSON it has already parsed, and the shell rebuilds the document from the
+  // fields of that response. `readDocument` is `JSON.parse` and then this, so
+  // the two doors cannot hold two readings of one rule.
+  const pulled = (doc: unknown, version = 1) => readPlanner(doc, version, COLUMNS);
+
+  test("a document a file door would accept is accepted here", () => {
+    const read = pulled({ ...documentFrom([task()], 1) });
+    expect(read.ok && read.tasks).toHaveLength(1);
+  });
+
+  test("every document-level refusal the file door makes, this one makes", () => {
+    for (const [doc, named] of [
+      [{ schemaVersion: 1, exportedAt: STAMP, tasks: [] }, "format"],
+      [{ format: DOCUMENT_FORMAT, exportedAt: STAMP, tasks: [] }, "schemaVersion"],
+      [{ format: DOCUMENT_FORMAT, schemaVersion: 9, exportedAt: STAMP, tasks: [] }, "newer shell"],
+      [{ format: DOCUMENT_FORMAT, schemaVersion: 1, tasks: [] }, "exportedAt"],
+      [{ format: DOCUMENT_FORMAT, schemaVersion: 1, exportedAt: STAMP }, "tasks"],
+    ] as const) {
+      const read = pulled(doc);
+      expect(read.ok ? "accepted" : read.problem).toContain(named);
+    }
+  });
+
+  test("a task-level refusal the file door makes, this one makes", () => {
+    const read = pulled({
+      format: DOCUMENT_FORMAT,
+      schemaVersion: 1,
+      exportedAt: STAMP,
+      tasks: [task({ column: "someday" })],
+    });
+    expect(read.ok ? "accepted" : read.problem).toContain("tasks[0].column");
+  });
+
+  // What the service answers when the pushed body was not a planner at all.
+  // `POST /v1/snapshots` takes any JSON object, so `{"x":1}` has an address and
+  // a stranger can hand it over; the response carries format "" and a null
+  // version, and this is the door that refuses it.
+  test("a snapshot that was never a planner is refused by name", () => {
+    const read = pulled({ format: "", schemaVersion: null, exportedAt: STAMP, tasks: [] });
+    expect(read.ok ? "accepted" : read.problem).toContain("format");
+  });
+
+  test("a document that is not an object at all is refused", () => {
+    expect(pulled(["a"]).ok ? "accepted" : (pulled(["a"]) as { problem: string }).problem).toContain(
+      "JSON object",
+    );
   });
 });

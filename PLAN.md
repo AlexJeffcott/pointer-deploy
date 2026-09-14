@@ -82,13 +82,15 @@ It is also the whole surface, so a member the FRAME calls has a row here too. `p
 | `service()` | | | | `/service` |
 | `setPlanner(report)` | | | | the frame, after the read |
 | `setService(report)` | | | | the frame, after the read |
-| `loadTasks(tasks)` | | | | IndexedDB, `/backup`, and step 7's pull |
+| `loadTasks(tasks)` | | | | IndexedDB, and all four of `/backup`'s doors |
 | ~~`storage()`~~ | | | | **not built.** `planner()`, minted at step 2, is this row under another name |
 | ~~`exportDocument()`~~ | | | | **not built.** The frame calls `document.ts` |
 | ~~`importDocument(json)`~~ | | | | **not built.** The frame writes through `loadTasks` |
-| `push()` / `pull(address)` | | | | `/backup` |
+| ~~`push()` / `pull(address)`~~ | | | | **not built.** The frame holds the client and calls it |
 
-**Three rows were struck out at step 3, and the reason is a design one.** A member that reads a document has to carry the DATABASE's schema version on the surface, where step 14's bump to 2 would mint a contract for a number no sub-app can see. `storage()` is the third row: step 2 already minted `planner()`, `/backup` draws it, and a second report of one fact is two readings that can disagree. Step 3's section below carries the whole reading, including the compiler error that is NOT the reason.
+**Four rows are struck out, three at step 3 and one at step 6, and the reason is one design argument.** A member that reads a document has to carry the DATABASE's schema version on the surface, where step 14's bump to 2 would mint a contract for a number no sub-app can see. `storage()` is the third row: step 2 already minted `planner()`, `/backup` draws it, and a second report of one fact is two readings that can disagree. Step 3's section below carries the whole reading, including the compiler error that is NOT the reason.
+
+`push()` / `pull(address)` went the same way at step 6. No sub-app can reach the service - the frame makes the one client the page has - so a member for pushing would be surface the member gate can refuse nothing for, which is what `greeting` was. The frame calls the client straight and writes what it pulled through `loadTasks`, so step 6 mints no contract and no sub-app is rebuilt for it.
 
 Dropping `moveTask` refuses `board` and nothing else. Dropping `setDue` refuses `week` and nothing else. That is the reading §31 row 1 lost when the slate went to one sub-app; step 1 restores the half that needs one sub-app, and step 10 the "and nothing else" half.
 
@@ -110,12 +112,19 @@ The service itself becomes **stateless**. Nothing is in memory between requests,
 
 ```
 GET    /versions              the discovery document, unchanged
-POST   /v1/snapshots          body: the planner document  →  { snapshot, digest, createdAt }
-GET    /v1/snapshots/:id      →  the planner document
+GET    /v1                    the version's own routes and fields
+POST   /v1/snapshots          body: the planner document  →  { snapshot, digest, createdAt, … }
+GET    /v1/snapshots/:id      →  { snapshot, digest, createdAt, format, schemaVersion, tasks }
 POST   /v1/slots              →  { slot, writeKey }
 GET    /v1/slots/:slot        →  { snapshot, history }
 PUT    /v1/slots/:slot        body: { snapshot }, header: the write key  →  moves the slot
 ```
+
+**Two of those rows were not in this table until the step was built, and each answers a question the table as written could not.**
+
+`GET /v1` is the route a page calls to learn that the version it was BUILT against is answered by the deploy in front of it. `/versions` cannot give that reading - it sits outside every version prefix, so it says what this deploy CLAIMS and not whether a request at `/v1` lands - and `greeting` was that route until this step took it away. Snapshots and slots are both addressed by an id, so without a root there was nothing left to call. It carries the version's retirements in its headers, which is what keeps `ServiceReport.headerSunset` filled on a page that has pushed nothing.
+
+`format` and `schemaVersion` on a snapshot are what make the PULL door refusable. "One document, four doors" below says three of the four let in data this shell has never seen and one rule covers all three; a response carrying `tasks` alone leaves the shell nothing to apply that rule to, so a planner a newer shell pushed would be read as this shell's own. They also stand in front of a digest a stranger hands over: this service takes any JSON object, so `{"x":1}` has an address, and without `format` it pulls as a planner with no tasks and empties the browser it was pulled into. Both are read out of the pushed body and never invented - `""` and `null` when the body carried neither. Step 13 retires both beside `snapshot.tasks`, which gives `deprecationHeaders`' earliest-sunset rule its first subject: two deprecated fields in one body is the case that rule exists for and nothing had ever produced one.
 
 ### The same mechanism, twice
 
@@ -196,6 +205,8 @@ Three of those doors let in data written by a version this shell has never seen,
 | Importing a file | nothing. The shell must |
 | Pulling a snapshot | nothing. The shell must |
 
+Both of the last two are built from step 6, and they are the SAME function: `readDocument` is `JSON.parse` and then `readPlanner`, and the pull door calls the second of those on a response the service has already parsed. That is why `v1` answers a snapshot with `format` and `schemaVersion` - a response carrying `tasks` alone would leave the third door with nothing to enforce a version against.
+
 | Case | Behaviour |
 | --- | --- |
 | `format` missing or not `pointer-planner` | refuse, and name the field |
@@ -222,7 +233,7 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 3 | 2026-09-11 | `/backup`: export a file, import a file | Total overwrite in one transaction, and a file that is refused | `backing-up-the-planner` |
 | 4 | 2026-09-12 | `board` on `/board` | A third unit. Preloaded off the landing route, fetched and not imported | `moving-a-task-between-columns` |
 | 5 | 2026-09-13 | `week` on `/week` | Three bundles, one signals runtime, one store | `seeing-the-week` |
-| 6 |  | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
+| 6 | 2026-09-14 | Service: snapshots in a private bucket | The service holds no data and holds the only key. Push, then pull by digest | rewrite `reading-from-a-service` |
 | 7 |  | Slots: a stable address and a write key | Push from one browser, pull in another. A `PUT` changes what a second browser draws, with no deploy | `sharing-a-planner` |
 | 8 |  | Slot history and restore | Data rollback, by the same mechanism as the pointer | `restoring-an-older-snapshot` |
 | 9 |  | Additive contract change: `renameTask` | `board` and `week` do not republish and still compile against the new contract. `contract:matrix` stays green | `contract:matrix`, not a scenario |
@@ -233,6 +244,24 @@ Each step is one publish and one promote. Each names the one thing it demonstrat
 | 14 |  | IndexedDB v2 | A forward migration runs on a planner that already has data | `migrating-the-planner` |
 | 15 |  | Roll the shell back with v2 data present | The asymmetry, seen: code moves back and data does not | `rolling-back-onto-newer-data` |
 | 16 |  | The fix: open with no version, degrade to no cache | The limit closed, and the data untouched | `rolling-back-onto-newer-data` |
+
+### What step 6 settled, and what it cost
+
+**The service changed its subject and kept every mechanism.** `SERVES`, `FIELDS`, `ROUTES`, the discovery document, the two RFC headers and the CORS exposure are the same code; what moved is the resource. `greeting` was the smallest thing the service could hold while the slate had no data to move, and snapshots are what it holds now. The service itself is stateless: `handle` takes a `Store`, and `api/fly.toml` dropped `auto_stop_machines = "off"` and `min_machines_running = 1` because the comment there gave the reason as state in memory.
+
+**The security argument is measured twice, from both sides.** `bun run verify:keys` aims the snapshot key at `pointer-deploy-assets` and requires 403 on the write and on the delete. `bun run e2e:snapshots` takes the other reading from outside: a planner pushed through the deployed service is not served by the public asset origin, at either of the two paths it could be at. Neither is inferred from there being two keys, because a second key pair carrying org-wide permission would satisfy "two keys" and defeat the reason for two.
+
+**`bun run e2e:snapshots` is the artefact `~/projects/CLAUDE.md` asks for, and it exists because nothing else in this tree writes a byte to Tigris through the service.** `api/service.test.ts` runs against `memoryStore`, because `api/Dockerfile` runs those tests inside the image build where there is no credential and there should not be one. The @local scenarios spawn a service with no credential for the same reason - and the reason is sharper than speed: the credential in a developer's environment is the ASSET bucket's, so a spawned service inheriting it would write every local planner into the bucket the origin executes from. `startServiceAndServer` and `refusedStart` both clear it now, and they did not before this step.
+
+**Three checks were red on this branch before any of it was written, and the first was the alarm.** `bun run verify` reported 9 failed of 56: every scenario in `reading-what-the-service-holds.feature` drove the real service process and read a greeting off a service that no longer had one. The commit that changed the service's subject left the suite that measures it untouched. That file is rewritten here, scenario for scenario, with the same readings re-aimed.
+
+**`e2e:schema` has a panel to read for the first time.** `PANEL` was null from step 0 to step 5 and the reason changed on the way: first no unit existed, then `list` existed and asked `store.goingAway("snapshot.tasks")` about a field the service did not answer. The service answers it now, so four readings that had been printed as skipped are taken - and the one that matters is §26's own claim, which had never had a subject on this slate: a field retired on the SERVICE reaches a separately published bundle, and `list` reports it without being rebuilt.
+
+**§45 closed, and the reading is what made it worth closing.** `createdAt` is checked as a moment and `exportedAt` is read at last. The first is not tidiness: `planner.ts` sorts the restored list by `createdAt` as a STRING, so a hand-edited `"createdAt": "yesterday"` was accepted, drawn where the document put it, and somewhere else after the next reload - and `What was imported is still there after a reload` asserted an order that was true because the harness minted ascending stamps for it. Both rules are one function, `isMoment`, and both doors call it.
+
+**One rule, three doors, and the pull door holds no bytes.** `readDocument` is `JSON.parse` and then `readPlanner`; the pull door calls the second of those on a response the service has already parsed. Re-serialising the response to hand back to `readDocument` would have been a round trip made only to satisfy a signature, and a second copy of the rule would have been a second reading that can disagree with the first.
+
+**What this step did NOT do.** No member was added to `ShellStore`, so no contract was minted - `9e59f0c` is unchanged, and `list`, `board` and `week` all came out of the build with the ids they already had. The frame holds the client and calls it, exactly as it calls `document.ts`: a sub-app cannot reach the service and a member for pushing would be surface the member gate can refuse nothing for. `PLAN.md`'s contract table has a `push()` / `pull(address)` row against the frame alone, and that row is struck out by the same argument step 3 used for `exportDocument`.
 
 ### What step 5 settled, and what it cost
 
@@ -430,7 +459,7 @@ The four sentences: "the transaction commits the clear alone" (it commits the cl
 
 **And `readData` no longer parses the body it does not keep.** It called `client.greeting()` behind a parser that requires `greeting.text`, so a service answering `v1` correctly with any other body put `api field greeting.text is missing or not a string` on `data-api` - a reading about the SHAPE of a response, under a doc comment saying the reading is whether the version answers. `ServiceClient.data()` makes the call and reads the status and the `Sunset` header and nothing else. `parseGreeting` and `ApiGreeting` went with it: nothing in the shell drew a field of that response, so the parser was checking a boundary no value crossed.
 
-**`list` calls `goingAway("snapshot.tasks")`, which returns null.** The service holds no snapshots until step 6 and the field is retired at step 13, so nothing is drawn for it today. The call is not decoration: `bun run e2e:members` drops the member and reads a refusal naming `list`, which is the whole of §9's first half and had no subject at step 0.
+**`list` calls `goingAway("snapshot.tasks")`, and from step 6 the service answers that field.** Nothing is drawn for it on a live page, because the field is not retired until step 13 - but `bun run e2e:schema` arranges the retirement and reads what the panel then draws, which is §26's claim reaching a separately published bundle. It returned null for every reading between step 0 and step 6, when the service held a greeting and answered no field any panel asked about. The call is not decoration: `bun run e2e:members` drops the member and reads a refusal naming `list`, which is the whole of §9's first half and had no subject at step 0.
 
 **"Nothing is fetched for a view that names no unit" gained teeth.** At step 0 there was no bundle a mutation could make the page fetch, so the unit-level half of that claim was structural. It is now a difference between `/`, which fetches `list`, and the four views that fetch nothing - and the `@browser` walk measures it.
 

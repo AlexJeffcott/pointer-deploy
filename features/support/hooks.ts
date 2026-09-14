@@ -159,9 +159,6 @@ After(async function (this: PointerWorld, { $testInfo }) {
   // Before the page fixture is torn down: a context this world opened is not
   // the fixture's, so nothing else closes it.
   await this.closeExtraBrowsers();
-  // Before the server is stopped: a local service is reached through this
-  // world, and stopping first would leave the write nowhere to go.
-  await this.restoreAudience();
   await this.stopLocal();
   await this.restorePointer();
   await this.restoreHistory();

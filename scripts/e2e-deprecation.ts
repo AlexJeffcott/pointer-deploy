@@ -23,7 +23,7 @@ const CHANNEL = "test-qa";
 const API = "src/web/shell/api.ts";
 const REGISTRY = "contracts/registry.json";
 const MINT_NAME = "deprecation-probe";
-const REASON = "the greeting surface is superseded, e2e probe";
+const REASON = "the surface this probe minted is superseded, e2e probe";
 
 const ok = (claim: string) => console.log(`  ok   ${claim}`);
 const failures: string[] = [];
