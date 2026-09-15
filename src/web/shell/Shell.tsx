@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import type { ShellStore } from "./api.ts";
-import { documentFrom, readDocument, type ImportOutcome } from "./document.ts";
+import { documentFrom, readDocument, readPlanner, type ImportOutcome } from "./document.ts";
+import type { ServiceClient } from "./service.ts";
 import { SCHEMA_VERSION } from "./planner.ts";
 import { AsyncAppLoader } from "./AsyncAppLoader.tsx";
 import { readAppMap, type AppMap } from "./loader.ts";
@@ -101,22 +102,34 @@ function ServiceView({ store }: { store: ShellStore }) {
   );
 }
 
+/** What a push came to: the address, or the sentence that stopped it. */
+type PushOutcome = { ok: true; snapshot: string; createdAt: string } | { ok: false; problem: string };
+
 /**
- * The planner as one file, drawn by the shell, `PLAN.md` step 3.
+ * The planner as one document, drawn by the shell, `PLAN.md` steps 3 and 6.
  *
  * No unit is placed on `/backup` and nothing is fetched for it, exactly as on
- * `/service`. Two of the document's four doors are here; push and pull are the
- * other two and arrive at steps 6 and 7.
+ * `/service`. All FOUR doors are here from step 6: export writes a file, import
+ * reads one, push writes a snapshot to the service and pull reads one back.
  *
- * The frame calls `document.ts` straight and writes through
- * `ShellStore.loadTasks`, so step 3 adds no member to the contract. A sub-app
- * cannot read a file, so a member for it would be surface the member gate could
- * refuse nothing for.
+ * The frame calls `document.ts` and the client straight, and writes through
+ * `ShellStore.loadTasks`, so neither step adds a member to the contract. A
+ * sub-app cannot read a file and does not hold the client, so a member for
+ * either would be surface the member gate could refuse nothing for.
+ *
+ * Import and pull are ONE rule. `readDocument` is `JSON.parse` and then
+ * `readPlanner`; the pull door calls the second of those on a response the
+ * service has already parsed. Both end in `loadTasks`, which is one assignment
+ * and therefore one IndexedDB transaction.
  */
-function BackupView({ store }: { store: ShellStore }) {
+function BackupView({ store, client }: { store: ShellStore; client: ServiceClient | null }) {
   const planner = store.planner();
   const tasks = store.tasks();
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
+  const [pushed, setPushed] = useState<PushOutcome | null>(null);
+  const [address, setAddress] = useState("");
+  const [pulled, setPulled] = useState<ImportOutcome | null>(null);
+  const [busy, setBusy] = useState(false);
 
   /**
    * Neither door opens before the planner has been read, and no count is drawn.
@@ -173,6 +186,61 @@ function BackupView({ store }: { store: ShellStore }) {
     // document's tasks into it. A refusal never reaches this line.
     if (read.ok) store.loadTasks(read.tasks);
     setOutcome(read);
+  };
+
+  const why = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+  /**
+   * The planner to the service, `PLAN.md` step 6.
+   *
+   * The bytes are built once and sent as they are: the address a snapshot gets
+   * is the sha256 of what was sent, so serialising here and again inside the
+   * client would be two byte strings and could be two addresses for one
+   * planner.
+   *
+   * What is pushed is what is ON SCREEN, and not what the database holds. The
+   * store is ahead of IndexedDB by the width of one transaction - `PlannerReport
+   * .pending` is that window - and a person pressing this has just looked at
+   * their tasks.
+   */
+  const push = async (): Promise<void> => {
+    if (!client) return;
+    setBusy(true);
+    try {
+      const said = await client.push(JSON.stringify(documentFrom(tasks, SCHEMA_VERSION)));
+      setPushed({ ok: true, ...said });
+    } catch (e) {
+      setPushed({ ok: false, problem: why(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * One snapshot back into this browser, `PLAN.md` step 6.
+   *
+   * The same rule as the file door and the same total overwrite. Nothing is
+   * written until the document is read: a snapshot a newer shell pushed, or a
+   * body that was never a planner, is refused by name and the planner is
+   * untouched - which is the half of the rule `PLAN.md`'s four-doors table is
+   * about, and the half nothing enforced before this step.
+   *
+   * The address is trimmed because it arrives by being copied, and a copied
+   * line brings its whitespace with it.
+   */
+  const pull = async (): Promise<void> => {
+    if (!client) return;
+    setBusy(true);
+    try {
+      const said = await client.pull(address.trim());
+      const read = readPlanner(said.document, SCHEMA_VERSION, store.columns());
+      if (read.ok) store.loadTasks(read.tasks);
+      setPulled(read);
+    } catch (e) {
+      setPulled({ ok: false, problem: why(e) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -250,15 +318,105 @@ function BackupView({ store }: { store: ShellStore }) {
         </p>
       )}
 
-      <p class={styles.muted}>
-        Pushing this planner to the service, and pulling one into another browser, are not built
-        yet.
-      </p>
+      <div class={styles.doors}>
+        <div class={styles.door}>
+          <h3 class={styles.doorTitle}>Push</h3>
+          <button
+            type="button"
+            class={styles.button}
+            data-push
+            disabled={unread || busy || !client}
+            onClick={push}
+          >
+            {busy ? "Working…" : "Push a snapshot"}
+          </button>
+          {/* Said on the page, in these words, because it is the whole of the
+              security model: there is no account, no login and no user record
+              anywhere, so holding the address IS the permission to read. */}
+          <p class={styles.muted}>
+            The planner goes to the service, which keeps it in a bucket and hands back an address.
+            Anyone holding that address can read this planner.
+          </p>
+        </div>
+
+        <div class={styles.door}>
+          <h3 class={styles.doorTitle}>Pull</h3>
+          <label class={styles.fileLabel} for="pull-address">
+            An address
+          </label>
+          <input
+            id="pull-address"
+            class={styles.address}
+            type="text"
+            spellcheck={false}
+            autocomplete="off"
+            placeholder="the address a push handed back"
+            value={address}
+            data-pull-address
+            disabled={unread || busy || !client}
+            onInput={(e: Event) => setAddress((e.currentTarget as HTMLInputElement).value)}
+          />
+          <button
+            type="button"
+            class={styles.button}
+            data-pull
+            disabled={unread || busy || !client || address.trim() === ""}
+            onClick={pull}
+          >
+            {busy ? "Working…" : "Pull it in"}
+          </button>
+          <p class={styles.muted}>
+            A total overwrite, exactly as an import is. A snapshot a newer shell pushed is refused
+            whole, and nothing here is merged.
+          </p>
+        </div>
+      </div>
+
+      {client ? null : (
+        <p class={styles.muted} data-no-service>
+          This page was served without a service to call, so there is nowhere to push to and
+          nothing to pull from.
+        </p>
+      )}
+
+      {pushed === null ? null : pushed.ok ? (
+        <p class={styles.outcome} data-pushed={pushed.snapshot}>
+          Kept at <code>{pushed.snapshot}</code>, {pushed.createdAt}. Anyone holding that address
+          can read this planner.
+        </p>
+      ) : (
+        <p class={styles.refused} data-push-refused>
+          The push did not land: {pushed.problem}. The planner is unchanged.
+        </p>
+      )}
+
+      {pulled === null ? null : pulled.ok ? (
+        <p class={styles.outcome} data-pull-read={pulled.tasks.length}>
+          Read {pulled.tasks.length} {pulled.tasks.length === 1 ? "task" : "tasks"} out of that
+          snapshot. Every task that was here has been replaced.
+        </p>
+      ) : (
+        <p class={styles.refused} data-pull-refused>
+          The snapshot was refused: {pulled.problem}. Nothing was changed.
+        </p>
+      )}
     </div>
   );
 }
 
-export function Shell({ store }: { store: ShellStore }) {
+/**
+ * `client` is null when the server named no service, and `/backup` says so
+ * rather than drawing two doors that cannot open. The frame is handed the one
+ * the page already made: a second client here would be a second timeout, a
+ * second base and a second reading of the same `Sunset` header.
+ */
+export function Shell({
+  store,
+  client = null,
+}: {
+  store: ShellStore;
+  client?: ServiceClient | null;
+}) {
   const path = VIEWS[route.value] ? route.value : DEFAULT_ROUTE;
   const view = VIEWS[path]!;
   const [boom, setBoom] = useState(false);
@@ -299,7 +457,7 @@ export function Shell({ store }: { store: ShellStore }) {
         <p class={styles.note}>{view.note}</p>
 
         {path === "/service" ? <ServiceView store={store} /> : null}
-        {path === "/backup" ? <BackupView store={store} /> : null}
+        {path === "/backup" ? <BackupView store={store} client={client} /> : null}
 
         <div class={styles.panels}>
           {view.apps.map((name) => (

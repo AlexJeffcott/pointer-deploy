@@ -36,6 +36,25 @@ const LIVE_ADDRESS = Bun.env.LIVE_ADDRESS ?? "https://pointer-deploy.fly.dev";
 const MANIFEST_BASE =
   Bun.env.MANIFEST_BASE ?? "https://pointer-deploy-assets.fly.storage.tigris.dev/manifests";
 /**
+ * The service a `@test-channel` page is told about, `PLAN.md` step 6.
+ *
+ * The DEPLOYED one, and the same one a visitor's page is told about. A
+ * `@test-channel` server is spawned from this tree so that the browser loads
+ * the bundles this edit produced; the service it reaches is not part of that
+ * edit, and a second local service would be a second deploy schedule nobody is
+ * measuring.
+ *
+ * It was unset until step 6 and nothing noticed, because no door on the page
+ * reached the service: the frame took one reading and drew it. Push and pull
+ * are controls, and `/backup` disables all four of its doors when the page was
+ * served without a service to call - so the push scenarios waited three minutes
+ * each for a button that could never be enabled.
+ *
+ * What the suite writes there is one immutable object per run. TODO §48 carries
+ * that; §29 was the mutable version of it and is closed.
+ */
+const API_BASE = Bun.env.API_BASE ?? "https://pointer-deploy-api.fly.dev";
+/**
  * The region this harness reads and writes, and every other region is put back
  * to it. Refused rather than trusted: `REGION=eu1` typed as a plain string used
  * to reach `splitChannelReport` through an unchecked cast, where it produced a
@@ -203,13 +222,27 @@ export class PointerWorld {
   serviceRefusal: { code: number; said: string } | null = null;
   serviceRead: unknown = null;
   /**
-   * What the greeting's audience was before a scenario wrote one.
+   * The address the last push in this scenario was given, and the one before it.
    *
-   * The service is shared by every visitor and every earlier run, so a write
-   * has to be put back. `restoreAudience` does it in an After hook, and null
-   * means this scenario never wrote.
+   * `PLAN.md` step 6. A snapshot is permanent and is written under the hash of
+   * its own bytes, so nothing has to be put back after a scenario writes one -
+   * which is the whole difference from the greeting this replaced, where every
+   * write changed a value the next visitor would read and an After hook had to
+   * undo it.
    */
-  audienceBefore: string | null = null;
+  pushedAddress = "";
+  pushedBefore = "";
+
+  /**
+   * An address a STEP pushed, rather than the page.
+   *
+   * Two of the pull door's refusals are about a snapshot no page in this tree
+   * can produce - one a newer shell wrote, and one that was never a planner -
+   * so those are arranged at the service and the door is then driven through
+   * the page. Kept apart from `pushedAddress` so that a scenario cannot pull an
+   * arranged snapshot while believing it pulled the one it pushed.
+   */
+  arrangedAddress = "";
 
   private ids = BUILD_IDS;
 
@@ -262,6 +295,17 @@ export class PointerWorld {
         PORT: "0",
         API_SERVES: serves,
         API_DEPRECATED: deprecated,
+        // NO bucket, and this is a safety rule rather than a speed one. Bun
+        // loads `.env.local` into this process, and the credential in it is the
+        // ASSET bucket's - the one `PLAN.md` step 6 says a service must never
+        // hold, because that bucket holds the files the origin executes. A
+        // spawned service inheriting it would write every @local planner into
+        // it. Empty means `configFromEnv` returns null and the snapshots live
+        // in that process's memory, which is also what `api/Dockerfile` runs
+        // the service's own tests against.
+        AWS_ACCESS_KEY_ID: "",
+        AWS_SECRET_ACCESS_KEY: "",
+        BUCKET_NAME: "",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -298,6 +342,7 @@ export class PointerWorld {
       MANIFEST_BASE,
       MANIFEST_TTL_MS: "1000",
       MANIFEST_TIMEOUT_MS: "10000",
+      API_BASE,
     });
     this.localServer = true;
   }
@@ -553,37 +598,6 @@ export class PointerWorld {
           `${result.stderr}`,
       );
     }
-  }
-
-  /**
-   * Puts the audience back to what the scenario found.
-   *
-   * Written through the service rather than the page: by the time this runs
-   * the browser may be anywhere, and the service is what holds the value.
-   */
-  async restoreAudience(): Promise<void> {
-    if (this.audienceBefore === null) return;
-    const audience = this.audienceBefore;
-    this.audienceBefore = null;
-    const base = this.serviceBase || (await this.apiBaseOnPage());
-    if (!base) return;
-    await fetch(`${base}/v1/greeting`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ audience }),
-    }).catch(() => {});
-  }
-
-  private async apiBaseOnPage(): Promise<string> {
-    if (!this.page) return "";
-    return this.page
-      .evaluate(() => {
-        const el = document.getElementById("__BUILD__");
-        return el?.textContent
-          ? ((JSON.parse(el.textContent) as { apiBase?: string }).apiBase ?? "")
-          : "";
-      })
-      .catch(() => "");
   }
 
   async promoteUnit(channel: Channel, unit: Unit, id: string): Promise<Run> {

@@ -3,14 +3,25 @@ import type { ServiceField, ServiceReport, ServiceRoute, ShellStore } from "./ap
 import { NO_SERVICE } from "./api.ts";
 
 /**
- * The one resource this service holds, and the path the data call is made on.
+ * A snapshot, as far as this shell keeps one: the address, and when it was kept.
  *
- * No unit draws it. `PLAN.md` step 0 removed the panel that did, and step 6
- * replaces the resource with snapshots. What is left is a route to call, which
- * is why this is a path and no longer a type: nothing keeps a field of the
- * response, so nothing here declares its shape. See `readData`.
+ * `PLAN.md` step 6. The address is what a person copies and what another
+ * browser pulls. `createdAt` is the service's own stamp on the bytes, and the
+ * pull door uses it as the document's `exportedAt` - so a pulled planner is
+ * stamped by the service that kept it rather than by whoever wrote the file.
  */
-const DATA_PATH = "greeting";
+export type PushedSnapshot = { snapshot: string; createdAt: string };
+
+/**
+ * What a pull hands the door, and deliberately not a document.
+ *
+ * The members are passed through as they arrived, `unknown` and unchecked,
+ * because `readPlanner` is what refuses them BY NAME and a parser here would
+ * refuse them first with a sentence about an API field. A snapshot whose
+ * `format` is "" is the service reporting a body that was never a planner, and
+ * that has to reach the door as a value rather than as a boundary error.
+ */
+export type PulledSnapshot = { digest: string; document: Record<string, unknown> };
 
 /**
  * The service's own account of what it holds, §26.
@@ -131,6 +142,17 @@ export type ServiceClient = {
   data(): Promise<void>;
   discovery(): Promise<Discovery>;
   /**
+   * Writes the planner into the service's bucket and returns its address.
+   *
+   * Takes BYTES and not a document. The address is the sha256 of what was sent,
+   * so the value hashed has to be the value on the wire: serialising here and
+   * again in the caller would be two byte strings and, for a document that
+   * round-trips differently, two addresses for one planner.
+   */
+  push(body: string): Promise<PushedSnapshot>;
+  /** Reads one snapshot back. The document is refused by the door, not here. */
+  pull(digest: string): Promise<PulledSnapshot>;
+  /**
    * The `Sunset` header the last DATA response carried, or null.
    *
    * Read off the responses the page was already making rather than by asking
@@ -151,22 +173,68 @@ export function createClient(base: string, options: ClientOptions = {}): Service
 
   async function call(path: string, init?: RequestInit): Promise<unknown> {
     const res = await doFetch(`${root}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) throw new Error(`GET ${path} responded ${res.status}`);
     const said = res.headers.get("sunset");
     if (said) sunset = said;
+    // A refusal's body is read leniently and an answer's is not, and the two
+    // are deliberately apart. The service sends `{"error":"..."}` with every
+    // status it refuses on, and that sentence is what a person can act on -
+    // "not found" says the address holds nothing, where a status alone sends
+    // them to a table of codes. But a body that never finished arriving is not
+    // an answer, and reading THAT leniently would let a truncated response read
+    // as one. `a response whose body never arrives is a fault` is the reading.
+    if (!res.ok) {
+      const why = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      const named = typeof why?.error === "string" ? `: ${why.error}` : "";
+      throw new Error(`${init?.method ?? "GET"} ${path} responded ${res.status}${named}`);
+    }
     return res.json();
   }
+
 
   return {
     // The status and the `Sunset` header, and nothing out of the body. `call`
     // still reads the JSON, because a body this shell never looked at would let
     // a truncated response read as an answer.
     data: async () => {
-      await call(`/${API_VERSION}/${DATA_PATH}`);
+      await call(`/${API_VERSION}`);
     },
     // Not under a version prefix. The document says which versions there are,
     // so asking for it at one of them would need the answer first.
     discovery: async () => parseDiscovery(await call(`/versions`)),
+    push: async (body) => {
+      const said = obj(
+        "snapshot",
+        await call(`/${API_VERSION}/snapshots`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+      );
+      // The two members the PAGE keeps, and the only two checked here. A
+      // response that carried no address would otherwise put "undefined" on
+      // screen as the thing to copy into another browser.
+      return {
+        snapshot: str("snapshot.snapshot", said.snapshot),
+        createdAt: str("snapshot.createdAt", said.createdAt),
+      };
+    },
+    pull: async (digest) => {
+      const said = obj("snapshot", await call(`/${API_VERSION}/snapshots/${digest}`));
+      // Rebuilt into the shape the document rule reads, and nothing is checked
+      // on the way. `exportedAt` is the SERVICE's stamp: the document that was
+      // pushed carried one of its own, and v1 does not answer with it, so the
+      // honest value is when these bytes were kept rather than a field this
+      // shell invented.
+      return {
+        digest,
+        document: {
+          format: said.format,
+          schemaVersion: said.schemaVersion,
+          exportedAt: said.createdAt,
+          tasks: said.tasks,
+        },
+      };
+    },
     lastSunset: () => sunset,
   };
 }

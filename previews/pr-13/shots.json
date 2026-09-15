@@ -1,0 +1,100 @@
+{
+  "schema": 2,
+  "takenAt": "2026-09-14T12:04:36.431Z",
+  "kind": "preview",
+  "channel": "qa",
+  "region": "eu",
+  "origin": "https://pointer-deploy.fly.dev",
+  "override": {
+    "shell": "4ed5759d"
+  },
+  "contract": "9e59f0c",
+  "composedAt": "2026-09-13T05:41:33.142Z",
+  "units": {
+    "shell": "4ed5759d",
+    "list": "2adce208",
+    "board": "de7a91d7",
+    "week": "9f1300a6"
+  },
+  "gate": "pointer",
+  "unchecked": {
+    "apiBase": "https://pointer-deploy-api.fly.dev",
+    "renderer": "chrome 152.0.7977.84",
+    "note": "the panels draw what the service answered, and /service draws the time it read. Neither is a function of the unit ids."
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "manifests": {
+    "eu": "manifest.eu.as-served.json",
+    "us": "manifest.us.as-served.json"
+  },
+  "shots": [
+    {
+      "route": "/",
+      "file": "shots/root.png",
+      "title": "Tasks",
+      "units": {
+        "shell": "4ed5759d",
+        "list": "2adce208",
+        "board": "de7a91d7",
+        "week": "9f1300a6"
+      },
+      "panelErrors": [],
+      "waitedMs": 11129
+    },
+    {
+      "route": "/board",
+      "file": "shots/board.png",
+      "title": "Board",
+      "units": {
+        "shell": "4ed5759d",
+        "list": "2adce208",
+        "board": "de7a91d7",
+        "week": "9f1300a6"
+      },
+      "panelErrors": [],
+      "waitedMs": 117
+    },
+    {
+      "route": "/week",
+      "file": "shots/week.png",
+      "title": "Week",
+      "units": {
+        "shell": "4ed5759d",
+        "list": "2adce208",
+        "board": "de7a91d7",
+        "week": "9f1300a6"
+      },
+      "panelErrors": [],
+      "waitedMs": 119
+    },
+    {
+      "route": "/service",
+      "file": "shots/service.png",
+      "title": "Service",
+      "units": {
+        "shell": "4ed5759d",
+        "list": "2adce208",
+        "board": "de7a91d7",
+        "week": "9f1300a6"
+      },
+      "panelErrors": [],
+      "waitedMs": 137
+    },
+    {
+      "route": "/backup",
+      "file": "shots/backup.png",
+      "title": "Backup",
+      "units": {
+        "shell": "4ed5759d",
+        "list": "2adce208",
+        "board": "de7a91d7",
+        "week": "9f1300a6"
+      },
+      "panelErrors": [],
+      "waitedMs": 134
+    }
+  ]
+}

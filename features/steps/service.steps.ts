@@ -70,9 +70,12 @@ const serviceOnPage = async (world: PointerWorld): Promise<string> => {
   return base;
 };
 
+// The VERSION's own root, `PLAN.md` step 6. It was `/v1/greeting` until the
+// service changed its subject; what it needed was a route that answers without
+// being given an id, and snapshots and slots are both addressed by one.
 Then("the page is allowed to fetch from that service", async function (this: PointerWorld) {
   const base = await serviceOnPage(this);
-  expect(await fetchFromPage(this, `${base}/v1/greeting`)).toBe("allowed 200");
+  expect(await fetchFromPage(this, `${base}/v1`)).toBe("allowed 200");
 });
 
 Then("it is not allowed to fetch from the store", async function (this: PointerWorld) {

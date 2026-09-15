@@ -11,7 +11,10 @@ import {
   type ServiceClient,
 } from "./service.ts";
 
-const HELLO = { text: "Hello", audience: "world" };
+// What the version root answers with. The page keeps no field of it - the
+// reading is that the version this shell CALLS answered at all - so its shape
+// matters here only as something for the client to receive.
+const VERSION_DOC = { routes: [], fields: [] };
 
 const rejects = (parse: (input: unknown) => unknown, input: unknown, field: string) => {
   const path = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -30,18 +33,22 @@ describe("the client", () => {
 
   const ok = (body: unknown) => Response.json(body);
 
+  // The VERSION's own root, `PLAN.md` step 6. `greeting` was this route until
+  // the service changed its subject, and what replaced it had to be a route
+  // that answers without being given an id: snapshots and slots are both
+  // addressed by one, so the reading had nothing else left to stand on.
   test("calls the data route at the version this shell was built against", async () => {
-    const s = spy(() => ok(HELLO));
+    const s = spy(() => ok({ routes: [], fields: [] }));
     const client = createClient("https://api.test", { fetchImpl: s.fetchImpl });
 
     await client.data();
-    expect(s.calls.map((c) => c.path)).toEqual([`/${API_VERSION}/greeting`]);
+    expect(s.calls.map((c) => c.path)).toEqual([`/${API_VERSION}`]);
   });
 
   test("a trailing slash on the base does not double the one in the path", async () => {
-    const s = spy(() => ok(HELLO));
+    const s = spy(() => ok({ routes: [], fields: [] }));
     await createClient("https://api.test/", { fetchImpl: s.fetchImpl }).data();
-    expect(s.calls[0]!.path).toBe(`/${API_VERSION}/greeting`);
+    expect(s.calls[0]!.path).toBe(`/${API_VERSION}`);
   });
 
   test("a status the service refuses with is reported as the status", async () => {
@@ -76,6 +83,15 @@ describe("the client", () => {
 const stub = (over: Partial<ServiceClient> = {}): ServiceClient => ({
   data: async () => {},
   discovery: async () => ({ serves: [API_VERSION], versions: null }),
+  // A stub that never pushes and never pulls, so a test that reaches either by
+  // accident says so rather than quietly doing nothing. `PLAN.md` step 6 put
+  // both on the client; `readData` and `readService` call neither.
+  push: async () => {
+    throw new Error("this stub pushes nothing");
+  },
+  pull: async () => {
+    throw new Error("this stub pulls nothing");
+  },
   lastSunset: () => null,
   ...over,
 });
@@ -248,7 +264,7 @@ describe("what the service says it holds, §26", () => {
     const fetchImpl = (async (url: string) => {
       seen.push(new URL(url).pathname);
       if (new URL(url).pathname === "/versions") return Response.json({ serves: ["v1"] });
-      return Response.json(HELLO, { headers: { sunset: "Thu, 10 Dec 2026 00:00:00 GMT" } });
+      return Response.json(VERSION_DOC, { headers: { sunset: "Thu, 10 Dec 2026 00:00:00 GMT" } });
     }) as unknown as typeof fetch;
 
     const c = createClient("https://api.test", { fetchImpl });
@@ -257,5 +273,101 @@ describe("what the service says it holds, §26", () => {
     expect(seen).toEqual(["/versions"]);
     await c.data();
     expect(c.lastSunset()).toBe("Thu, 10 Dec 2026 00:00:00 GMT");
+  });
+});
+
+describe("pushing a planner and pulling one back, `PLAN.md` step 6", () => {
+  const answer = (path: string, body: unknown, status = 200) => ({ path, body, status });
+  const wired = (answers: ReturnType<typeof answer>[]) => {
+    const sent: { path: string; method: string; body: string | null }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      sent.push({
+        path,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? init.body : null,
+      });
+      const found = answers.find((a) => a.path === path);
+      if (!found) return Response.json({ error: "not found" }, { status: 404 });
+      return Response.json(found.body, { status: found.status });
+    }) as unknown as typeof fetch;
+    return { sent, client: createClient("https://api.test", { fetchImpl }) };
+  };
+
+  const kept = {
+    snapshot: "a".repeat(64),
+    digest: "a".repeat(64),
+    createdAt: "2026-09-14T10:00:00.000Z",
+    format: "pointer-planner",
+    schemaVersion: 1,
+    tasks: [{ id: "t1" }],
+  };
+
+  test("a push sends the bytes it was given, unchanged", async () => {
+    const body = '{"format":"pointer-planner","schemaVersion":1,"tasks":[]}';
+    const w = wired([answer(`/${API_VERSION}/snapshots`, kept, 201)]);
+    await w.client.push(body);
+    expect(w.sent).toEqual([
+      { path: `/${API_VERSION}/snapshots`, method: "POST", body },
+    ]);
+  });
+
+  test("a push returns the address and when the service kept it", async () => {
+    const w = wired([answer(`/${API_VERSION}/snapshots`, kept, 201)]);
+    expect(await w.client.push("{}")).toEqual({
+      snapshot: kept.snapshot,
+      createdAt: kept.createdAt,
+    });
+  });
+
+  // The one member the page puts on screen for a person to copy into another
+  // browser. A response with no address in it would otherwise draw "undefined"
+  // as the thing to copy.
+  test("a push whose answer carries no address is a fault", async () => {
+    const w = wired([answer(`/${API_VERSION}/snapshots`, { createdAt: kept.createdAt }, 201)]);
+    await expect(w.client.push("{}")).rejects.toThrow(/snapshot.snapshot/);
+  });
+
+  test("a pull rebuilds the document the rule reads", async () => {
+    const w = wired([answer(`/${API_VERSION}/snapshots/${kept.digest}`, kept)]);
+    expect(await w.client.pull(kept.digest)).toEqual({
+      digest: kept.digest,
+      document: {
+        format: "pointer-planner",
+        schemaVersion: 1,
+        // The SERVICE's stamp. v1 does not answer with the `exportedAt` the
+        // pushed document carried, so the honest value is when these bytes were
+        // kept rather than a field this shell invented.
+        exportedAt: kept.createdAt,
+        tasks: [{ id: "t1" }],
+      },
+    });
+  });
+
+  // Nothing is checked on the way through, deliberately. A snapshot whose
+  // `format` is "" is the service reporting a body that was never a planner,
+  // and `readPlanner` is what names that field to a person - a parser here
+  // would refuse it first with a sentence about an API field.
+  test("a snapshot that was never a planner arrives as it is, to be refused by the door", async () => {
+    const w = wired([
+      answer(`/${API_VERSION}/snapshots/${kept.digest}`, {
+        ...kept,
+        format: "",
+        schemaVersion: null,
+        tasks: [],
+      }),
+    ]);
+    const got = await w.client.pull(kept.digest);
+    expect(got.document).toEqual({
+      format: "",
+      schemaVersion: null,
+      exportedAt: kept.createdAt,
+      tasks: [],
+    });
+  });
+
+  test("an address the service holds nothing at carries the service's own sentence", async () => {
+    const w = wired([]);
+    await expect(w.client.pull(kept.digest)).rejects.toThrow(/404: not found/);
   });
 });

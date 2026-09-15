@@ -57,20 +57,25 @@ Given("a visitor opens the landing view of that manifest", async function (this:
 });
 
 /**
- * Writes through the panel's own input, and records what was there first.
+ * Writes through the panel's own input. Nothing is put back, from step 6.
  *
  * The panel is the fixture's, so this is the one place in the suite that still
- * drives a sub-app. The service is shared by every visitor and every earlier
- * run, so the write has to be undone: `restoreAudience` in the hooks puts it
- * back.
+ * drives a sub-app. It used to need an undo: the old shell wrote the audience
+ * to the service, the service held it in memory, and the next visitor read what
+ * this scenario left. `PLAN.md` step 6 took the greeting off the service, so
+ * `POST /v1/greeting` is now a route it does not answer and there is nothing
+ * for an After hook to restore.
+ *
+ * The scenario still measures what it measured. Measured on 2026-09-14 by
+ * reading the kept bundle: `setGreeting` writes the store SYNCHRONOUSLY and
+ * only then calls the service, reporting a rejection rather than waiting for
+ * one - so the panel draws the new audience whether or not any service answers,
+ * which is the import-map claim this scenario is about.
  */
 When("they set the audience to {string}", async function (this: PointerWorld, audience: string) {
   const page = this.browserPage;
   const doc = await fixture();
   const input = `[data-app="${Object.keys(doc.apps)[0]}"] input`;
-  if (this.audienceBefore === null) {
-    this.audienceBefore = await page.$eval(input, (el) => (el as HTMLInputElement).value);
-  }
   await page.fill(input, audience);
 });
 

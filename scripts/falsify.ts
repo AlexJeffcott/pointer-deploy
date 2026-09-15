@@ -1022,8 +1022,11 @@ const MUTATIONS: Mutation[] = [
     // document - which is all five - shows a field that is not being retired.
     name: "the document leaves the retirement off the field",
     file: "api/service.ts",
-    find: "            const going = deprecated.find((d) => d.path === f.path);",
-    replace: "            const going = deprecated.find(() => false);",
+    // The indentation moved at `PLAN.md` step 6: `versionBody` was lifted out of
+    // `discovery` so that `GET /<version>` and the discovery document read one
+    // description of a version rather than two.
+    find: "      const going = deprecated.find((d) => d.path === f.path);",
+    replace: "      const going = deprecated.find(() => false);",
     scenario: "A retired field is named in the document, with the day it goes",
   },
   {
@@ -1547,12 +1550,161 @@ const MUTATIONS: Mutation[] = [
     browser: true,
   },
 
+  // --- `PLAN.md` step 6: the service's subject, and the two doors ------------
+  //
+  // The greeting mutation that stood here went with the greeting. What replaced
+  // it is aimed at the same places: what the service will take, what it answers
+  // with, and what the page does with the answer.
+
   {
-    name: "the service accepts a greeting no page can draw",
+    // The route a page calls to learn that the version it was BUILT against is
+    // answered. Aimed at the match rather than at the branch: cutting the
+    // branch leaves `version` read by nothing and the build fails, which §35's
+    // guard reports as a check that never ran.
+    name: "the version does not answer at its own root",
     file: "api/service.ts",
-    find: '      if ("text" in body && text === null) return refuse("text", "is not a non-empty string");',
-    replace: '      if (false) return refuse("text", "is not a non-empty string");',
-    scenario: "A greeting a page could not draw is refused, and nothing changes",
+    find: '  if (rest === "/") {',
+    replace: '  if (rest === "/nothing-here") {',
+    scenario: "The version answers at its own root, and a version it does not serve does not",
+  },
+  {
+    // A page that has pushed nothing has made no other data request, so without
+    // these headers `ServiceReport.headerSunset` is null on every page until
+    // somebody presses Push.
+    name: "the version's root carries no retirement",
+    file: "api/service.ts",
+    find: "      deprecationHeaders(deprecationsIn(version), url.origin),",
+    replace: "      {},",
+    scenario: "The version's own root carries the retirements inside it",
+  },
+  {
+    // A body is written to a bucket on the strength of one unauthenticated
+    // request. What the service will take at all is the first thing in front
+    // of it.
+    name: "the service takes a body that is not an object",
+    file: "api/service.ts",
+    find: '    if (!body) return refuse("body", "is not a JSON object");\n\n    // Written under the hash',
+    replace: "    // Written under the hash",
+    scenario: "A body that is not a planner is refused, and nothing is kept",
+  },
+  {
+    // An address that is not a sha256 addresses nothing this service wrote, so
+    // refusing it by shape keeps a bucket read off the path of anything a
+    // stranger types.
+    name: "an address nobody could have been given is looked up anyway",
+    file: "api/service.ts",
+    find: '    if (!DIGEST.test(digest)) return refuse("digest", "is not a sha256");',
+    replace: '    if (false) return refuse("digest", "is not a sha256");',
+    scenario: "An address that could not be one is refused before anything is read",
+  },
+  {
+    // The field the shell's pull door reads before it writes anything. Invented
+    // here, it tells every browser that a body which was never a planner is
+    // one.
+    name: "a snapshot is answered with a format it never carried",
+    file: "api/service.ts",
+    find: '    format: typeof body?.format === "string" ? body.format : "",',
+    replace: '    format: "pointer-planner",',
+    unitTest: "a body that is not a planner carries no format and no version",
+  },
+  {
+    // The other half of the same reading, and the one a rollback produces.
+    name: "a snapshot is answered at this shell's own schema version",
+    file: "api/service.ts",
+    find: '    schemaVersion: typeof body?.schemaVersion === "number" ? body.schemaVersion : null,',
+    replace: "    schemaVersion: 1,",
+    unitTest: "a schema version that is not a number is carried as absent",
+  },
+  {
+    // TODO §45, and the reading that makes it more than tidiness: `planner.ts`
+    // sorts the restored list by `createdAt` as a string, so a task stamped
+    // "yesterday" is drawn where the document put it and somewhere else after
+    // the next reload.
+    //
+    // Written as a CUT and not as `false &&`, and §35's guard is why. Measured
+    // on 2026-09-14: `if (false && !isMoment(...))` inside `readTask` fails the
+    // build with two TS18046s on the lines BELOW it - TypeScript stops
+    // analysing the unreachable branch and the narrowing of `value` that the
+    // `isRecord` check above established goes with it. A mutation that does not
+    // compile is reported as caught by a check that never ran.
+    name: "a task may be stamped with something that is not a moment",
+    file: "src/web/shell/document.ts",
+    find: "  if (!isMoment(value.createdAt as string)) {\n    return `${at}.createdAt is ${show(value.createdAt)}, and a moment was expected`;\n  }\n",
+    replace: "",
+    scenario: "A task stamped with something that is not a moment is refused",
+    live: true,
+    browser: true,
+  },
+  {
+    // The other half of §45. The field was required by the type from step 3 and
+    // read by nothing until step 6.
+    // A cut, for the same reason the one above is.
+    name: "a document with no stamp is accepted",
+    file: "src/web/shell/document.ts",
+    find: '  if (typeof value.exportedAt !== "string" || !isMoment(value.exportedAt)) {\n    return refuse(`exportedAt is ${show(value.exportedAt)}, and a moment was expected`);\n  }\n',
+    replace: "",
+    scenario: "A file with no stamp on it is refused, and the field is named",
+    live: true,
+    browser: true,
+  },
+  {
+    // The pull door, trusting the version the snapshot declares instead of the
+    // one this shell reads. That is the door `PLAN.md`'s four-doors table says
+    // nothing but the shell enforces, and the two v1 fields exist for it.
+    name: "the pull door reads a snapshot at whatever version it claims",
+    file: "src/web/shell/Shell.tsx",
+    find: "      const read = readPlanner(said.document, SCHEMA_VERSION, store.columns());",
+    replace:
+      "      const read = readPlanner(said.document, Number(said.document.schemaVersion), store.columns());",
+    scenario: "A snapshot a newer shell pushed is refused, and both versions are named",
+    live: true,
+    browser: true,
+  },
+  {
+    // A pull that merged would leave every task that was here, and every other
+    // scenario about pulling would pass while it did.
+    name: "a pull adds to the planner instead of replacing it",
+    file: "src/web/shell/Shell.tsx",
+    find: "      if (read.ok) store.loadTasks(read.tasks);\n      setPulled(read);",
+    replace: "      if (read.ok) store.loadTasks([...store.tasks(), ...read.tasks]);\n      setPulled(read);",
+    scenario: "Pulling replaces every task that was there",
+    live: true,
+    browser: true,
+  },
+  {
+    // The push button, armed before the planner has been read. What it sends is
+    // a valid planner holding nothing, under an address a person may then share
+    // as though it were their planner.
+    name: "the push door opens before the planner has been read",
+    file: "src/web/shell/Shell.tsx",
+    find: "            disabled={unread || busy || !client}\n            onClick={push}",
+    replace: "            disabled={busy || !client}\n            onClick={push}",
+    scenario: "A cold landing on the backup view opens no door at all",
+    live: true,
+    browser: true,
+  },
+  {
+    // The stamp a pulled document carries. v1 does not answer with the
+    // `exportedAt` the pushed document held, so reading that member gets
+    // `undefined` and every pull is refused - which is caught by any scenario
+    // that pulls successfully.
+    name: "a pulled document is stamped with a field the service does not answer",
+    file: "src/web/shell/service.ts",
+    find: "          exportedAt: said.createdAt,",
+    replace: "          exportedAt: said.exportedAt,",
+    scenario: "A second browser pulls that address and holds the same tasks",
+    live: true,
+    browser: true,
+  },
+  {
+    // The service's own sentence, which is what a person can act on: "not
+    // found" says the address holds nothing, where a status alone sends them to
+    // a table of codes.
+    name: "a refusal from the service loses the sentence it carried",
+    file: "src/web/shell/service.ts",
+    find: '      const named = typeof why?.error === "string" ? `: ${why.error}` : "";',
+    replace: '      const named = "";',
+    unitTest: "an address the service holds nothing at carries the service's own sentence",
   },
 
   // --- §34, the record a promote writes -------------------------------------

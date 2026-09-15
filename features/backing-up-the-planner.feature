@@ -3,11 +3,11 @@ Feature: Backing up the planner
   I want the planner as one file I can keep
   So that clearing this browser is not the end of it
 
-  `PLAN.md` step 3. The frame draws `/backup` itself - no unit is placed there
-  and nothing is fetched for it - and it holds two of the four doors the planner
-  document goes through. Export writes the document to disk. Import reads one
-  back and replaces every task with what the file holds. Push and pull are the
-  other two doors and arrive at steps 6 and 7.
+  `PLAN.md` step 3, and the two doors it built. The frame draws `/backup` itself
+  - no unit is placed there and nothing is fetched for it. Export writes the
+  document to disk. Import reads one back and replaces every task with what the
+  file holds. Push and pull are the other two, built at step 6, and
+  `reading-from-a-service.feature` is where they are read.
 
   Import is a TOTAL overwrite and never a merge, in ONE IndexedDB transaction.
   A merge needs conflict rules, and manual sync between one person's own
@@ -15,8 +15,10 @@ Feature: Backing up the planner
   part-way leave the planner exactly as it was.
 
   Three of the four doors let in data this shell has never seen, and one rule
-  covers all three: `format`, then `schemaVersion`, then the tasks. A file that
-  fails any of them is refused BY NAME and nothing is written.
+  covers all three: `format`, then `schemaVersion`, then `exportedAt`, then the
+  tasks. A file that fails any of them is refused BY NAME and nothing is
+  written. The pull door runs the same function on a document the service has
+  already parsed, so the two cannot hold two readings of one rule.
 
   No member was added to the contract for any of this. A sub-app cannot read a
   file, the frame writes what it read through `ShellStore.loadTasks`, and step 2
@@ -160,8 +162,30 @@ Feature: Backing up the planner
       about its format and its version and wrong about its ninth task must
       not leave a planner holding the first eight.
 
-      When they import a file holding '{ "format": "pointer-planner", "schemaVersion": 1, "tasks": [{ "id": "a" }] }'
+      When they import a file holding '{ "format": "pointer-planner", "schemaVersion": 1, "exportedAt": "2026-01-01T00:00:00.000Z", "tasks": [{ "id": "a" }] }'
       Then the refusal names "tasks[0].title"
+      When they open the tasks view
+      Then the list holds "Book the ferry"
+
+    @browser @test-channel
+    Scenario: A file with no stamp on it is refused, and the field is named
+      TODO §45. `exportedAt` was a field a document had to carry and nothing
+      read, so a writer could leave it out with no consequence at all. The rule
+      reads it from `PLAN.md` step 6, beside the two doors that arrived with it.
+
+      When they import a file holding '{ "format": "pointer-planner", "schemaVersion": 1, "tasks": [] }'
+      Then the refusal names "exportedAt"
+      When they open the tasks view
+      Then the list holds "Book the ferry"
+
+    @browser @test-channel
+    Scenario: A task stamped with something that is not a moment is refused
+      `planner.ts` sorts the restored list by `createdAt` as a string, so a task
+      carrying "yesterday" is drawn where the file put it and somewhere else
+      after the next reload - a change to the planner nobody asked for.
+
+      When they import a file holding '{ "format": "pointer-planner", "schemaVersion": 1, "exportedAt": "2026-01-01T00:00:00.000Z", "tasks": [{ "id": "a", "title": "Fix the gate", "column": "todo", "due": null, "tags": [], "createdAt": "yesterday" }] }'
+      Then the refusal names "tasks[0].createdAt"
       When they open the tasks view
       Then the list holds "Book the ferry"
 
@@ -239,17 +263,23 @@ Feature: Backing up the planner
     §41. This view is IN the shell bundle and `/backup` is landable directly, so
     it draws on the first paint.
 
-    What the window would otherwise produce is a FILE. The planner holds nothing
-    until the read lands, so an export taken here writes a valid, importable
-    planner holding no tasks, and an import taken here is overwritten by the
-    read that follows it.
+    What the window would otherwise produce is a FILE, or a snapshot. The planner
+    holds nothing until the read lands, so an export taken here writes a valid,
+    importable planner holding no tasks, a push sends that same empty planner to
+    the service, and an import or a pull taken here is overwritten by the read
+    that follows it.
 
     Background:
       Given the qa channel points at build "tasks"
       And the planner is slow to open
 
     @browser @test-channel
-    Scenario: A cold landing on the backup view neither counts nor exports
+    Scenario: A cold landing on the backup view opens no door at all
+      Four doors from `PLAN.md` step 6, and the window is the same for each.
+      A push taken here sends a planner holding nothing to the service, under an
+      address somebody may then share; a pull taken here is overwritten by the
+      read that follows it.
+
       Given a visitor lands on the backup view
       Then the backup view says it is reading the planner
-      And neither door is open
+      And no door is open

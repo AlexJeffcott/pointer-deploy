@@ -29,9 +29,17 @@ const PROPAGATION_MS = 30_000;
 const RUN = Date.now().toString(36);
 
 const SUNSET = "2026-12-10";
-const REASON = "the audience moves onto the visitor";
+const REASON = "a planner stores more than tasks";
+/**
+ * The retirement this run arranges, `PLAN.md` step 13 rehearsed at step 6.
+ *
+ * `snapshot.tasks` is the field that step really retires, and `list` already
+ * asks about it - `store.goingAway("snapshot.tasks")`. Until step 6 the service
+ * did not answer a field any panel asked about, so every panel reading here was
+ * skipped and this run measured the frame alone.
+ */
 const RETIRE = JSON.stringify([
-  { path: "greeting.audience", since: "2026-09-10", sunset: SUNSET, reason: REASON, instead: null },
+  { path: "snapshot.tasks", since: "2026-09-10", sunset: SUNSET, reason: REASON, instead: "snapshot.document" },
 ]);
 
 if (!CHANNEL.startsWith("test-")) {
@@ -115,7 +123,20 @@ async function startService(deprecated: string): Promise<void> {
   service.proc?.kill();
   if (service.proc) await service.proc.exited;
   const proc = Bun.spawn(["bun", "api/index.ts"], {
-    env: { ...process.env, PORT: SERVICE_PORT, API_SERVES: "v1", API_DEPRECATED: deprecated },
+    // NO bucket. The credential in this process's environment is the ASSET
+    // bucket's, which is the one `PLAN.md` step 6 says a service must never
+    // hold: it can write the files the origin executes. Empty means the
+    // snapshots live in this process's memory, which also means a RESTART
+    // loses them - so every push below happens after the last restart.
+    env: {
+      ...process.env,
+      PORT: SERVICE_PORT,
+      API_SERVES: "v1",
+      API_DEPRECATED: deprecated,
+      AWS_ACCESS_KEY_ID: "",
+      AWS_SECRET_ACCESS_KEY: "",
+      BUCKET_NAME: "",
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -144,8 +165,8 @@ async function startServer(): Promise<void> {
 // -- what the browser sees ---------------------------------------------------
 
 type Panels = {
-  /** What the panel draws, in full. */
-  greeting: string;
+  /** The titles the list panel draws, which come out of this browser. */
+  tasks: string[];
   /** The field the panel says is going away, or null. */
   panelGoing: string | null;
   serviceState: string | null;
@@ -166,23 +187,27 @@ const attrOf = async (page: Page, selector: string, name: string): Promise<strin
 };
 
 /**
- * The sub-app whose panel draws a field of the SERVICE, or null when none does.
+ * The sub-app whose panel reports a retirement of a SERVICE field.
  *
- * Null since `PLAN.md` step 0, and it stays null at step 1 for a different
- * reason: the tree builds `list`, but `list` draws the planner's tasks, which
- * live in the browser and which the service holds none of. It gets a subject at
- * step 6, when the service starts holding snapshots, and the panel's
- * `store.goingAway("snapshot.tasks")` call is what step 13 reads.
+ * `list`, from `PLAN.md` step 6. It was null from step 0 to step 5 and the
+ * reason changed on the way: first no unit existed, then `list` existed and
+ * asked about `snapshot.tasks` - a field the service did not answer while it
+ * held a greeting. The service holds snapshots now, so the question has an
+ * answer and the panel has something to draw.
  *
- * The readings that need one are SKIPPED and said to be skipped rather than
+ * What it draws is the RETIREMENT and never a value. No panel draws a field of
+ * the service: the planner is in the browser and the service holds none of it,
+ * which is the sentence the last step of this run measures.
+ *
+ * The readings that need a panel are SKIPPED and said to be skipped rather than
  * dropped: a run that quietly stopped asking about the panel would report the
  * same "ok" count as one that asked and got the right answer.
  */
-const PANEL: string | null = null;
+const PANEL: string | null = APPS.includes("list") ? "list" : null;
 
 /** Every reading this run makes, taken from the rendered DOM of both views. */
 async function readPanels(page: Page): Promise<Panels> {
-  let greeting = "";
+  let tasks: string[] = [];
   let panelGoing: string | null = null;
   if (PANEL) {
     await page.goto(`${ADDRESS}/`, { waitUntil: "domcontentloaded" });
@@ -192,7 +217,9 @@ async function readPanels(page: Page): Promise<Panels> {
     await page.waitForFunction(() => document.documentElement.dataset.api !== undefined, {
       timeout: 30_000,
     });
-    greeting = await textOf(page, "[data-greeting]");
+    tasks = await page.$$eval("[data-task-title]", (els) =>
+      els.map((e) => e.textContent?.trim() ?? ""),
+    );
     panelGoing = await attrOf(page, `[data-app="${PANEL}"] [data-going]`, "data-going");
   }
 
@@ -213,17 +240,32 @@ async function readPanels(page: Page): Promise<Panels> {
   );
   const headerSunset = await attrOf(page, "[data-header-sunset]", "data-header-sunset");
 
-  return { greeting, panelGoing, serviceState, serves, fields, going, headerSunset };
+  return { tasks, panelGoing, serviceState, serves, fields, going, headerSunset };
 }
 
-/** Writes to the running service, the way an operator does. */
-async function tell(resource: string, body: unknown): Promise<number> {
-  const res = await fetch(`${SERVICE_BASE}/v1/${resource}`, {
+/**
+ * Pushes a planner into the running service, the way the page does.
+ *
+ * Returns the status and the address. A snapshot is written under the hash of
+ * its own bytes, so the address is a claim about what was sent rather than a
+ * name this run chose.
+ */
+async function push(body: unknown): Promise<{ status: number; address: string }> {
+  const res = await fetch(`${SERVICE_BASE}/v1/snapshots`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.status;
+  const said = res.ok ? ((await res.json()) as { snapshot?: string }) : {};
+  return { status: res.status, address: said.snapshot ?? "" };
+}
+
+/** Reads one back, and returns the titles it holds. */
+async function pull(address: string): Promise<string[]> {
+  const res = await fetch(`${SERVICE_BASE}/v1/snapshots/${address}`);
+  if (!res.ok) return [];
+  const said = (await res.json()) as { tasks?: Array<{ title?: string }> };
+  return (said.tasks ?? []).map((t) => t.title ?? "");
 }
 
 /** The unit ids the origin is handing out, from the page's own build block. */
@@ -294,27 +336,26 @@ try {
   check("the frame read the service", before.serviceState === "ok", `state ${before.serviceState}`);
   check(
     "it names every field the service publishes",
-    ["greeting.text", "greeting.audience"].every((f) => before.fields.includes(f)),
+    ["snapshot.tasks", "snapshot.format", "snapshot.schemaVersion", "slot.snapshot"].every((f) =>
+      before.fields.includes(f),
+    ),
     JSON.stringify(before.fields),
   );
   check("it names the version this shell calls", before.serves === "v1", before.serves);
   check("it marks nothing as going away", before.going.length === 0, JSON.stringify(before.going));
   check("no response has carried a Sunset", before.headerSunset === null, `${before.headerSunset}`);
-  onPanel("the panel draws what the service holds", () =>
-    check("the panel draws what the service holds", before.greeting === "Hello, world", before.greeting),
-  );
-  onPanel("and says nothing about a retirement", () =>
-    check("and says nothing about a retirement", before.panelGoing === null, `${before.panelGoing}`),
+  onPanel("the panel says nothing about a retirement", () =>
+    check("the panel says nothing about a retirement", before.panelGoing === null, `${before.panelGoing}`),
   );
 
-  heading(`Retire greeting.audience on the SERVICE only. No build, no publish, no promote`);
+  heading(`Retire snapshot.tasks on the SERVICE only. No build, no publish, no promote`);
   await startService(RETIRE);
   const after = await readPanels(page);
   const unitsAfter = await unitsOnPage(page);
 
   check(
-    "the frame marks greeting.audience as going away",
-    after.going.includes("greeting.audience"),
+    "the frame marks snapshot.tasks as going away",
+    after.going.includes("snapshot.tasks"),
     JSON.stringify(after.going),
   );
   check(
@@ -322,10 +363,14 @@ try {
     after.fields.length === before.fields.length,
     JSON.stringify(after.fields),
   );
+  // The claim §26 exists for, and it has had no subject on this slate until
+  // now: a field retired on the service reaches a SEPARATELY PUBLISHED bundle,
+  // which reports it without being rebuilt. `list` was published before this
+  // decision was taken and is not republished for it.
   onPanel("the panel names the field being retired", () =>
     check(
       "the panel names the field being retired",
-      after.panelGoing === "greeting.audience",
+      after.panelGoing === "snapshot.tasks",
       `${after.panelGoing}`,
     ),
   );
@@ -348,15 +393,30 @@ try {
   );
 
   heading("Change what the service HOLDS, with one write and no deploy");
-  check("the service took the greeting", (await tell("greeting", { text: "Hei", audience: "Oslo" })) === 200);
-  check("and refused a greeting no page could draw", (await tell("greeting", { text: "" })) === 400);
+  const planner = {
+    format: "pointer-planner",
+    schemaVersion: 1,
+    exportedAt: "2026-01-01T00:00:00.000Z",
+    tasks: [
+      { id: "e2e-1", title: "Book the ferry", column: "todo", due: null, tags: [], createdAt: "2026-01-01T00:00:00.000Z" },
+    ],
+  };
+  const kept = await push(planner);
+  check("the service kept the planner", kept.status === 201, `${kept.status}`);
+  check("and gave it an address", /^[0-9a-f]{64}$/.test(kept.address), kept.address);
+  check("and refused a body that is not an object", (await push([1])).status === 400);
+  check(
+    "the planner comes back out at that address",
+    (await pull(kept.address)).join(", ") === "Book the ferry",
+  );
+  // Pushing the same bytes twice is one address and one object. That is the
+  // pointer's own mechanism on data, which is why a rollback of DATA is
+  // available at step 8 and was not before.
+  check("pushing it again names the same address", (await push(planner)).address === kept.address);
 
   const offered = await readPanels(page);
   const unitsOffered = await unitsOnPage(page);
 
-  onPanel("the panel draws the new greeting", () =>
-    check("the panel draws the new greeting", offered.greeting === "Hei, Oslo", offered.greeting),
-  );
   check(
     "not one unit moved for any of it",
     JSON.stringify(unitsOffered) === JSON.stringify(unitsBefore),
@@ -371,10 +431,15 @@ try {
 
   check("the frame reports the service as failed", gone.serviceState === "failed", `${gone.serviceState}`);
   check("it names no field, because it read none", gone.fields.length === 0, JSON.stringify(gone.fields));
-  // The default the store was built with. A slow or absent service costs the
-  // page the service's greeting and never the page.
-  onPanel("and the panel still draws a greeting", () =>
-    check("and the panel still draws a greeting", gone.greeting === "Hello, world", gone.greeting),
+  // The planner is in the browser and the service holds none of it, so a
+  // service that is not there costs the page a READING and never its contents.
+  // The panel drew the same tasks before the service died and draws them still.
+  onPanel("and the panel draws what this browser holds", () =>
+    check(
+      "and the panel draws what this browser holds",
+      JSON.stringify(gone.tasks) === JSON.stringify(offered.tasks),
+      `${JSON.stringify(offered.tasks)} then ${JSON.stringify(gone.tasks)}`,
+    ),
   );
   check("the page still serves every unit", (await unitsOnPage(page)).shell === ids.shell);
 } finally {
@@ -387,7 +452,7 @@ if (skippedForNoPanel.length) {
   console.log(
     `\n${skippedForNoPanel.length} checks were SKIPPED because this tree builds no ` +
       `sub-app, so nothing draws a panel: ${skippedForNoPanel.join("; ")}. ` +
-      `They come back at PLAN.md step 1.`,
+      `They come back when a unit reports a field of the service.`,
   );
 }
 

@@ -15,45 +15,10 @@
 import { Given, Then, When } from "../support/bdd.ts";
 import { expect } from "@playwright/test";
 import { PointerWorld } from "../support/world.ts";
-import { DOCUMENT_FORMAT } from "../../src/web/shell/document.ts";
-import { SCHEMA_VERSION } from "../../src/web/shell/planner.ts";
+import { plannerFile, titleList } from "../support/planner-document.ts";
 
 const BACKUP = "[data-backup]";
 const DB = "pointer-planner";
-
-/**
- * A document a shell of this version would accept, holding the titles given.
- *
- * Built here rather than read from `features/support/fixtures/`, because every
- * refusing scenario needs a document that differs from this one in exactly one
- * field, and a directory of near-identical files is a directory nobody reads.
- * `createdAt` ascends, so the order the list draws them in is the order the
- * file names them.
- */
-const plannerFile = (titles: readonly string[]): string =>
-  `${JSON.stringify(
-    {
-      format: DOCUMENT_FORMAT,
-      schemaVersion: SCHEMA_VERSION,
-      exportedAt: "2026-01-01T00:00:00.000Z",
-      tasks: titles.map((title, i) => ({
-        id: `imported-${i}`,
-        title,
-        column: "todo",
-        due: null,
-        tags: [],
-        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
-      })),
-    },
-    null,
-    2,
-  )}\n`;
-
-const titleList = (text: string): string[] =>
-  text
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t !== "");
 
 /** Hands the file input bytes, exactly as a person choosing a file would. */
 const chooseFile = (world: PointerWorld, name: string, text: string): Promise<void> =>
@@ -82,16 +47,18 @@ Then("the backup view says it is reading the planner", async function (this: Poi
 });
 
 /**
- * Both controls refuse to be used.
+ * Every control refuses to be used, all four of them from `PLAN.md` step 6.
  *
  * Read as `disabled`, because that is what a person meets. A guard that only
- * hid the count would leave the button armed, and the file it wrote would be a
- * valid planner holding nothing.
+ * hid the count would leave the buttons armed, and what they would then do is
+ * write a valid planner holding nothing - to a file, or to the service under an
+ * address somebody may go on to share.
  */
-Then("neither door is open", async function (this: PointerWorld) {
+Then("no door is open", async function (this: PointerWorld) {
   const page = this.browserPage;
-  expect(await page.isDisabled(`${BACKUP} [data-export]`)).toBe(true);
-  expect(await page.isDisabled(`${BACKUP} [data-import]`)).toBe(true);
+  for (const door of ["[data-export]", "[data-import]", "[data-push]", "[data-pull-address]"]) {
+    expect(`${door} ${await page.isDisabled(`${BACKUP} ${door}`)}`).toBe(`${door} true`);
+  }
 });
 
 /**

@@ -19,14 +19,14 @@ Open items and what is done. Read this first after a context clear.
 | --- | --- |
 | Live | <https://pointer-deploy.fly.dev/> |
 | Fly app | `pointer-deploy`, two machines since §3: `ams` started, `iad` stopped under `auto_stop_machines`. `min_machines_running = 1` holds `ams` up, and the stopped machine's check reads `the machine hasn't started`, which is that and not a fault |
-| Store | Tigris bucket `pointer-deploy-assets`, public, CORS set |
+| Store | Tigris bucket `pointer-deploy-assets`, public, CORS set. And `pointer-deploy-data`, PRIVATE, whose only reader and writer is the service — a second bucket and a second key from `PLAN.md` step 6, because the asset bucket's key can write the files the origin executes |
 | Channels | `qa`, `prod` for visitors; `test-qa`, `test-prod` for the live suite. `prod` is still on step 0's composition and is refused every promote of this surface until `hello` is dropped — §39, and the runbook is in `PLAN.md` |
 | Units | four, and the slate builds no more: `shell`, `list` on `/` at `PLAN.md` step 1, `board` on `/board` at step 4 and `week` on `/week` at step 5. Two of the three sub-apps sit off the landing route, so the shell's preload tags warm four files a landing visitor may never import. `hello` is gone; its published units are still in the store and still promotable |
-| Service | `pointer-deploy-api`, its own `fly deploy`. One resource, `greeting`, over `GET` and `POST /v1/greeting`. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
+| Service | `pointer-deploy-api`, its own `fly deploy`. Two resources from `PLAN.md` step 6 — `snapshot` and `slot` — over `GET /v1`, `POST /v1/snapshots`, `GET /v1/snapshots/:digest`, `POST /v1/slots`, `GET /v1/slots/:slot` and `PUT /v1/slots/:slot`. It holds nothing between requests: it holds the data bucket's key, and the bucket holds the snapshots. `API_SERVES` and `API_DEPRECATED` are its two operator switches |
 | Contract | `9e59f0c` (`planner-week-2026-09`), minted at step 5 and **additive** over `f766e10` (`planner-board-2026-09`), which is additive over `1c4a120` (`planner-stored-2026-09`), which is additive over `15ed669` (`planner-2026-09`) - so nothing published against any of them breaks and no channel is stranded. It adds `ShellStore.setDue` alone, and the ids of BOTH `list` and `board` came out of the build unchanged. `9d1b0a3` (`hello-2026-09`) is retained beside the four and no unit this tree builds compiles against it. `scripts/contract.test.ts` reads the direction on every published pair after the first. **Step 3 minted nothing**: `/backup` is the frame's, and the frame writes through `loadTasks` |
 | Unit catalogue | `units/catalogue.json`, written by every publish. `bun run units` |
 | Planner | IndexedDB `pointer-planner`, version 1, owned by the shell: `tasks` keyed on `id`, `meta` keyed on `key`. Opened at a fixed version until `PLAN.md` step 16 - which is what gives step 15 a `VersionError` to show. §40 is the write window a reload can beat |
-| Document | `{ format: "pointer-planner", schemaVersion, exportedAt, tasks }`, `src/web/shell/document.ts`. Two of its four doors are built: `/backup` exports a file and imports one. Push and pull are `PLAN.md` steps 6 and 7. An import is a total overwrite in one transaction, and a file that fails `format`, `schemaVersion` or any task is refused by name |
+| Document | `{ format: "pointer-planner", schemaVersion, exportedAt, tasks }`, `src/web/shell/document.ts`. All FOUR doors are built from `PLAN.md` step 6: `/backup` exports a file, imports one, pushes a snapshot and pulls one by address. Import and pull are ONE rule — `readDocument` is `JSON.parse` and then `readPlanner` — and both are a total overwrite in one transaction. A document that fails `format`, `schemaVersion`, `exportedAt` or any task is refused by name. Step 7 gives an address a stable name and a write key |
 | Schema 2 fixture | `legacy/schema-2/649ca22b/`, kept. Named by `features/support/fixtures/schema-2.json` |
 | Deploy records | `deploys/<composedAt>-<channel>/`, opened by `bun run promote` and filled in by `bun run shoot --out <dir>`. The act, the pointer bytes for every region, the shots, and one hand-written line. `2026-09-10T21-07-27Z-qa` is the first with no pictures, and its `notes.md` says why |
 | Changelog | `CHANGELOG.md`, generated from `deploys/` by `bun run changelog`, never written by hand and **gitignored** - every fact in it is already in `deploys/`. `scripts/changelog.test.ts` holds the loader that reads the archive |
@@ -53,6 +53,16 @@ bun run pr                               # the review URLs and both sets of shot
 ## Open
 
 Numbers are stable identifiers, so a gap means the item is in the index below and not that anything was renumbered.
+
+**`PLAN.md` step 6 landed on 2026-09-14, and the service changed its subject.** `greeting` is gone; the service holds snapshots in a second, private bucket, `pointer-deploy-data`, whose key it is the only holder of. `/backup` has all four of the document's doors, and import and pull are one function on one rule. It closed §29 and §45 and opened §48.
+
+**Three checks were red on the branch before any of the browser half was written, and the first was the alarm.** `bun run verify` reported 9 failed of 56: every scenario in `reading-what-the-service-holds.feature` drives the real service process, and the commit that changed the service's subject left them reading a greeting off a service that no longer had one. A commit that rewrites a service and does not run the suite measuring it is the same shape as §35 - a check nobody ran.
+
+**And a second reading came out of rewriting them: the harness was one edit away from writing planners into the ASSET bucket.** `startServiceAndServer` spawned `api/index.ts` with `...process.env`, and Bun loads `.env.local` into that - so the spawned service would have taken the asset bucket's key, the one `PLAN.md` step 6 exists to keep out of a service's hands, and written every @local snapshot into the bucket the origin executes from. Both spawn sites clear it now. Nothing had ever been written, because the service held no bucket at all until this step.
+
+**Two fields were added to `v1` that `PLAN.md` did not specify, and the four-doors table is why.** It says a pulled snapshot is refused by the same rule as an imported file, and `{ snapshot, digest, createdAt, tasks }` gives the shell nothing to apply that rule to. `snapshot.format` and `snapshot.schemaVersion` are read out of the pushed body and never invented, so a planner a newer shell pushed is refused by name and a body that was never a planner is refused by name. Step 13 retires both beside `snapshot.tasks`, which finally gives `deprecationHeaders`' earliest-sunset rule a subject.
+
+**`bun run e2e:snapshots` is new, and it exists because nothing else writes a byte to Tigris through the service.** `api/service.test.ts` runs against `memoryStore` - `api/Dockerfile` runs it inside the image build, where there is no credential - and the @local scenarios spawn a service with none. So a push, a read at the address it was given, a second push of the same bytes, and two attempts to reach the object from the public asset origin. It is the artefact `~/projects/CLAUDE.md` asks to be committed next to the feature.
 
 **§42 and §44 closed on 2026-09-13, and building each one refuted a sentence about it.**
 
@@ -112,6 +122,17 @@ What else it found, all fixed on the branch: `readProbe("")` was 0 and `readProb
 Re-run after the three were fixed: **3 of 3 caught.** This is §7 of the cold read making its own case — a mutation nobody runs is an entry in an array — and two of the three were wrong in a way only running them could show.
 
 
+### 48. Nothing sweeps the data bucket, and every browser run adds to it
+
+**Opened at `PLAN.md` step 6.** `verify:browser` pushes a planner through the deployed service, and `bun run e2e:snapshots` pushes one deliberately different on every run. A snapshot is content-addressed and permanent, so neither can change what any reader sees - which is what closed §29 - but neither is ever removed either.
+
+| | |
+| --- | --- |
+| What it costs today | Bytes. One small JSON object per browser run, in a private bucket nobody browses |
+| What it will cost | `bun run sweep` retires superseded UNIT files after 90 days, §5. There is no equivalent for data, and there is no equivalent reading either: a unit is superseded when a newer id exists, and a snapshot is superseded by nothing, because an address a person wrote down is an address they may still use |
+| Why a prefix is not yet the answer | `API_KEY_PREFIX` gives the suite its own keyspace in the same bucket and the service reads it from the environment, so choosing it per run means a second deployed service. `api/store.ts` carries the switch and nothing sets it |
+| What makes it sharp | Step 7's SLOTS. A slot is mutable, so a suite that moves one is back in §29's shape - and that is the point at which the prefix has to exist rather than be available |
+
 ### 47. 530 ms of the warm's baseline is unaccounted for, and the loader fetches in series
 
 **Measured on 2026-09-12 by `scripts/measure-preload.ts`, after `devils-advocate-agent` asked what the 780 ms is attributable to. Re-measured on 2026-09-13 at four units, and the number moved.** The control arm - the same page with the warm tags cut out of the HTML - takes 810 to 850 ms from the click to the panel being on screen. Its two fetches now add up to 342 to 494 ms, where on 2026-09-12 they added up to 284 to 354.
@@ -142,18 +163,6 @@ So roughly **430 ms** of the 825 is neither fetch, where the first reading put i
 | What stands in front of it now | Both panels REPORT it. The board's `unplaced` names the task and its column; the week draws it under Another date and prints the value it carries, so a `due` that is not a date reads as itself. One `@browser` scenario each arranges it by writing straight into the database, and one mutation each removes the report |
 | Why not a refusal | A shell that deleted or rewrote a task it did not understand would be destroying data it is not entitled to, which is the rule `PLAN.md` states for the whole planner. Reporting is what a shell in that position may do |
 | What is open | Whether the SHELL should carry the reading rather than each panel. `board` and `week` are separately published units, so a planner full of tasks neither can place says nothing at all on `/` or `/backup` - and each panel reports only the field it draws, so a task with a bad column and a good date is named on one page and not the other. That is §43's shape again: the panel is where a person is standing, and it is not the only place |
-
-### 45. The document declares two fields nothing reads
-
-**Found by `devils-advocate-agent` on 2026-09-11. `PLAN.md` step 5 did the third field and left these two.** `due` is checked as a real date from 2026-09-13, because `week` draws one panel per day and a value that is not a date puts the task on none of them - so the shape of the fix is now written down and tested in `document.ts`. `PlannerDocument.exportedAt` is still required and `readDocument` still never looks at it. `createdAt` is still checked as a non-empty string and never as a date - and `planner.ts` sorts the restored list by it, lexicographically, because insertion order is what the list draws and `getAll` returns key order.
-
-So a hand-edited file carrying `"createdAt": "yesterday"` is accepted and reorders the list on the next reload. `What was imported is still there after a reload` asserts an order and passes because `plannerFile` in `features/steps/backup.steps.ts` mints ascending ISO timestamps - the harness builds exactly the data that makes the assertion true.
-
-| | |
-| --- | --- |
-| The fix for `createdAt` | Refuse a value `Date.parse` cannot read, and name the field. Two lines and one unit test, and it closes the order hazard |
-| The fix for `exportedAt` | Either read it - refuse a file with no stamp - or stop declaring it required. A field a document must carry and nothing checks is a field a writer can omit with no consequence |
-| Why not at step 3, or at step 5 | Both are new rules on a door step 3 built, and neither is reachable from a file this application writes. `due` was different: `week` gave it a reader, so a value that is not a date became a task on no day of the week rather than a field nothing looks at. These two still have no reader. They belong with step 6, which adds two more doors to the same rule |
 
 ### 43. One `unstored` state for three different facts
 
@@ -350,7 +359,7 @@ The file has been inside the mutate scope since `7a0ae6f` and was never held to 
 
 **Not obviously worth taking to 100.** OVERVIEW already argues that the API service surface is checked coarsely on purpose: it has no compiler behind it, and a version set compared at serve time is coarser than a type. Several of the 17 string mutants are the second kind README names — wording in an error a test would then pin. The 16 `ConditionalExpression` ones are worth reading first, because that is where the real gaps were in `composition.ts`.
 
-`PLAN.md` step 6 rewrites this file: `greeting` goes and snapshots arrive. Triage after that lands, not before, or the reading is taken against code that is about to be deleted.
+`PLAN.md` step 6 rewrote this file on 2026-09-14: `greeting` went and snapshots and slots arrived, so the file is roughly twice the size it was and the 2026-09-10 reading is about code that no longer exists. **The triage this item asks for has not been re-run**, and the number in its title is now a number about a deleted file. `bun run mutate` is the command; `thresholds.break` at 96 is what stands in the meantime.
 
 ### 32. Two member readings at once corrupt each other
 
@@ -381,6 +390,17 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 | One project per app | `fly storage create` reads `fly.toml` and refuses a second project for an app that has one: "A Tigris project named pointer-deploy-assets already exists for app pointer-deploy". The snapshot bucket therefore belongs to `pointer-deploy-api`, which is where step 6 wants the key |
 | Run with no `-a` | It sets no secrets and deploys nothing. It prints the five values for an operator to set |
 
+**And the reading that matters, taken on 2026-09-13 against the real buckets.** A key pair per bucket is not the property step 6 needs: a second pair carrying org-wide permission would satisfy "two keys" and defeat the reason for two. `bun run verify:keys` measures the reach, and `pointer-deploy-data` exists for it.
+
+| Aimed at `pointer-deploy-assets` | |
+| --- | --- |
+| Write | **403** |
+| Delete | **403** |
+| Read, signed with the snapshot key | 3519 bytes of `manifests/eu/qa.json` |
+| Read, UNSIGNED, as a control | the same 3519 bytes |
+
+The READ is not scoped and cannot be: that bucket is public because browsers fetch unit files from it, so an unsigned GET returns the object to anyone. The signed read says nothing the control does not already give, and `verify:keys` prints both rather than quoting the signed one as evidence. What discriminates is the write and the delete, which no public bucket grants a stranger.
+
 **What it cost to measure.** The first bucket was created and then destroyed, because its secret key reached a transcript: the mask used to hide it matched `[A-Za-z0-9_-]+` and Tigris secrets contain `+`, so the tail printed. Destroying the project is what makes such a key inert, and Tigris holds the name for several minutes afterwards. The rule that came out of it: never mask a secret out of output - redirect the output to a file and print field names, lengths or booleans.
 
 ### 6. `verify:live` fails intermittently in a full run
@@ -405,16 +425,6 @@ Needs a domain and a certificate. The domain substitutes in three places: `src/s
 What that occurrence adds and does not add. It confirms the symptom survives at four units and that it is the FIRST scenario of a run, which the 2026-08-28 reading was not. It adds nothing about the cause: `x-manifest-age` was not captured, and without it there is no way to tell a stalled refresh from a store serving a superseded pointer. **The next occurrence has to read that header**, and a step that captured it on failure would turn every occurrence into evidence rather than one in five.
 
 **What closes it.** An occurrence with `x-manifest-age` read at the moment of failure. Runs since the fixes: 7 of 7 green, then 41 of 41 green on 2026-08-30, then 1 failure in 3 full runs on 2026-09-13.
-
-### 29. The live suite writes to the deployed service
-
-`verify:browser` writes to the live page, and a write is a `POST` to `pointer-deploy-api`. On this slate one scenario sets the greeting's audience and `restoreAudience` in the `After` hook puts it back, so the window is one scenario long. The suite still writes to production.
-
-The channels are already handled — the suite owns `test-qa` and `test-prod`, and a tripwire fails a run that moved a real one. The service has no equivalent.
-
-**`PLAN.md` step 6 chooses the way out.** The service stops holding a greeting and starts holding snapshots and slots in a bucket, and the suite's snapshots and slots go under a `test-` key prefix that the existing tripwire pattern covers. The item closes when that lands, not before.
-
-**Nothing writes to it today, and that is not the fix.** `PLAN.md` step 0 removed the panel whose input was the only `POST` in the suite, so the window is currently zero scenarios long. The service is still writable by anything that can reach it, and the suite still reads production; the item is open until the service holds something the suite owns.
 
 ### 21. Pin the vendor types the contract references, or stop claiming to
 
@@ -503,5 +513,7 @@ Titles and dates only. The full text of each is in git history; `TODO.md` at `f7
 | 28 | 2026-08-31 | A `falsify` mutation that proved nothing |
 | 30 | 2026-09-10 | A pull request gets a URL |
 | 42 | 2026-09-13 | A split test channel is refused at the start of a run, with the promote that fixes it. `splitChannelReport` in `scripts/regions.ts`, 11 tests, 4 mutations. `bun run verify:split` is the arrangement: it splits `test-prod`, reads the report, runs the command the report printed, and puts the channel back. Read once per WORKER rather than once per run |
+| 45 | 2026-09-14 | `createdAt` is read as a moment and `exportedAt` is read at all. `planner.ts` sorts the restored list by `createdAt` as a string, so a hand-edited "yesterday" reordered the list on the next reload - and the scenario asserting that order passed because the harness minted ascending stamps for it. One function, `isMoment`, two fields, three doors |
+| 29 | 2026-09-14 | The live suite no longer writes anything the next reader sees. `PLAN.md` step 6 removed the shape rather than guarding it: the only mutable thing the service held was a greeting, and a snapshot is immutable and addressed by its own bytes. §48 carries what the pushes leave behind, and step 7's slots are where a mutable thing comes back |
 | 44 | 2026-09-13 | The cold state every browser scenario starts from is READ and reported, not cleared. `PLAN.md`'s `deleteDatabase` was built and refuted - a delete blocked by another page's connection deletes nothing and queues every later open behind it. `bun run verify:cold` is the arrangement, and it re-runs the refutation rather than quoting it |
 | — | 2026-09-10 | The version switcher is removed, and the page it was on |

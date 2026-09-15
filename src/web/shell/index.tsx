@@ -50,7 +50,7 @@ if (client) store.setService(awaiting(base));
 
 render(
   <ShellBoundary>
-    <Shell store={store} />
+    <Shell store={store} client={client} />
   </ShellBoundary>,
   root,
 );
