@@ -15,6 +15,11 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY build.ts ./
+# `bun run typecheck` covers scripts/, and probe-cold-planner.ts and
+# probe-split-channel.ts import from features/support. Without this COPY the
+# build stage fails on TS2307 and the image is never made. The runtime stage
+# below copies src/server alone, so nothing here reaches the image that runs.
+COPY features ./features
 
 RUN bun run typecheck
 RUN bun test src/server
