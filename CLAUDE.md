@@ -61,6 +61,8 @@ Green checks do not prove a feature works. `~/projects/CLAUDE.md` carries the re
 
 `bun run measure:preload` measures what warming an off-screen unit buys, with a control: it strips the warm tags out of the HTML on the way to the browser and takes every reading twice. There are two off-screen units from `PLAN.md` step 5, so `--unit <name>` says which one; it defaults to `board`, which every earlier reading was taken against. Run it when a change touches the preload tags, the loader or placement. It publishes and points `test-qa` at what it published, and leaves it there.
 
+`bun run session` carries a planner between sessions. It drives the DEPLOYED origin in a headless `Bun.WebView`, reads a planner in through `/backup`'s file input, performs an `--ops` file through the controls a visitor clicks, and writes the planner back out through the export button - and `--selftest` exercises `addTask`, `setTags`, `moveTask`, `setDue` and `removeTask` on one throwaway task and takes it away again. Run it when a change touches a door in `/backup`, a control a sub-app draws, or `document.ts`. It is NOT a gate: `verify:browser` owns `backing-up-the-planner.feature`, and this command keeps what came out rather than asserting a scenario. It needs Chrome installed, because the file door and the download both go through CDP.
+
 ## Voice
 
 Commit messages, pull request descriptions and code comments are Robot-voice: terse, factual, structured, no metaphor. Their reader is a person in `git log` at 2 a.m., not a reader of an essay.
