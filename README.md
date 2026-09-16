@@ -829,6 +829,7 @@ The 4.59 s is a `fly machine stop`, which is the worst case. `auto_stop_machines
 | `features/support/hooks.ts` | Every hook, in the order they must run |
 | `features/support/cold-planner.ts` | What a browser context already held when a scenario opened its first page, and why nothing clears it. TODO §44 |
 | `scripts/probe-cold-planner.ts` | `bun run verify:cold`. Two pages in one browser context: the check reaches its state, and the delete `PLAN.md` specified is shown blocked |
+| `scripts/planner-session.ts` | `bun run session`. A planner in through the file input, operations through the controls a visitor clicks, and a planner out through the export button. `Bun.WebView` on the `chrome` backend, because both of those doors need CDP |
 | `scripts/probe-split-channel.ts` | `bun run verify:split`. Splits `test-prod`, reads the report, runs the command it printed, and puts the channel back |
 | `playwright.config.ts` | The runner: one worker, traces and screenshots on failure |
 | `scripts/setup-store.ts` | One-off bucket CORS. See below |
@@ -2426,6 +2427,18 @@ cold file. Pass `--no-warm` to skip it.
 
 The browser suite's mount wait dropped from 60 s to 20 s as a result. The fix
 belongs at the source, not in the timeout.
+
+## Carrying a planner between sessions
+
+`bun run session` opens the deployed origin in a headless browser, reads a planner in through the file input, performs the operations it was given through the controls a visitor clicks, and writes the planner back out through the export button. One run is one session, and the file it writes is where the next run's `--in` reads. An operation is `add`, `tags`, `move`, `due` or `remove`, and each one drives the control the sub-app draws for it rather than the member behind it.
+
+It is `Bun.WebView` and not Playwright. Bun 1.4.2 carries headless browser automation, so a command that drives a browser needs no second browser stack. The backend is `chrome` rather than the macOS default `webkit`, because a file input has to be SET through `DOM.setFileInputFiles` and a download has to be aimed at a directory through `Browser.setDownloadBehavior`; there is no CDP behind WebKit and neither request can be made.
+
+The week's due date is the one operation that is not a click. A headless browser draws no native dropdown, so the `<select>` is assigned and told to fire `change`, which runs the app's own handler. The select offers the seven days the week draws and nothing else, so a date outside this week is refused by the script rather than written into a task no panel can show.
+
+**It is not a gate and it replaces none.** `verify:browser` owns the scenarios in `backing-up-the-planner.feature`, and a scenario is the requirement. What this command does that no suite does is KEEP what came out: a suite asserts and throws the browser away, and a session hands the next session a planner. What it exports is read back through `readPlanner` before it is kept, so a file this command writes is a file the import door accepts.
+
+Two mechanics are measured into the script. `click(selector)` waits for an element to be ACTIONABLE, and an element 66 rows down a list is present and never actionable - measured 2026-09-16, where a tag input that `querySelector` had already found timed out at 30 s; `scrollTo` first is the fix and waiting longer is not. And `evaluate` has no waiter, so a sub-app fetched when its route opens reads as absent immediately after `navigate` - every read polls.
 
 ## What the browser is allowed to load
 
